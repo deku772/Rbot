@@ -591,6 +591,16 @@ public final class TermuxConstants {
 
 
 
+    /** BotDrop sdcard data directory — for caches, downloads, and user-visible files.
+     *  Large files (rootfs tarballs, backups) go here to save internal storage.
+     *  Symlinks are NOT supported on sdcard (sdcardfs/FUSE), so executable rootfs
+     *  must stay in internal storage. */
+    public static final String BOTDROP_SDCARD_DIR_PATH = "/storage/emulated/0/botdrop";
+    /** BotDrop sdcard cache directory — rootfs download cache, reusable across reinstalls */
+    public static final String BOTDROP_SDCARD_CACHE_DIR_PATH = BOTDROP_SDCARD_DIR_PATH + "/cache";
+
+
+
     /** Termux app $PREFIX directory path */
     public static final String TERMUX_PREFIX_DIR_PATH = TERMUX_FILES_DIR_PATH + "/usr"; // Default: "/data/data/com.termux/files/usr"
     /** Termux app $PREFIX directory */

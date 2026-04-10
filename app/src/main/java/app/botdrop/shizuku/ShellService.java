@@ -40,7 +40,7 @@ public class ShellService extends Service {
     private static final String LOG_TAG = "ShizukuShellService";
     private static final int DEFAULT_TIMEOUT_MS = 30000;
     private static final String FALLBACK_SHARED_ROOT = "/data/local/tmp/botdrop_tmp";
-    private static final String FALLBACK_TERMUX_HOME = "/data/data/app.botdrop/files/home";
+    private static final String FALLBACK_TERMUX_HOME = com.termux.shared.termux.TermuxConstants.TERMUX_HOME_DIR_PATH;
     private static final int SHIZUKU_STARTUP_RETRY_COUNT = 3;
     private static final long SHIZUKU_STARTUP_RETRY_DELAY_MS = 300L;
 

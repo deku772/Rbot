@@ -219,18 +219,23 @@ public final class TermuxInstaller {
                                         Os.chmod(targetFile.getAbsolutePath(), 0700);
                                     }
                                     // Fix shebang paths in bash scripts that were built for com.termux but
-                                    // are now running under app.botdrop. Rewrite #!/data/data/com.termux/...
-                                    // to point to the app.botdrop bash.
+                                    // are now running under BotDrop (app.botdrop).
+                                    // Rewrite #!/data/data/com.termux/... to #!/data/data/app.botdrop/...
                                     if (zipEntryName.equals("bin/proot-distro")) {
                                         StringBuilder sb = new StringBuilder();
                                         Error err = FileUtils.readTextFromFile(LOG_TAG, targetFile.getAbsolutePath(), null, sb, false);
                                         if (err == null && sb.length() > 0 && sb.toString().startsWith("#!/data/data/com.termux/")) {
                                             String fixedContent = sb.toString().replaceFirst(
                                                 "#!/data/data/com\\.termux/files/usr/bin/bash",
-                                                "#!/data/data/" + TermuxConstants.TERMUX_PACKAGE_NAME + "/files/usr/bin/bash"
+                                                "#!" + TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH + "/bash"
+                                            );
+                                            // Also replace all internal hardcoded com.termux paths
+                                            fixedContent = fixedContent.replace(
+                                                "/data/data/com.termux/files/usr",
+                                                TermuxConstants.TERMUX_PREFIX_DIR_PATH
                                             );
                                             FileUtils.writeTextToFile(LOG_TAG, targetFile.getAbsolutePath(), null, fixedContent, false);
-                                            Logger.logInfo(LOG_TAG, "Fixed shebang in bin/proot-distro");
+                                            Logger.logInfo(LOG_TAG, "Fixed shebang and paths in bin/proot-distro");
                                         }
                                     }
                                 }
@@ -509,7 +514,7 @@ public final class TermuxInstaller {
                 "# Create a minimal 'file' replacement since proot-distro needs it to detect\n" +
                 "# rootfs archive types. proot-distro only uses 'file -b --mime-type' syntax.\n" +
                 "cat > \"$PREFIX/bin/file\" << 'FILEEOF'\n" +
-                "#!/data/data/app.botdrop/files/usr/bin/bash\n" +
+                "#!" + TermuxConstants.TERMUX_BIN_PREFIX_DIR_PATH + "/bash\n" +
                 "# Minimal 'file' replacement for proot-distro\n" +
                 "if [ \"$1\" = \"-b\" ] && [ \"$2\" = \"--mime-type\" ]; then\n" +
                 "    f=\"$3\"\n" +
@@ -650,6 +655,8 @@ public final class TermuxInstaller {
                 "    rm -rf \"$PREFIX/var/lib/proot-distro/cache/ubuntu22_openclaw.tar.gz\" 2>/dev/null\n" +
                 "    rm -rf \"$PREFIX/var/lib/proot-distro/cache/ubuntu-rootfs.tar.xz\" 2>/dev/null\n" +
                 "    rm -rf \"$PREFIX/var/lib/proot-distro/installed-rootfs/ubuntu\" 2>/dev/null\n" +
+                "    # Ensure sdcard cache directory exists\n" +
+                "    mkdir -p \"" + TermuxConstants.BOTDROP_SDCARD_CACHE_DIR_PATH + "\"\n" +
                 "    CACHE_TAR=\"\"\n" +
                 "    # Tier 1: Use tar.gz directly from device storage (no copy needed)\n" +
                 "    LOCAL_SRC=\"/storage/emulated/0/claw-apk/ubuntu22_openclaw.tar.gz\"\n" +
@@ -657,17 +664,16 @@ public final class TermuxInstaller {
                 "        CACHE_TAR=\"$LOCAL_SRC\"\n" +
                 "        echo \"BOTDROP_INFO:Using local rootfs: $CACHE_TAR\"\n" +
                 "    fi\n" +
-                "    # Tier 2: Check previously cached local rootfs\n" +
-                "    LOCAL_DST=\"/storage/emulated/0/botdrop-rootfs/ubuntu22_openclaw.tar.gz\"\n" +
-                "    if [ -z \"$CACHE_TAR\" ] && [ -f \"$LOCAL_DST\" ]; then\n" +
-                "        CACHE_TAR=\"$LOCAL_DST\"\n" +
-                "        echo \"BOTDROP_INFO:Using cached local rootfs: $CACHE_TAR\"\n" +
+                "    # Tier 2: Check previously cached rootfs on sdcard (survives reinstalls)\n" +
+                "    SDCARD_CACHE=\"" + TermuxConstants.BOTDROP_SDCARD_CACHE_DIR_PATH + "/ubuntu22_openclaw.tar.gz\"\n" +
+                "    if [ -z \"$CACHE_TAR\" ] && [ -f \"$SDCARD_CACHE\" ]; then\n" +
+                "        CACHE_TAR=\"$SDCARD_CACHE\"\n" +
+                "        echo \"BOTDROP_INFO:Using sdcard cached rootfs: $CACHE_TAR\"\n" +
                 "    fi\n" +
-                "    # Tier 3: Download from GitHub\n" +
+                "    # Tier 3: Download from GitHub, save to sdcard cache for future use\n" +
                 "    if [ -z \"$CACHE_TAR\" ]; then\n" +
                 "        echo \"BOTDROP_INFO:Downloading Ubuntu rootfs from GitHub...\"\n" +
-                "        mkdir -p \"$PREFIX/var/lib/proot-distro/cache\"\n" +
-                "        GITHUB_TAR=\"$PREFIX/var/lib/proot-distro/cache/ubuntu-rootfs.tar.xz\"\n" +
+                "        GITHUB_TAR=\"$SDCARD_CACHE\"\n" +
                 "        curl -L --progress-bar \\\n" +
                 "            'https://github.com/TermuxCHN/rootfs/releases/download/ubuntu2204/rootfs.tar.xz' \\\n" +
                 "            -o \"$GITHUB_TAR\" 2>&1 | tee -a \"$LOGFILE\"\n" +
@@ -675,8 +681,14 @@ public final class TermuxInstaller {
                 "            CACHE_TAR=\"$GITHUB_TAR\"\n" +
                 "        else\n" +
                 "            echo \"BOTDROP_ERROR:Ubuntu rootfs download failed\"\n" +
+                "            rm -f \"$GITHUB_TAR\" 2>/dev/null\n" +
                 "            exit 1\n" +
                 "        fi\n" +
+                "    fi\n" +
+                "    # Also cache Tier 1 tarball to sdcard for future reinstalls\n" +
+                "    if [ -f \"$LOCAL_SRC\" ] && [ ! -f \"$SDCARD_CACHE\" ]; then\n" +
+                "        echo \"BOTDROP_INFO:Caching rootfs to sdcard for future use...\"\n" +
+                "        cp \"$LOCAL_SRC\" \"$SDCARD_CACHE\" 2>/dev/null || true\n" +
                 "    fi\n" +
                 "    # === Extract rootfs to external storage ===\n" +
                 "    mkdir -p \"$ROOTFS_DIR\"\n" +
