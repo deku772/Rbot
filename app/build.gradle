@@ -4,186 +4,24 @@ plugins {
     id "com.android.application"
 }
 
-configurations.configureEach {
-    resolutionStrategy.force "com.google.guava:guava:24.1-jre"
-}
-
-def hasGoogleServicesConfig = file("google-services.json").exists()
-if (hasGoogleServicesConfig) {
-    apply plugin: "com.google.firebase.crashlytics"
-    apply plugin: "com.google.gms.google-services"
-}
-
-ext {
-    // The packageVariant defines the bootstrap variant that will be included in the app APK.
-    // This must be supported by com.termux.shared.termux.TermuxBootstrap.PackageVariant or app will
-    // crash at startup.
-    // Bootstrap of a different variant must not be manually installed by the user after app installation
-    // by replacing $PREFIX since app code is dependant on the variant used to build the APK.
-    // Currently supported values are: [ "apt-android-7" "apt-android-5" ]
-    packageVariant = System.getenv("TERMUX_PACKAGE_VARIANT") ?: "apt-android-7" // Default: "apt-android-7"
-}
-
-def bundledOpenclawVersion = System.getenv("BOTDROP_BUNDLED_OPENCLAW_VERSION") ?: "2026.3.13"
-def bundledOpenclawInstallSpec = "openclaw@" + bundledOpenclawVersion
-def bundledOpenclawBundleTgz = System.getenv("BOTDROP_OPENCLAW_BUNDLE_TGZ") ?:
-    (project.findProperty("botdropOpenclawBundleTgz") ?: "")
-def bundledQqbotPluginTgz = System.getenv("BOTDROP_QQBOT_PLUGIN_TGZ") ?:
-    (project.findProperty("botdropQqbotPluginTgz") ?: "")
-def bundledQqbotPluginDir = System.getenv("BOTDROP_QQBOT_PLUGIN_DIR") ?:
-    (project.findProperty("botdropQqbotPluginDir") ?: "")
-def generatedOfflineOpenclawAssetsDir = file("$buildDir/generated/assets/offlineOpenclaw")
-
-tasks.register("prepareBundledOpenclawAssets") {
-    inputs.property("bundledOpenclawVersion", bundledOpenclawVersion)
-    inputs.property("bundledOpenclawBundleTgz", bundledOpenclawBundleTgz)
-    inputs.property("bundledQqbotPluginTgz", bundledQqbotPluginTgz)
-    inputs.property("bundledQqbotPluginDir", bundledQqbotPluginDir)
-    outputs.dir(generatedOfflineOpenclawAssetsDir)
-
-    doLast {
-        delete(generatedOfflineOpenclawAssetsDir)
-        if (!bundledOpenclawBundleTgz) {
-            logger.quiet("No BOTDROP_OPENCLAW_BUNDLE_TGZ configured, skipping offline OpenClaw assets")
-            return
-        }
-
-        File runtimeArchive = file(bundledOpenclawBundleTgz)
-        if (!runtimeArchive.exists()) {
-            throw new GradleException("Bundled OpenClaw runtime archive not found: " + runtimeArchive)
-        }
-
-        File assetRoot = new File(generatedOfflineOpenclawAssetsDir, "offline-openclaw")
-        assetRoot.mkdirs()
-
-        copy {
-            from runtimeArchive
-            into assetRoot
-            rename { "openclaw-runtime.tar" }
-        }
-
-        if (bundledQqbotPluginDir) {
-            File qqbotDir = file(bundledQqbotPluginDir)
-            if (!qqbotDir.exists() || !qqbotDir.isDirectory()) {
-                throw new GradleException("Bundled QQ plugin directory not found: " + qqbotDir)
-            }
-
-            copy {
-                from qqbotDir
-                into new File(assetRoot, "qqbot")
-                includeEmptyDirs = false
-            }
-        } else if (bundledQqbotPluginTgz) {
-            File qqbotArchive = file(bundledQqbotPluginTgz)
-            if (!qqbotArchive.exists()) {
-                throw new GradleException("Bundled QQ plugin archive not found: " + qqbotArchive)
-            }
-
-            copy {
-                from tarTree(resources.gzip(qqbotArchive))
-                into new File(assetRoot, "qqbot")
-                includeEmptyDirs = false
-                eachFile { details ->
-                    def segments = details.relativePath.segments
-                    if (segments.length > 0 && segments[0] == "package") {
-                        def trimmed = segments.length > 1 ? segments[1..-1] : [] as String[]
-                        details.relativePath = new RelativePath(details.isDirectory(), trimmed)
-                    }
-                }
-                exclude { details ->
-                    details.relativePath.segments.length == 1 && details.relativePath.segments[0] == "package"
-                }
-            }
-        }
-
-        File manifestFile = new File(assetRoot, "manifest.properties")
-        manifestFile.text =
-            "version=${bundledOpenclawVersion}\n" +
-            "installSpec=${bundledOpenclawInstallSpec}\n" +
-            "runtimeArchive=openclaw-runtime.tar\n" +
-            "qqbotDir=qqbot\n"
-
-        logger.quiet("Prepared bundled OpenClaw assets in " + assetRoot)
-    }
-}
-
 android {
     namespace "com.termux"
 
     compileSdkVersion project.properties.compileSdkVersion.toInteger()
     ndkVersion = System.getenv("JITPACK_NDK_VERSION") ?: project.properties.ndkVersion
-    def appVersionName = System.getenv("TERMUX_APP_VERSION_NAME") ?: ""
-    def apkVersionTag = System.getenv("TERMUX_APK_VERSION_TAG") ?: ""
-    def splitAPKsForDebugBuilds = System.getenv("TERMUX_SPLIT_APKS_FOR_DEBUG_BUILDS") ?: "1"
-    def splitAPKsForReleaseBuilds = System.getenv("TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS") ?: "0" // F-Droid does not support split APKs #1904
-
-    dependencies {
-        implementation "androidx.annotation:annotation:1.9.0"
-        implementation "androidx.core:core:1.13.1"
-        implementation "androidx.drawerlayout:drawerlayout:1.2.0"
-        implementation "androidx.preference:preference:1.2.1"
-        implementation "androidx.viewpager:viewpager:1.0.0"
-        implementation "androidx.viewpager2:viewpager2:1.0.0"
-        implementation "com.google.android.material:material:1.12.0"
-        implementation "com.google.guava:guava:24.1-jre"
-        implementation "io.noties.markwon:core:$markwonVersion"
-        implementation "io.noties.markwon:ext-strikethrough:$markwonVersion"
-        implementation "io.noties.markwon:linkify:$markwonVersion"
-        implementation "io.noties.markwon:recycler:$markwonVersion"
-        implementation 'com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava'
-        implementation project(':api')
-        implementation project(':provider')
-        implementation project(':rish')
-        implementation project(':server')
-        implementation project(':starter')
-        implementation project(':manager')
-        implementation platform("com.google.firebase:firebase-bom:33.13.0")
-        implementation "com.google.firebase:firebase-crashlytics"
-        implementation "com.google.firebase:firebase-analytics"
-
-        implementation project(":terminal-view")
-        implementation project(":termux-shared")
-    }
 
     defaultConfig {
         applicationId "app.botdrop"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 13
-        versionName "0.2.11"
-
-        if (appVersionName) versionName = appVersionName
-        validateVersionName(versionName)
-
-        buildConfigField "String", "TERMUX_PACKAGE_VARIANT", "\"" + project.ext.packageVariant + "\"" // Used by TermuxApplication class
+        versionCode 20
+        versionName "1.0.0-root"
 
         manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.botdrop"
         manifestPlaceholders.TERMUX_APP_NAME = "BotDrop"
-        manifestPlaceholders.TERMUX_API_APP_NAME = "BotDrop:API"
-        manifestPlaceholders.TERMUX_BOOT_APP_NAME = "BotDrop:Boot"
-        manifestPlaceholders.TERMUX_FLOAT_APP_NAME = "BotDrop:Float"
-        manifestPlaceholders.TERMUX_STYLING_APP_NAME = "BotDrop:Styling"
-        manifestPlaceholders.TERMUX_TASKER_APP_NAME = "BotDrop:Tasker"
-        manifestPlaceholders.TERMUX_WIDGET_APP_NAME = "BotDrop:Widget"
 
         ndk {
             abiFilters 'arm64-v8a'
-        }
-
-        externalNativeBuild {
-            ndkBuild {
-                cFlags "-std=c11", "-Wall", "-Wextra", "-Werror", "-Os", "-fno-stack-protector", "-Wl,--gc-sections"
-            }
-        }
-
-        splits {
-            abi {
-                enable ((gradle.startParameter.taskNames.any { it.contains("Debug") } && splitAPKsForDebugBuilds == "1") ||
-                    (gradle.startParameter.taskNames.any { it.contains("Release") } && splitAPKsForReleaseBuilds == "1"))
-                reset ()
-                include 'arm64-v8a'
-                universalApk true
-            }
         }
     }
 
@@ -199,29 +37,16 @@ android {
     buildTypes {
         release {
             minifyEnabled true
-            shrinkResources false // Reproducible builds
+            shrinkResources false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            buildConfigField "boolean", "CRASHLYTICS_DEFAULT_ENABLED", "true"
-            buildConfigField "boolean", "ANALYTICS_DEFAULT_ENABLED", "true"
-
-            if (hasGoogleServicesConfig) {
-                firebaseCrashlytics {
-                    mappingFileUploadEnabled true
-                }
-            }
         }
-
         debug {
             signingConfig signingConfigs.debug
-            buildConfigField "boolean", "CRASHLYTICS_DEFAULT_ENABLED", "false"
-            buildConfigField "boolean", "ANALYTICS_DEFAULT_ENABLED", "false"
         }
     }
 
     compileOptions {
-        // Flag to enable support for the new language APIs
         coreLibraryDesugaringEnabled true
-
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
@@ -236,44 +61,30 @@ android {
         disable 'ProtectedPermissions'
     }
 
-    testOptions {
-        unitTests {
-            includeAndroidResources = true
-        }
-    }
-
     packagingOptions {
         jniLibs {
             useLegacyPackaging true
         }
     }
 
-    applicationVariants.all { variant ->
-        variant.outputs.all { output ->
-            if (variant.buildType.name == "debug") {
-                def abi = output.getFilter(com.android.build.OutputFile.ABI)
-                outputFileName = new File("botdrop-app_" + (apkVersionTag ? apkVersionTag : project.ext.packageVariant + "-" + "debug") + "_" + (abi ? abi : "universal") + ".apk")
-            } else if (variant.buildType.name == "release") {
-                def abi = output.getFilter(com.android.build.OutputFile.ABI)
-                outputFileName = new File("botdrop-app_" + (apkVersionTag ? apkVersionTag : project.ext.packageVariant + "-" + "release") + "_" + (abi ? abi : "universal") + ".apk")
-            }
-        }
-    }
-
     buildFeatures {
         buildConfig true
     }
-
-    sourceSets {
-        main {
-            assets.srcDir generatedOfflineOpenclawAssetsDir
-        }
-    }
 }
 
-preBuild.dependsOn tasks.named("prepareBundledOpenclawAssets"), "downloadBootstraps"
-
 dependencies {
+    implementation "androidx.annotation:annotation:1.9.0"
+    implementation "androidx.core:core:1.13.1"
+    implementation "androidx.drawerlayout:drawerlayout:1.2.0"
+    implementation "androidx.preference:preference:1.2.1"
+    implementation "androidx.viewpager:viewpager:1.0.0"
+    implementation "androidx.viewpager2:viewpager2:1.0.0"
+    implementation "com.google.android.material:material:1.12.0"
+    implementation "io.noties.markwon:core:$markwonVersion"
+    implementation "io.noties.markwon:ext-strikethrough:$markwonVersion"
+    implementation "io.noties.markwon:linkify:$markwonVersion"
+    implementation "io.noties.markwon:recycler:$markwonVersion"
+
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.robolectric:robolectric:4.10"
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:1.1.5"
@@ -282,123 +93,5 @@ dependencies {
 task versionName {
     doLast {
         print android.defaultConfig.versionName
-    }
-}
-
-def validateVersionName(String versionName) {
-    // https://semver.org/spec/v2.0.0.html#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string
-    // ^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$
-    if (!java.util.regex.Pattern.matches("^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?\$", versionName))
-        throw new GradleException("The versionName '"  + versionName + "' is not a valid version as per semantic version '2.0.0' spec in the format 'major.minor.patch(-prerelease)(+buildmetadata)'. https://semver.org/spec/v2.0.0.html.")
-}
-
-def downloadBootstrap(String arch) {
-    def localUrl = "src/main/cpp/bootstrap-" + arch + ".zip"
-    def file = new File(projectDir, localUrl)
-    def downloadedFile = file
-
-    // Skip if already downloaded (e.g., by CI workflow or pre-placed in out/)
-    if (file.exists() && file.length() > 0) {
-        logger.quiet("bootstrap-" + arch + ".zip already exists, skipping download")
-        return
-    }
-    // Fallback: check in out/ directory (local pre-placed by user)
-    def outFile = new File(projectDir, "out/bootstrap-" + arch + ".zip")
-    if (outFile.exists() && outFile.length() > 0) {
-        logger.quiet("bootstrap-" + arch + ".zip found in out/, copying to src/main/cpp/")
-        outFile.parentFile.mkdirs()
-        file.parentFile.mkdirs()
-        new FileOutputStream(file) << new FileInputStream(outFile)
-        return
-    }
-
-    def remoteUrls = [
-        "file:////192.168.10.2/share/tmp/bootstrap-" + arch + ".zip",
-        "https://github.com/zhixianio/botdrop-packages/releases/download/bootstrap-latest/bootstrap-" + arch + ".zip",
-        "https://gitee.com/deku772/botdrop-packages/releases/download/bootstrap-latest/bootstrap-" + arch + ".zip"
-    ]
-
-    file.parentFile.mkdirs()
-    boolean downloaded = false
-    for (remoteUrl in remoteUrls) {
-        try {
-            logger.quiet("Downloading " + remoteUrl + " ...")
-            def tmpFile = file
-            if (!remoteUrl.endsWith(file.name)) {
-                tmpFile = new File(projectDir, "src/main/cpp/" + remoteUrl.tokenize('/').last())
-            }
-
-            if (remoteUrl.startsWith("file://")) {
-                // Local file: copy directly
-                def localPath = remoteUrl.replace("file://", "")
-                def localFile = new File(localPath)
-                if (!localFile.exists()) {
-                    logger.quiet("Local file does not exist: " + localPath)
-                    continue
-                }
-                new FileOutputStream(tmpFile) << new FileInputStream(localFile)
-            } else {
-                // Remote URL: download with HTTP
-                def connection = new URL(remoteUrl).openConnection()
-                connection.setInstanceFollowRedirects(true)
-                if (connection.responseCode != 200) {
-                    logger.quiet("Download returned HTTP " + connection.responseCode + " from " + remoteUrl)
-                    continue
-                }
-
-                def out = new BufferedOutputStream(new FileOutputStream(tmpFile))
-                out << connection.inputStream
-                out.close()
-            }
-
-            if (tmpFile != file && tmpFile.name != file.name) {
-                downloadedFile = tmpFile
-            }
-
-            if (downloadedFile != file) {
-                logger.quiet("Renaming downloaded asset '" + downloadedFile.name + "' to '" + file.name + "'")
-                downloadedFile.renameTo(file)
-            }
-
-            downloaded = true
-            break
-        } catch (Exception e) {
-            logger.quiet("Download attempt failed for " + remoteUrl + ": " + e.getMessage())
-        }
-    }
-
-    if (!downloaded) {
-        throw new GradleException("Failed to download bootstrap package for " + arch + " from any known asset URL")
-    }
-
-    logger.quiet("Downloaded bootstrap-" + arch + ".zip successfully")
-}
-
-clean {
-    doLast {
-        def tree = fileTree(new File(projectDir, 'src/main/cpp'))
-        tree.include 'bootstrap-*.zip'
-        tree.each { it.delete() }
-    }
-}
-
-task downloadBootstraps() {
-    doLast {
-        // Download bootstrap packages from botdrop-packages latest release
-        // Supports both apt-android-7 and apt-android-5 variants
-        // Only aarch64 is needed since ndk.abiFilters only includes arm64-v8a
-        downloadBootstrap("aarch64")
-        // downloadBootstrap("arm")
-        // downloadBootstrap("i686")
-        // downloadBootstrap("x86_64")
-    }
-}
-
-afterEvaluate {
-    android.applicationVariants.all { variant ->
-        variant.javaCompileProvider.configure { it.dependsOn("downloadBootstraps") }
-        tasks.matching { it.name.contains("NativeBuild") }.configureEach {
-            it.dependsOn("downloadBootstraps")
-        }
     }
 }

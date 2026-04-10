@@ -1,51 +1,48 @@
 package app.botdrop;
 
 import android.app.Notification;
-import android.app.NotificationManager;
 import android.app.NotificationChannel;
+import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
-import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.content.ServiceConnection;
 import android.content.SharedPreferences;
-import android.net.wifi.WifiManager;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
 import android.text.TextUtils;
+import android.util.Log;
 
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
 import com.termux.R;
-import com.termux.shared.logger.Logger;
 
 /**
- * Foreground service that monitors and keeps the OpenClaw gateway alive.
+ * Foreground service that monitors and keeps the AstrBot chroot process alive.
  *
- * Features:
  * - Runs as a foreground service with persistent notification
- * - Starts gateway if not running
- * - Monitors gateway process and restarts if it dies
+ * - Starts AstrBot if not running
+ * - Monitors AstrBot process and restarts if it dies
  * - Handles Android Doze mode with partial wake lock
- * - Shows gateway status in notification
+ * - Shows AstrBot status in notification
  */
 public class GatewayMonitorService extends Service {
 
-    private static final String LOG_TAG = "GatewayMonitorService";
+    private static final String TAG = "GatewayMonitorService";
     private static final int NOTIFICATION_ID = 1001;
     private static final int APP_UPDATE_NOTIFICATION_ID = 1002;
     private static final int MONITOR_INTERVAL_MS = 30000; // 30 seconds
     private static final int RESTART_DELAY_MS = 5000; // 5 seconds
     private static final int MAX_RESTART_ATTEMPTS = 5;
-    private static final long WAKELOCK_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
-    private static final long WAKELOCK_REACQUIRE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
-    private static final long APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L; // 6 hours
+    private static final long WAKELOCK_TIMEOUT_MS = 15 * 60 * 1000L;
+    private static final long WAKELOCK_REACQUIRE_INTERVAL_MS = 10 * 60 * 1000L;
+    private static final long APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L;
     private static final String APP_UPDATE_PREFS_NAME = "botdrop_update";
     private static final String KEY_BG_LAST_APP_UPDATE_CHECK = "bg_last_app_update_check_time";
     private static final String KEY_BG_LAST_APP_UPDATE_NOTIFIED = "bg_last_app_update_notified_version";
@@ -57,89 +54,27 @@ public class GatewayMonitorService extends Service {
     private PowerManager.WakeLock mWakeLock;
     private WifiManager.WifiLock mWifiLock;
     private long mWakeLockLastAcquired = 0;
-    private BotDropService mBotDropService;
-    private boolean mBotDropServiceBound = false;
     private boolean mIsMonitoring = false;
     private String mCurrentStatus = "Starting...";
     private int mRestartAttempts = 0;
     private boolean mRestartInFlight = false;
-    private boolean mRebindScheduled = false;
-
-    /**
-     * Service connection for binding to BotDropService
-     */
-    private ServiceConnection mBotDropServiceConnection = new ServiceConnection() {
-        @Override
-        public void onServiceConnected(ComponentName name, IBinder service) {
-            BotDropService.LocalBinder binder = (BotDropService.LocalBinder) service;
-            mBotDropService = binder.getService();
-            mBotDropServiceBound = true;
-            Logger.logInfo(LOG_TAG, "Bound to BotDropService");
-
-            // Now that service is bound, start monitoring
-            if (!mIsMonitoring) {
-                startMonitoring();
-            }
-        }
-
-        @Override
-        public void onServiceDisconnected(ComponentName name) {
-            mBotDropService = null;
-            mBotDropServiceBound = false;
-            Logger.logInfo(LOG_TAG, "Disconnected from BotDropService");
-
-            // In the background the bound service may be reclaimed. Keep trying to rebind
-            // so gateway monitoring continues without requiring the Activity to be foreground.
-            scheduleRebind();
-        }
-    };
-
-    private void scheduleRebind() {
-        if (mRebindScheduled) return;
-        mRebindScheduled = true;
-        mHandler.postDelayed(() -> {
-            mRebindScheduled = false;
-            if (mBotDropServiceBound) return;
-            try {
-                Intent intent = new Intent(this, BotDropService.class);
-                // Ensure service is started so the binding has a live target.
-                startService(intent);
-                bindService(intent, mBotDropServiceConnection, Context.BIND_AUTO_CREATE);
-                Logger.logInfo(LOG_TAG, "Rebinding to BotDropService");
-            } catch (Exception e) {
-                Logger.logError(LOG_TAG, "Failed to rebind BotDropService: " + e.getMessage());
-                scheduleRebind();
-            }
-        }, 2000);
-    }
 
     @Override
     public void onCreate() {
         super.onCreate();
-        Logger.logInfo(LOG_TAG, "Service created");
-
-        // Start + bind to BotDropService for command execution. Binding alone can be fragile
-        // when the app is backgrounded; starting keeps it alive.
-        Intent intent = new Intent(this, BotDropService.class);
-        startService(intent);
-        bindService(intent, mBotDropServiceConnection, Context.BIND_AUTO_CREATE);
+        Log.i(TAG, "GatewayMonitorService created");
         createNotificationChannels();
 
-        // Initialize wake lock to handle Doze mode
-        // Uses timeout with periodic re-acquisition to prevent orphaned locks
+        // Initialize wake lock
         PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (powerManager != null) {
             mWakeLock = powerManager.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK,
-                "BotDrop::GatewayMonitor"
-            );
-            mWakeLock.setReferenceCounted(false); // Ensure single release is enough
+                PowerManager.PARTIAL_WAKE_LOCK, "BotDrop::GatewayMonitor");
+            mWakeLock.setReferenceCounted(false);
             acquireWakeLock();
         }
 
-        // Keep Wi-Fi from entering power-save that can stall long-lived connections (SSH, TG, etc.)
-        // when the app is backgrounded. This is best-effort; on some devices the lock may still
-        // be ignored by OEM power management.
+        // Keep Wi-Fi from power-save
         try {
             WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wifiManager != null) {
@@ -147,108 +82,135 @@ public class GatewayMonitorService extends Service {
                 mWifiLock.setReferenceCounted(false);
                 if (!mWifiLock.isHeld()) {
                     mWifiLock.acquire();
-                    Logger.logDebug(LOG_TAG, "WifiLock acquired");
                 }
             }
         } catch (Exception e) {
-            Logger.logWarn(LOG_TAG, "Failed to acquire WifiLock: " + e.getMessage());
+            Log.w(TAG, "Failed to acquire WifiLock: " + e.getMessage());
         }
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        Logger.logInfo(LOG_TAG, "Service started");
-
-        // Start foreground service with notification
-        Notification notification = buildNotification("BotDrop is running");
+        Log.i(TAG, "GatewayMonitorService started");
+        Notification notification = buildNotification("BotDrop 正在运行");
         startForeground(NOTIFICATION_ID, notification);
 
-        // Monitoring will start automatically when BotDropService is bound
-        // (see onServiceConnected callback)
+        if (!mIsMonitoring) {
+            startMonitoring();
+        }
 
-        // START_STICKY ensures the service is restarted if killed
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        Logger.logInfo(LOG_TAG, "Service destroyed");
-
-        // Stop monitoring
         stopMonitoring();
-
-        // Remove all pending callbacks to prevent leaks
         mHandler.removeCallbacksAndMessages(null);
 
-        // Unbind from BotDropService
-        if (mBotDropServiceBound) {
-            try {
-                unbindService(mBotDropServiceConnection);
-                Logger.logInfo(LOG_TAG, "Unbound from BotDropService");
-            } catch (IllegalArgumentException e) {
-                // Service was not bound or already unbound
-                Logger.logDebug(LOG_TAG, "Service was already unbound");
-            }
-            mBotDropServiceBound = false;
-            mBotDropService = null;
-        }
-
-        // Release wake lock
         if (mWakeLock != null && mWakeLock.isHeld()) {
             mWakeLock.release();
         }
-
-        // Release Wi-Fi lock
         if (mWifiLock != null && mWifiLock.isHeld()) {
-            try {
-                mWifiLock.release();
-            } catch (Exception ignored) {}
+            try { mWifiLock.release(); } catch (Exception ignored) {}
         }
     }
 
     @Nullable
     @Override
     public IBinder onBind(Intent intent) {
-        return null; // We don't provide binding
+        return null;
     }
 
-    /**
-     * Start monitoring the gateway
-     */
+    // ─── Monitoring ───
+
     private void startMonitoring() {
         mIsMonitoring = true;
-        Logger.logInfo(LOG_TAG, "Starting gateway monitoring");
+        Log.i(TAG, "Starting AstrBot monitoring");
 
         mMonitorRunnable = new Runnable() {
             @Override
-                public void run() {
-                    // Re-acquire WakeLock periodically to prevent timeout
-                    reacquireWakeLockIfNeeded();
-
-                    // Check gateway status
-                    checkAndRestartGateway();
-                    maybeCheckForAppUpdate();
-
-                    if (mIsMonitoring) {
-                        mHandler.postDelayed(this, MONITOR_INTERVAL_MS);
-                    }
+            public void run() {
+                reacquireWakeLockIfNeeded();
+                checkAndRestartAstrBot();
+                maybeCheckForAppUpdate();
+                if (mIsMonitoring) {
+                    mHandler.postDelayed(this, MONITOR_INTERVAL_MS);
                 }
+            }
         };
-
-        // Start immediately, then repeat at intervals
         mHandler.post(mMonitorRunnable);
     }
 
-    /**
-     * Stop monitoring the gateway
-     */
     private void stopMonitoring() {
         mIsMonitoring = false;
         if (mMonitorRunnable != null) {
             mHandler.removeCallbacks(mMonitorRunnable);
         }
     }
+
+    /**
+     * Check if AstrBot is running and restart if needed.
+     * Uses ChrootManager directly — no service binding required.
+     */
+    private void checkAndRestartAstrBot() {
+        if (mRestartInFlight) {
+            return;
+        }
+
+        try {
+            boolean isRunning = ChrootManager.isAstrBotRunning();
+            if (isRunning) {
+                mRestartAttempts = 0;
+                updateStatus("Running");
+            } else {
+                Log.i(TAG, "AstrBot is not running, attempting restart");
+                updateStatus("Restarting...");
+                restartAstrBot();
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error checking AstrBot status: " + e.getMessage());
+        }
+    }
+
+    private void restartAstrBot() {
+        if (mRestartInFlight) return;
+
+        if (mRestartAttempts >= MAX_RESTART_ATTEMPTS) {
+            Log.e(TAG, "Max restart attempts reached");
+            updateStatus("Failed - manual restart required");
+            return;
+        }
+
+        mRestartAttempts++;
+        mRestartInFlight = true;
+        Log.i(TAG, "Restart attempt " + mRestartAttempts + "/" + MAX_RESTART_ATTEMPTS);
+
+        // Run on background thread to avoid blocking monitor
+        new Thread(() -> {
+            try {
+                ChrootManager.CommandResult result = ChrootManager.startAstrBot();
+                mRestartInFlight = false;
+
+                if (result.success) {
+                    Log.i(TAG, "AstrBot started successfully");
+                    mRestartAttempts = 0;
+                    mHandler.post(() -> updateStatus("Running"));
+                } else {
+                    Log.e(TAG, "Failed to start AstrBot: " + result.stderr);
+                    mHandler.post(() -> updateStatus("Failed (attempt " + mRestartAttempts + "/" + MAX_RESTART_ATTEMPTS + ")"));
+                    if (mRestartAttempts < MAX_RESTART_ATTEMPTS) {
+                        mHandler.postDelayed(this::restartAstrBot, RESTART_DELAY_MS);
+                    }
+                }
+            } catch (Exception e) {
+                mRestartInFlight = false;
+                Log.e(TAG, "Error restarting AstrBot: " + e.getMessage());
+            }
+        }).start();
+    }
+
+    // ─── App update check ───
 
     private void maybeCheckForAppUpdate() {
         if (UpdateChecker.isUpdateManagementDisabled(this)) {
@@ -263,22 +225,11 @@ public class GatewayMonitorService extends Service {
         prefs.edit().putLong(KEY_BG_LAST_APP_UPDATE_CHECK, now).apply();
 
         UpdateChecker.forceCheckWithFeedback(this, (updateAvailable, latestVersion, downloadUrl, notes, message) -> {
-            if (!updateAvailable || TextUtils.isEmpty(latestVersion)) {
-                return;
-            }
-
+            if (!updateAvailable || TextUtils.isEmpty(latestVersion)) return;
             String dismissedVersion = prefs.getString(KEY_DISMISSED_VERSION, null);
-            if (latestVersion.equals(dismissedVersion)) {
-                Logger.logInfo(LOG_TAG, "Update " + latestVersion + " was dismissed, skip notification");
-                return;
-            }
-
+            if (latestVersion.equals(dismissedVersion)) return;
             String notifiedVersion = prefs.getString(KEY_BG_LAST_APP_UPDATE_NOTIFIED, null);
-            if (latestVersion.equals(notifiedVersion)) {
-                Logger.logInfo(LOG_TAG, "Update " + latestVersion + " already notified");
-                return;
-            }
-
+            if (latestVersion.equals(notifiedVersion)) return;
             postAppUpdateNotification(latestVersion, downloadUrl);
             prefs.edit().putString(KEY_BG_LAST_APP_UPDATE_NOTIFIED, latestVersion).apply();
         });
@@ -292,19 +243,17 @@ public class GatewayMonitorService extends Service {
             openIntent = new Intent(this, DashboardActivity.class);
             openIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         }
-
-        int pendingIntentFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            pendingIntentFlags |= PendingIntent.FLAG_IMMUTABLE;
+            flags |= PendingIntent.FLAG_IMMUTABLE;
         }
-        PendingIntent openPendingIntent = PendingIntent.getActivity(this, 101, openIntent, pendingIntentFlags);
+        PendingIntent pi = PendingIntent.getActivity(this, 101, openIntent, flags);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, UPDATE_NOTIFICATION_CHANNEL_ID)
             .setContentTitle(getString(R.string.botdrop_update_title))
             .setContentText(getString(R.string.botdrop_new_version_detected, latestVersion))
-            .setStyle(new NotificationCompat.BigTextStyle().bigText(getString(R.string.botdrop_new_version_detected_detail, latestVersion)))
             .setSmallIcon(R.drawable.ic_service_notification)
-            .setContentIntent(openPendingIntent)
+            .setContentIntent(pi)
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_DEFAULT);
 
@@ -314,169 +263,58 @@ public class GatewayMonitorService extends Service {
         }
     }
 
+    // ─── Notification ───
+
     private void createNotificationChannels() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            return;
-        }
-
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return;
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager == null) {
-            return;
-        }
+        if (manager == null) return;
 
+        // Gateway channel
+        NotificationChannel gatewayChannel = new NotificationChannel(
+            DashboardActivity.NOTIFICATION_CHANNEL_ID,
+            "BotDrop 服务状态", NotificationManager.IMPORTANCE_LOW);
+        gatewayChannel.setDescription("BotDrop AstrBot 运行状态");
+        manager.createNotificationChannel(gatewayChannel);
+
+        // Update channel
         NotificationChannel updateChannel = new NotificationChannel(
             UPDATE_NOTIFICATION_CHANNEL_ID,
             getString(R.string.botdrop_update_channel_name),
-            NotificationManager.IMPORTANCE_DEFAULT
-        );
+            NotificationManager.IMPORTANCE_DEFAULT);
         updateChannel.setDescription(getString(R.string.botdrop_update_channel_description));
         manager.createNotificationChannel(updateChannel);
     }
 
-    /**
-     * Check if gateway is running and restart if needed
-     */
-    private void checkAndRestartGateway() {
-        // Only proceed if service is bound
-        if (!mBotDropServiceBound || mBotDropService == null) {
-            Logger.logDebug(LOG_TAG, "BotDropService not bound yet, scheduling rebind");
-            scheduleRebind();
-            return;
-        }
-
-        // Skip monitoring during OpenClaw update to avoid restarting mid-install.
-        if (mBotDropService.isUpdateInProgress()) {
-            Logger.logInfo(LOG_TAG, "OpenClaw update in progress, skipping gateway check");
-            updateStatus("Updating...");
-            return;
-        }
-
-        // Avoid restart storms while a (re)start is already running.
-        if (mRestartInFlight) {
-            Logger.logDebug(LOG_TAG, "Restart already in-flight, skipping check");
-            return;
-        }
-
-        try {
-            mBotDropService.isGatewayRunning(result -> {
-                try {
-                    boolean isRunning = result.success && result.stdout.trim().equals("running");
-
-                    if (isRunning) {
-                        // Gateway is running - reset restart counter and update status
-                        mRestartAttempts = 0;
-                        updateStatus("Running");
-                    } else {
-                        // Gateway is not running - restart it
-                        Logger.logInfo(LOG_TAG, "Gateway is not running, attempting restart");
-                        updateStatus("Restarting...");
-                        restartGateway();
-                    }
-                } catch (Exception e) {
-                    Logger.logError(LOG_TAG, "Error in gateway check callback: " + e.getMessage());
-                }
-            });
-        } catch (Exception e) {
-            Logger.logError(LOG_TAG, "Error checking gateway status: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Restart the gateway
-     */
-    private void restartGateway() {
-        // Only proceed if service is bound
-        if (!mBotDropServiceBound || mBotDropService == null) {
-            Logger.logError(LOG_TAG, "Cannot restart: BotDropService not bound");
-            return;
-        }
-
-        if (mRestartInFlight) {
-            Logger.logDebug(LOG_TAG, "restartGateway called while already in-flight, ignoring");
-            return;
-        }
-
-        // Check if we've exceeded max restart attempts
-        if (mRestartAttempts >= MAX_RESTART_ATTEMPTS) {
-            Logger.logError(LOG_TAG, "Max restart attempts (" + MAX_RESTART_ATTEMPTS + ") reached");
-            updateStatus("Failed - manual restart required");
-            return;
-        }
-
-        mRestartAttempts++;
-        mRestartInFlight = true;
-        Logger.logInfo(LOG_TAG, "Restart attempt " + mRestartAttempts + "/" + MAX_RESTART_ATTEMPTS);
-
-        try {
-            mBotDropService.startGateway(result -> {
-                try {
-                    mRestartInFlight = false;
-                    if (result.success) {
-                        Logger.logInfo(LOG_TAG, "Gateway started successfully");
-                        mRestartAttempts = 0; // Reset on success
-                        mHandler.postDelayed(() -> updateStatus("Running"), RESTART_DELAY_MS);
-                    } else {
-                        Logger.logError(LOG_TAG, "Failed to start gateway: " + result.stderr);
-                        updateStatus("Failed (attempt " + mRestartAttempts + "/" + MAX_RESTART_ATTEMPTS + ")");
-                        
-                        // Try again after delay if we haven't hit the limit
-                        if (mRestartAttempts < MAX_RESTART_ATTEMPTS) {
-                            mHandler.postDelayed(this::restartGateway, RESTART_DELAY_MS);
-                        }
-                    }
-                } catch (Exception e) {
-                    mRestartInFlight = false;
-                    Logger.logError(LOG_TAG, "Error in gateway restart callback: " + e.getMessage());
-                }
-            });
-        } catch (Exception e) {
-            mRestartInFlight = false;
-            Logger.logError(LOG_TAG, "Error executing gateway start: " + e.getMessage());
-        }
-    }
-
-    /**
-     * Update the notification with current status
-     */
     private void updateStatus(String status) {
         mCurrentStatus = status;
-        Notification notification = buildNotification("Gateway: " + status);
-        
+        Notification notification = buildNotification("AstrBot: " + status);
         NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager != null) {
             manager.notify(NOTIFICATION_ID, notification);
         }
     }
 
-    /**
-     * Build notification for foreground service
-     */
     private Notification buildNotification(String contentText) {
-        // Intent to open DashboardActivity when notification is tapped
         Intent notificationIntent = new Intent(this, DashboardActivity.class);
         notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        
+
         int flags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             flags |= PendingIntent.FLAG_IMMUTABLE;
         }
-        
-        PendingIntent pendingIntent = PendingIntent.getActivity(
-            this, 0, notificationIntent, flags
-        );
+        PendingIntent pendingIntent = PendingIntent.getActivity(this, 0, notificationIntent, flags);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(
-            this, DashboardActivity.NOTIFICATION_CHANNEL_ID
-        )
+            this, DashboardActivity.NOTIFICATION_CHANNEL_ID)
             .setContentTitle("BotDrop")
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_service_notification)
             .setContentIntent(pendingIntent)
-            .setOngoing(true) // Cannot be dismissed
+            .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setShowWhen(false);
 
-        // For Android 14+, specify foreground service type
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
         }
@@ -484,36 +322,21 @@ public class GatewayMonitorService extends Service {
         return builder.build();
     }
 
-    /**
-     * Acquire WakeLock with timeout to prevent orphaned locks.
-     * If the service crashes, the lock will automatically release after timeout.
-     */
+    // ─── WakeLock ───
+
     private void acquireWakeLock() {
         if (mWakeLock != null && !mWakeLock.isHeld()) {
             mWakeLock.acquire(WAKELOCK_TIMEOUT_MS);
             mWakeLockLastAcquired = System.currentTimeMillis();
-            Logger.logDebug(LOG_TAG, "WakeLock acquired with " + (WAKELOCK_TIMEOUT_MS / 60000) + " minute timeout");
         }
     }
 
-    /**
-     * Re-acquire WakeLock if it's been held for longer than the reacquire interval.
-     * This prevents the timeout from expiring while the service is running normally.
-     */
     private void reacquireWakeLockIfNeeded() {
-        if (mWakeLock == null) {
-            return;
-        }
-
+        if (mWakeLock == null) return;
         long timeSinceLastAcquire = System.currentTimeMillis() - mWakeLockLastAcquired;
         if (timeSinceLastAcquire >= WAKELOCK_REACQUIRE_INTERVAL_MS) {
-            // Release and re-acquire to reset the timeout
-            if (mWakeLock.isHeld()) {
-                mWakeLock.release();
-                Logger.logDebug(LOG_TAG, "WakeLock released for re-acquisition");
-            }
+            if (mWakeLock.isHeld()) mWakeLock.release();
             acquireWakeLock();
-            Logger.logDebug(LOG_TAG, "WakeLock re-acquired to prevent timeout");
         }
     }
 }

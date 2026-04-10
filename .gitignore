@@ -46,5 +46,11 @@ keystore/
 # Worktrees
 .worktrees/
 
+# Kotlin compiler sessions
+.kotlin/
+
+# WorkBuddy AI memory
+.workbuddy/
+
 # Skill TypeScript build output
 app/src/main/assets/skills/botdrop-u2/dist/
