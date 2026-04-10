@@ -1,104 +1,100 @@
 # BotDrop
 
-Run AI agents on your Android phone — no terminal, no CLI, just a guided setup.
+在 Android 手机上运行 AI Agent —— 无需终端，一键部署。
 
-BotDrop wraps [AstrBot](https://github.com/Soulter/AstrBot) into a user-friendly Android app. Install, configure, and manage your AI agent through a simple GUI.
+BotDrop 将 [AstrBot](https://github.com/Soulter/AstrBot) 封装为友好的 Android 应用，安装、配置、管理全程 GUI 操作。
 
-## Features
+## 特性
 
-- **Guided setup** — One-tap install with automatic environment provisioning
-- **Multi-provider support** — OpenAI, Anthropic, Google Gemini, and more via AstrBot
-- **Multi-platform integration** — Telegram, Discord, QQ, WeChat, and more
-- **Background service** — Keeps your agent running with auto-restart
-- **Hybrid storage** — Executables in internal storage (symlink-safe), caches on sdcard (reinstall-friendly)
-- **No terminal required** — Everything happens through the GUI
-- **No root required** — Works on non-rooted devices (root optional for advanced features)
+- **一键安装** —— 自动配置 Linux 环境并安装 AstrBot
+- **多平台接入** —— Telegram、Discord、QQ、微信等
+- **多 AI 供应商** —— OpenAI、Anthropic、Google Gemini 等
+- **后台保活** —— 自动重启，稳定运行
+- **开机自启** —— 无需手动启动
+- **需要 Root** —— 使用 chroot 原生运行，零性能损耗
 
-## Installation
+## 安装
 
-### Download APK
+### 下载 APK
 
-Download the latest APK from [Releases](../../releases).
+从 [Releases](../../releases) 下载最新 APK。
 
-### Build from Source
+### 从源码构建
 
-Prerequisites:
-- Android SDK (compileSdk 36)
+前置要求：
+- Android SDK（compileSdk 36）
 - NDK r29+
 - JDK 17
 
 ```bash
-git clone https://github.com/zhixianio/botdrop-android.git
+git clone https://gitee.com/deku772/botdrop-android.git
 cd botdrop-android
+git checkout root
 ./gradlew assembleDebug
 ```
 
-The APK will be at `app/build/outputs/apk/debug/`.
+APK 位于 `app/build/outputs/apk/debug/`。
 
-## Architecture
+## 架构
 
-BotDrop is built on [Termux](https://github.com/termux/termux-app), providing a Linux environment for running AI agents on Android.
+BotDrop 使用 chroot 直接运行 Ubuntu rootfs，无需 Termux 和 proot 中间层。
 
 ```
 ┌──────────────────────────────────┐
-│     BotDrop UI (app.botdrop)     │
+│     BotDrop UI（app.botdrop）     │
 ├──────────────────────────────────┤
-│     Termux Core (proot/apt)      │
+│     chroot Ubuntu rootfs          │
 ├──────────────────────────────────┤
-│  Ubuntu Rootfs (proot-distro)    │
-├──────────────────────────────────┤
-│  AstrBot + Python3 + pip         │
+│  AstrBot + Python3 + pip          │
 └──────────────────────────────────┘
 ```
 
-### Storage Layout
+### 存储布局
 
 ```
-/data/data/app.botdrop/files/          ← Internal storage (Android standard)
-├── usr/                               ← Termux $PREFIX (symlink-safe ext4)
-│   ├── bin/                           ← bash, proot, proot-distro, etc.
-│   └── var/lib/proot-distro/
-│       └── installed-rootfs/ubuntu/   ← Ubuntu rootfs runtime (~1GB+)
-└── home/                              ← $HOME (AstrBot config & data)
-    └── astrbot/
+/data/botdrop/                        ← chroot 根目录（内部存储 ext4）
+├── bin/                              ← 系统二进制（符号链接正常）
+├── usr/                              ← Python3, pip, git 等
+├── home/astrbot/                     ← AstrBot 配置与数据
+└── ...
 
-/storage/emulated/0/botdrop/           ← Sdcard (user-visible, backup-friendly)
+/storage/emulated/0/botdrop/          ← sdcard（用户可见，方便备份）
 └── cache/
-    └── ubuntu22_openclaw.tar.gz       ← Rootfs download cache (preserved on reinstall)
+    └── ubuntu22_openclaw.tar.gz      ← rootfs 下载缓存（重装保留）
 ```
 
-- **Internal storage**: Required for executables and rootfs (ext4 supports symlinks)
-- **Sdcard cache**: Large file downloads (~809MB rootfs), survives environment reinstalls
-- Android sdcardfs/FUSE does not support symlinks, so rootfs must be extracted to internal storage
+- **内部存储**：rootfs 运行时（需要符号链接，必须 ext4）
+- **sdcard 缓存**：大文件下载（~809MB rootfs），重装环境时保留，不用重新下载
 
-### Install Flow
+### 安装流程
 
-BotDrop's 4-step automated setup:
+| 步骤 | 说明 |
+|------|------|
+| 第 1 步 | 检测 Root 权限 |
+| 第 2 步 | 下载并解压 Ubuntu rootfs |
+| 第 3 步 | 安装 AstrBot |
+| 第 4 步 | 启动服务 |
 
-| Step | Description |
-|------|-------------|
-| Step 0 | Initialize Termux environment |
-| Step 1 | Install Termux bootstrap + proot-distro |
-| Step 2 | Download & extract Ubuntu rootfs (3-tier fallback) |
-| Step 3 | Install AstrBot inside Ubuntu |
+**rootfs 下载回退顺序：**
+1. 本地文件：`/storage/emulated/0/claw-apk/ubuntu22_openclaw.tar.gz`
+2. sdcard 缓存：`/storage/emulated/0/botdrop/cache/ubuntu22_openclaw.tar.gz`
+3. GitHub：`TermuxCHN/rootfs`（下载到 sdcard 缓存供后续使用）
 
-**Rootfs download fallback order:**
-1. Local file: `/storage/emulated/0/claw-apk/ubuntu22_openclaw.tar.gz`
-2. Sdcard cache: `/storage/emulated/0/botdrop/cache/ubuntu22_openclaw.tar.gz`
-3. GitHub: `TermuxCHN/rootfs` (saved to sdcard cache for future use)
+本地文件成功后会自动缓存到 sdcard，重装时跳过下载。
 
-Tier 1 success automatically caches to sdcard for future reinstalls.
+## 分支说明
 
-## Contributing
+| 分支 | 说明 |
+|------|------|
+| `root` | 主分支 —— chroot 方案（需要 Root） |
+| `no-root` | Termux + proot 方案（无需 Root） |
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+## 贡献
 
-## Crash Reporting
+参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
-See [docs/crashlytics.md](docs/crashlytics.md) for Firebase Crashlytics setup, build behavior, and privacy notes.
+## 许可证
 
-## License
+本项目基于 [GNU General Public License v3.0](LICENSE) 开源。
 
-This project is licensed under the [GNU General Public License v3.0](LICENSE).
-
-Built on [Termux](https://github.com/termux/termux-app) (GPLv3).
+基于 [Termux](https://github.com/termux/termux-app)（GPLv3）构建。
