@@ -1,15 +1,15 @@
-package app.andbott;
+package app.rbot;
 
 /**
- * BotDrop path constants for the root/chroot architecture.
+ * Rbot path constants for the root/chroot architecture.
  * All paths are managed here — no hardcoded paths elsewhere.
  */
-public final class BotDropConstants {
+public final class RbotConstants {
 
-    private BotDropConstants() {} // no instantiation
+    private RbotConstants() {} // no instantiation
 
     /** chroot root directory — the Ubuntu rootfs lives here */
-    public static final String CHROOT_DIR = "/data/botdrop";
+    public static final String CHROOT_DIR = "/data/rbot";
 
     /** AstrBot home inside chroot */
     public static final String ASTRBOT_HOME = CHROOT_DIR + "/root/astrbot";
@@ -24,13 +24,13 @@ public final class BotDropConstants {
     public static final String ASTRBOT_DEBUG_LOG = ASTRBOT_HOME + "/astrbot-debug.log";
 
     /** Marker file indicating rootfs is extracted and ready */
-    public static final String ROOTFS_MARKER = CHROOT_DIR + "/.botdrop-rootfs-ready";
+    public static final String ROOTFS_MARKER = CHROOT_DIR + "/.rbot-rootfs-ready";
 
     /** Marker file indicating AstrBot is installed (at chroot root so app process can read it) */
-    public static final String ASTRBOT_MARKER = CHROOT_DIR + "/.botdrop-astrbot-ready";
+    public static final String ASTRBOT_MARKER = CHROOT_DIR + "/.rbot-astrbot-ready";
 
     /** sdcard data directory */
-    public static final String SDCARD_DIR = "/storage/emulated/0/botdrop";
+    public static final String SDCARD_DIR = "/storage/emulated/0/rbot";
 
     /** sdcard cache directory — rootfs download cache, preserved across reinstalls */
     public static final String SDCARD_CACHE_DIR = SDCARD_DIR + "/cache";
@@ -45,11 +45,17 @@ public final class BotDropConstants {
     public static final String GITHUB_ROOTFS_URL = "https://github.com/TermuxCHN/rootfs/releases/download/ubuntu2204/rootfs.tar.xz";
 
     /** App package name */
-    public static final String PACKAGE_NAME = "app.andbott";
+    public static final String PACKAGE_NAME = "app.rbot";
 
-    /** BotDrop tmp directory (on host, for scripts) */
-    public static final String BOTDROP_TMP = "/data/local/tmp/botdrop_tmp";
+    /** Rbot tmp directory (on host, for scripts) */
+    public static final String RBOT_TMP = "/data/local/tmp/rbot_tmp";
 
     /** Install script path (on host) */
-    public static final String INSTALL_SCRIPT = BOTDROP_TMP + "/install.sh";
+    public static final String INSTALL_SCRIPT = RBOT_TMP + "/install.sh";
+
+    /** Backup directory on sdcard */
+    public static final String BACKUP_DIR = SDCARD_DIR + "/backup";
+
+    /** AstrBot data directory inside chroot (relative to ASTRBOT_HOME) */
+    public static final String ASTRBOT_DATA_DIR = "data";
 }

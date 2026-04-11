@@ -1,14 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 
 <!DOCTYPE resources [
-    <!ENTITY TERMUX_PACKAGE_NAME "app.andbott">
-    <!ENTITY TERMUX_APP_NAME "ANDBOTT">
-    <!ENTITY TERMUX_API_APP_NAME "ANDBOTT:API">
-    <!ENTITY TERMUX_BOOT_APP_NAME "ANDBOTT:Boot">
-    <!ENTITY TERMUX_FLOAT_APP_NAME "ANDBOTT:Float">
-    <!ENTITY TERMUX_STYLING_APP_NAME "ANDBOTT:Styling">
-    <!ENTITY TERMUX_TASKER_APP_NAME "ANDBOTT:Tasker">
-    <!ENTITY TERMUX_WIDGET_APP_NAME "ANDBOTT:Widget">
+    <!ENTITY TERMUX_PACKAGE_NAME "app.rbot">
+    <!ENTITY TERMUX_APP_NAME "Rbot">
+    <!ENTITY TERMUX_API_APP_NAME "Rbot:API">
+    <!ENTITY TERMUX_BOOT_APP_NAME "Rbot:Boot">
+    <!ENTITY TERMUX_FLOAT_APP_NAME "Rbot:Float">
+    <!ENTITY TERMUX_STYLING_APP_NAME "Rbot:Styling">
+    <!ENTITY TERMUX_TASKER_APP_NAME "Rbot:Tasker">
+    <!ENTITY TERMUX_WIDGET_APP_NAME "Rbot:Widget">
     ]>
 
 <resources>
@@ -347,11 +347,11 @@
     <string name="botdrop_data_recovery">Data &amp; Recovery</string>
     <string name="botdrop_data_recovery_desc">Back up settings or restore a saved file.</string>
     <string name="botdrop_tip">💡 Tip</string>
-    <string name="botdrop_chat_tip">Chat with BotDrop in a connected channel to adjust settings, add channels, or change models.</string>
+    <string name="botdrop_chat_tip">Chat with Rbot in a connected channel to adjust settings, add channels, or change models.</string>
     <string name="botdrop_ssh_access">SSH Access</string>
     <string name="botdrop_ssh_password_label">ssh -p 8022 %1$s\nPassword: %2$s</string>
-    <string name="botdrop_welcome">Welcome to BotDrop</string>
-    <string name="botdrop_permissions_intro">BotDrop needs two permissions to keep your AI gateway running in the background.</string>
+    <string name="botdrop_welcome">Welcome to Rbot</string>
+    <string name="botdrop_permissions_intro">Rbot needs two permissions to keep your AI gateway running in the background.</string>
     <string name="botdrop_notifications">Notifications</string>
     <string name="botdrop_notifications_hint">Show gateway alerts and status</string>
     <string name="botdrop_storage_access">Storage Access</string>
@@ -363,7 +363,7 @@
     <string name="botdrop_background_running_hint">Keep the gateway running in the background</string>
     <string name="botdrop_advanced_background_settings">Background Settings</string>
     <string name="botdrop_advanced_background_hint">Recommended: set Battery to Unrestricted and allow Background data.</string>
-    <string name="botdrop_background_data_restricted">Background data is restricted. Enable Unrestricted data usage for BotDrop.</string>
+    <string name="botdrop_background_data_restricted">Background data is restricted. Enable Unrestricted data usage for Rbot.</string>
     <string name="botdrop_background_data_allowed">Background data is allowed. If it still pauses, set Battery to Unrestricted.</string>
     <string name="botdrop_background_data_hint">If the bot pauses in background, set Battery to Unrestricted and allow Background data.</string>
     <string name="botdrop_open">Open</string>
@@ -413,7 +413,7 @@
     <string name="botdrop_settings_discord_desc">Join the community chat</string>
     <string name="botdrop_settings_docs_title">Docs</string>
     <string name="botdrop_settings_docs_desc">Read setup and usage guides</string>
-    <string name="botdrop_app_version_label">BotDrop</string>
+    <string name="botdrop_app_version_label">Rbot</string>
     <string name="botdrop_openclaw_version_label">AstrBot Version</string>
     <string name="botdrop_openclaw_version_manager">AstrBot version</string>
     <string name="botdrop_owliabot">OwliaBot</string>
@@ -464,7 +464,7 @@
     <string name="botdrop_open_feishu_console">Open Feishu Console</string>
     <string name="botdrop_open_qqbot_console">Open QQ Open Platform</string>
     <string name="botdrop_open_setup_bot">Open @BotDropSetupBot</string>
-    <string name="botdrop_ai_assistant_on_phone">Your AI assistant,\nrunning on your phone.</string>
+    <string name="botdrop_ai_assistant_on_phone">Rbot — Your AI assistant,\nrunning on your phone.</string>
     <string name="botdrop_environment_ready">Environment ready</string>
     <string name="botdrop_verifying_nodejs">Verifying Node.js</string>
     <string name="botdrop_setting_up_environment">Setting up environment...</string>
@@ -475,11 +475,11 @@
     <string name="botdrop_provider_name">Provider Name</string>
     <string name="botdrop_auth_method_hint">Auth method hint</string>
     <string name="botdrop_select_provider_choose_model">Select provider and choose model</string>
-    <string name="botdrop_update_title">BotDrop Update</string>
+    <string name="botdrop_update_title">Rbot Update</string>
     <string name="botdrop_new_version_detected">New version detected: v%1$s</string>
     <string name="botdrop_new_version_detected_detail">New version detected: v%1$s\n\nTap for details</string>
-    <string name="botdrop_update_channel_name">BotDrop Updates</string>
-    <string name="botdrop_update_channel_description">Notifies when a new BotDrop version is available.</string>
+    <string name="botdrop_update_channel_name">Rbot Updates</string>
+    <string name="botdrop_update_channel_description">Notifies when a new Rbot version is available.</string>
     <string name="botdrop_gateway_running">Gateway Running</string>
     <string name="botdrop_openclaw_version">OpenClaw v%1$s</string>
     <string name="botdrop_update_available_version">Update available: v%1$s</string>

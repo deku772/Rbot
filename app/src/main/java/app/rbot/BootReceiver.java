@@ -1,4 +1,4 @@
-package app.andbott;
+package app.rbot;
 
 import android.content.BroadcastReceiver;
 import android.content.Context;

@@ -1,4 +1,4 @@
-package app.andbott;
+package app.rbot;
 
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
@@ -11,12 +11,12 @@ import android.util.Log;
 
 /**
  * BroadcastReceiver that sets the system clipboard from a shell broadcast.
- * Usage: am broadcast -a app.andbott.SET_CLIPBOARD --es text "你好世界"
+ * Usage: am broadcast -a app.rbot.SET_CLIPBOARD --es text "你好世界"
  */
 public class ClipboardReceiver extends BroadcastReceiver {
 
     private static final String TAG = "ClipboardReceiver";
-    public static final String ACTION_SET_CLIPBOARD = "app.andbott.SET_CLIPBOARD";
+    public static final String ACTION_SET_CLIPBOARD = "app.rbot.SET_CLIPBOARD";
 
     @Override
     public void onReceive(Context context, Intent intent) {
@@ -32,7 +32,7 @@ public class ClipboardReceiver extends BroadcastReceiver {
             try {
                 ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
                 if (cm == null) return;
-                ClipData clip = ClipData.newPlainText("botdrop", text);
+                ClipData clip = ClipData.newPlainText("rbot", text);
                 cm.setPrimaryClip(clip);
             } catch (Exception e) {
                 Log.e(TAG, "Failed to set clipboard: " + e.getMessage());

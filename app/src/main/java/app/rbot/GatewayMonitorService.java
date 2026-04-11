@@ -1,4 +1,4 @@
-package app.andbott;
+package app.rbot;
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -21,7 +21,7 @@ import android.util.Log;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationCompat;
 
-import app.andbott.R;
+import app.rbot.R;
 
 /**
  * Foreground service that monitors and keeps the AstrBot chroot process alive.
@@ -43,11 +43,11 @@ public class GatewayMonitorService extends Service {
     private static final long WAKELOCK_TIMEOUT_MS = 15 * 60 * 1000L;
     private static final long WAKELOCK_REACQUIRE_INTERVAL_MS = 10 * 60 * 1000L;
     private static final long APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L;
-    private static final String APP_UPDATE_PREFS_NAME = "botdrop_update";
+    private static final String APP_UPDATE_PREFS_NAME = "rbot_update";
     private static final String KEY_BG_LAST_APP_UPDATE_CHECK = "bg_last_app_update_check_time";
     private static final String KEY_BG_LAST_APP_UPDATE_NOTIFIED = "bg_last_app_update_notified_version";
     private static final String KEY_DISMISSED_VERSION = "dismissed_version";
-    private static final String UPDATE_NOTIFICATION_CHANNEL_ID = "botdrop_updates";
+    private static final String UPDATE_NOTIFICATION_CHANNEL_ID = "rbot_updates";
 
     private Handler mHandler = new Handler(Looper.getMainLooper());
     private Runnable mMonitorRunnable;
@@ -69,7 +69,7 @@ public class GatewayMonitorService extends Service {
         PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
         if (powerManager != null) {
             mWakeLock = powerManager.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK, "BotDrop::GatewayMonitor");
+                PowerManager.PARTIAL_WAKE_LOCK, "Rbot::GatewayMonitor");
             mWakeLock.setReferenceCounted(false);
             acquireWakeLock();
         }
@@ -78,7 +78,7 @@ public class GatewayMonitorService extends Service {
         try {
             WifiManager wifiManager = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
             if (wifiManager != null) {
-                mWifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_HIGH_PERF, "BotDrop::GatewayWifi");
+                mWifiLock = wifiManager.createWifiLock(WifiManager.WIFI_MODE_FULL_LOW_LATENCY, "Rbot::GatewayWifi");
                 mWifiLock.setReferenceCounted(false);
                 if (!mWifiLock.isHeld()) {
                     mWifiLock.acquire();
@@ -92,7 +92,7 @@ public class GatewayMonitorService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.i(TAG, "GatewayMonitorService started");
-        Notification notification = buildNotification("BotDrop 正在运行");
+        Notification notification = buildNotification("Rbot 正在运行");
         startForeground(NOTIFICATION_ID, notification);
 
         if (!mIsMonitoring) {
@@ -149,10 +149,6 @@ public class GatewayMonitorService extends Service {
         }
     }
 
-    /**
-     * Check if AstrBot is running and restart if needed.
-     * Uses ChrootManager directly — no service binding required.
-     */
     private void checkAndRestartAstrBot() {
         if (mRestartInFlight) {
             return;
@@ -186,7 +182,6 @@ public class GatewayMonitorService extends Service {
         mRestartInFlight = true;
         Log.i(TAG, "Restart attempt " + mRestartAttempts + "/" + MAX_RESTART_ATTEMPTS);
 
-        // Run on background thread to avoid blocking monitor
         new Thread(() -> {
             try {
                 ChrootManager.CommandResult result = ChrootManager.startAstrBot();
@@ -273,8 +268,8 @@ public class GatewayMonitorService extends Service {
         // Gateway channel
         NotificationChannel gatewayChannel = new NotificationChannel(
             MainActivity.NOTIFICATION_CHANNEL_ID,
-            "BotDrop 服务状态", NotificationManager.IMPORTANCE_LOW);
-        gatewayChannel.setDescription("BotDrop AstrBot 运行状态");
+            "Rbot 服务状态", NotificationManager.IMPORTANCE_LOW);
+        gatewayChannel.setDescription("Rbot AstrBot 运行状态");
         manager.createNotificationChannel(gatewayChannel);
 
         // Update channel
@@ -307,7 +302,7 @@ public class GatewayMonitorService extends Service {
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(
             this, MainActivity.NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("BotDrop")
+            .setContentTitle("Rbot")
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_service_notification)
             .setContentIntent(pendingIntent)

@@ -5,20 +5,20 @@ plugins {
 }
 
 android {
-    namespace "app.andbott"
+    namespace = "app.rbot"
 
     compileSdkVersion project.properties.compileSdkVersion.toInteger()
     ndkVersion = System.getenv("JITPACK_NDK_VERSION") ?: project.properties.ndkVersion
 
     defaultConfig {
-        applicationId "app.andbott"
+        applicationId "app.rbot"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
         versionCode 20
         versionName "1.0.0-root"
 
-        manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.andbott"
-        manifestPlaceholders.TERMUX_APP_NAME = "ANDBOTT"
+        manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.rbot"
+        manifestPlaceholders.TERMUX_APP_NAME = "Rbot"
 
         ndk {
             abiFilters 'arm64-v8a'
@@ -36,17 +36,17 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled true
-            shrinkResources false
+            minifyEnabled = true
+            shrinkResources = false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
         debug {
-            signingConfig signingConfigs.debug
+            signingConfig = signingConfigs.debug
         }
     }
 
     compileOptions {
-        coreLibraryDesugaringEnabled true
+        coreLibraryDesugaringEnabled = true
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
@@ -61,14 +61,18 @@ android {
         disable 'ProtectedPermissions'
     }
 
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << "-Xlint:deprecation"
+    }
+
     packagingOptions {
         jniLibs {
-            useLegacyPackaging true
+            useLegacyPackaging = true
         }
     }
 
     buildFeatures {
-        buildConfig true
+        buildConfig = true
     }
 }
 

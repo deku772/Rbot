@@ -1,4 +1,4 @@
-package app.andbott;
+package app.rbot;
 
 import android.content.Intent;
 import android.os.Bundle;
@@ -22,7 +22,7 @@ public class SetupActivity extends AppCompatActivity {
 
     private static final String TAG = "SetupActivity";
 
-    // Step constants (kept for compatibility)
+    // Step constants
     public static final int STEP_INSTALL = 0;
     public static final int STEP_API_KEY = 1;
     public static final int STEP_CHANNEL = 2;
@@ -62,12 +62,10 @@ public class SetupActivity extends AppCompatActivity {
 
         mActionButton.setOnClickListener(v -> startInstallation());
 
-        // Auto-start if coming from launcher with STEP_INSTALL
         int startStep = getIntent().getIntExtra(EXTRA_START_STEP, -1);
         if (startStep == STEP_INSTALL) {
             startInstallation();
         } else {
-            // Show current status and reinstall options
             updateStatusUI();
         }
     }
@@ -77,18 +75,15 @@ public class SetupActivity extends AppCompatActivity {
         boolean astrBotInstalled = ChrootManager.isAstrBotInstalled();
 
         if (!rootfsReady && !astrBotInstalled) {
-            // Fresh install — no options needed
             mReinstallOptions.setVisibility(View.GONE);
             mActionButton.setText("开始安装");
             mStepText.setText("尚未安装");
         } else {
-            // Something exists — show reinstall options
             mReinstallOptions.setVisibility(View.VISIBLE);
             mStepText.setText(
                 "系统镜像: " + (rootfsReady ? "✅" : "❌") + "  " +
                 "AstrBot: " + (astrBotInstalled ? "✅" : "❌"));
 
-            // Pre-check what needs reinstalling
             if (!rootfsReady) mCbReinstallRootfs.setChecked(true);
             if (!astrBotInstalled) mCbReinstallAstrbot.setChecked(true);
 
@@ -102,7 +97,7 @@ public class SetupActivity extends AppCompatActivity {
 
         mActionButton.setEnabled(false);
         mActionButton.setText("安装中...");
-        mTitleText.setText("正在安装 BotDrop");
+        mTitleText.setText("正在安装 Rbot");
         mProgressBar.setVisibility(View.VISIBLE);
         mReinstallOptions.setVisibility(View.GONE);
         mLogText.setText("");
@@ -111,15 +106,10 @@ public class SetupActivity extends AppCompatActivity {
         boolean reinstallDeps = mCbReinstallDeps.isChecked();
         boolean reinstallAstrbot = mCbReinstallAstrbot.isChecked();
 
-        // Determine what to do:
-        // If nothing is installed or rootfs checkbox is checked → full install
-        // If only deps → skip rootfs extraction
-        // If only astrbot → skip rootfs + deps
         boolean needRootfs = !ChrootManager.isRootfsReady() || reinstallRootfs;
-        boolean needDeps = reinstallDeps || needRootfs;  // rootfs reinstall implies deps
+        boolean needDeps = reinstallDeps || needRootfs;
         boolean needAstrbot = !ChrootManager.isAstrBotInstalled() || reinstallAstrbot;
 
-        // If nothing checked and everything already installed — auto navigate to MainActivity
         if (!needRootfs && !needDeps && !needAstrbot) {
             Toast.makeText(this, "所有组件已安装，正在跳转...", Toast.LENGTH_SHORT).show();
             Intent intent = new Intent(SetupActivity.this, MainActivity.class);
@@ -168,7 +158,7 @@ public class SetupActivity extends AppCompatActivity {
 
                 if (ChrootManager.ensureChrootDir()) {
                     runOnUiThread(() -> {
-                        appendLog("❌ 无法创建 /data/botdrop 目录");
+                        appendLog("❌ 无法创建 /data/rbot 目录");
                         finishInstall("目录创建失败", "重试");
                     });
                     return;
@@ -200,7 +190,6 @@ public class SetupActivity extends AppCompatActivity {
                 }
                 appendLog("✅ 软件源更新完成");
 
-                // ─── Step 4: apt install deps ───
                 appendLog("📦 安装系统依赖...");
                 runOnUiThread(() -> mStepText.setText("安装系统依赖..."));
                 if (ChrootManager.aptInstallDeps(makeCallback())) {
@@ -208,11 +197,22 @@ public class SetupActivity extends AppCompatActivity {
                     return;
                 }
                 appendLog("✅ 系统依赖安装完成");
+
+                // ─── Step 3b: Set root password ───
+                appendLog("🔐 设置 root 密码...");
+                runOnUiThread(() -> mStepText.setText("设置 root 密码..."));
+                String defaultPassword = generateRandomPassword();
+                if (ChrootManager.setRootPassword(defaultPassword)) {
+                    appendLog("✅ root 密码已设置: " + defaultPassword);
+                    appendLog("   (请妥善保存，用于 SSH 登录)");
+                } else {
+                    appendLog("⚠️ root 密码设置失败，SSH 可能无法登录");
+                }
             } else {
                 appendLog("⏭️ 系统依赖已存在，跳过安装");
             }
 
-            // ─── Step 5: Clone AstrBot (if needed) ───
+            // ─── Step 4: Clone AstrBot (if needed) ───
             if (needAstrbot) {
                 appendLog("🤖 克隆 AstrBot...");
                 runOnUiThread(() -> mStepText.setText("克隆 AstrBot..."));
@@ -221,7 +221,6 @@ public class SetupActivity extends AppCompatActivity {
                     return;
                 }
 
-                // ─── Step 6: pip install ───
                 appendLog("🐍 安装 Python 依赖...");
                 runOnUiThread(() -> mStepText.setText("安装 Python 依赖..."));
                 if (ChrootManager.pipInstallDeps(makeCallback())) {
@@ -240,7 +239,6 @@ public class SetupActivity extends AppCompatActivity {
                 mTitleText.setText("安装完成");
                 mInstalling = false;
 
-                // Auto-navigate to MainActivity
                 appendLog("➡️ 正在跳转到主界面...");
                 Intent intent = new Intent(SetupActivity.this, MainActivity.class);
                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -253,45 +251,41 @@ public class SetupActivity extends AppCompatActivity {
     // ─── Rootfs tarball finding ───
 
     private String findRootfsTarball() {
-        // Tier 1: Local source
-        if (new java.io.File(BotDropConstants.LOCAL_ROOTFS_SRC).exists()) {
-            appendLog("  使用本地镜像: " + BotDropConstants.LOCAL_ROOTFS_SRC);
-            cacheRootfsIfNeeded(BotDropConstants.LOCAL_ROOTFS_SRC);
-            return BotDropConstants.LOCAL_ROOTFS_SRC;
+        if (new java.io.File(RbotConstants.LOCAL_ROOTFS_SRC).exists()) {
+            appendLog("  使用本地镜像: " + RbotConstants.LOCAL_ROOTFS_SRC);
+            cacheRootfsIfNeeded(RbotConstants.LOCAL_ROOTFS_SRC);
+            return RbotConstants.LOCAL_ROOTFS_SRC;
         }
-
-        // Tier 2: sdcard cache
-        if (new java.io.File(BotDropConstants.SDCARD_ROOTFS_CACHE).exists()) {
-            appendLog("  使用缓存镜像: " + BotDropConstants.SDCARD_ROOTFS_CACHE);
-            return BotDropConstants.SDCARD_ROOTFS_CACHE;
+        if (new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
+            appendLog("  使用缓存镜像: " + RbotConstants.SDCARD_ROOTFS_CACHE);
+            return RbotConstants.SDCARD_ROOTFS_CACHE;
         }
-
         return null;
     }
 
     private String downloadRootfs() {
-        ChrootManager.execRoot("mkdir -p " + BotDropConstants.SDCARD_CACHE_DIR);
+        ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR);
 
         ChrootManager.CommandResult result = ChrootManager.execRoot(
-            "curl -L --progress-bar -o " + BotDropConstants.SDCARD_ROOTFS_CACHE +
-            " '" + BotDropConstants.GITHUB_ROOTFS_URL + "'", 600);
+            "curl -L --progress-bar -o " + RbotConstants.SDCARD_ROOTFS_CACHE +
+            " '" + RbotConstants.GITHUB_ROOTFS_URL + "'", 600);
 
-        if (result.success() && new java.io.File(BotDropConstants.SDCARD_ROOTFS_CACHE).exists()) {
-            long size = new java.io.File(BotDropConstants.SDCARD_ROOTFS_CACHE).length();
+        if (result.success() && new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
+            long size = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).length();
             if (size > 10 * 1024 * 1024) {
-                return BotDropConstants.SDCARD_ROOTFS_CACHE;
+                return RbotConstants.SDCARD_ROOTFS_CACHE;
             }
         }
 
-        ChrootManager.execRoot("rm -f " + BotDropConstants.SDCARD_ROOTFS_CACHE);
+        ChrootManager.execRoot("rm -f " + RbotConstants.SDCARD_ROOTFS_CACHE);
         return null;
     }
 
     private void cacheRootfsIfNeeded(String srcPath) {
-        java.io.File cached = new java.io.File(BotDropConstants.SDCARD_ROOTFS_CACHE);
+        java.io.File cached = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE);
         if (!cached.exists()) {
-            ChrootManager.execRoot("mkdir -p " + BotDropConstants.SDCARD_CACHE_DIR +
-                " && cp '" + srcPath + "' " + BotDropConstants.SDCARD_ROOTFS_CACHE);
+            ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR +
+                " && cp '" + srcPath + "' " + RbotConstants.SDCARD_ROOTFS_CACHE);
         }
     }
 
@@ -324,5 +318,16 @@ public class SetupActivity extends AppCompatActivity {
             mLogText.append(message + "\n");
             mLogScrollView.post(() -> mLogScrollView.fullScroll(ScrollView.FOCUS_DOWN));
         });
+    }
+
+    /** Generate a random 8-character password */
+    private String generateRandomPassword() {
+        String chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+        StringBuilder sb = new StringBuilder();
+        java.security.SecureRandom random = new java.security.SecureRandom();
+        for (int i = 0; i < 8; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+        return sb.toString();
     }
 }

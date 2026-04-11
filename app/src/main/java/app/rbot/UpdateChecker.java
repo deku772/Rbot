@@ -1,4 +1,4 @@
-package app.andbott;
+package app.rbot;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -16,7 +16,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 
 /**
- * Lightweight version checker that queries the BotDrop API for the latest release.
+ * Lightweight version checker that queries the Rbot API for the latest release.
  * Throttled to once per 6 hours. Fails silently — never blocks app usage.
  */
 public class UpdateChecker {
@@ -26,7 +26,7 @@ public class UpdateChecker {
     private static final long CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L;
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 10000;
-    private static final String PREFS_NAME = "botdrop_update";
+    private static final String PREFS_NAME = "rbot_update";
     private static final String KEY_LAST_CHECK = "last_check_time";
     private static final String KEY_DISMISSED_VERSION = "dismissed_version";
     private static final String KEY_LATEST_VERSION = "latest_version";
@@ -50,11 +50,11 @@ public class UpdateChecker {
     static void check(Context ctx, UpdateCallback cb) {
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String currentVersion;
-        int currentVersionCode;
+        long currentVersionCode;
         try {
             PackageInfo pi = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0);
             currentVersion = pi.versionName;
-            currentVersionCode = pi.versionCode;
+            currentVersionCode = pi.getLongVersionCode();
         } catch (Exception e) {
             Log.e(TAG, "Failed to get package info: " + e.getMessage());
             return;

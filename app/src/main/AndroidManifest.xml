@@ -37,7 +37,7 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
-        android:name="app.andbott.BotDropApplication"
+        android:name="app.rbot.RbotApplication"
         android:allowBackup="false"
         android:banner="@drawable/banner"
         android:icon="@mipmap/ic_launcher"
@@ -51,7 +51,7 @@
 
         <!-- Launcher -->
         <activity
-            android:name="app.andbott.BotDropLauncherActivity"
+            android:name="app.rbot.RbotLauncherActivity"
             android:exported="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar">
@@ -64,26 +64,26 @@
 
         <!-- Setup wizard -->
         <activity
-            android:name="app.andbott.SetupActivity"
+            android:name="app.rbot.SetupActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
 
         <!-- Main screen: status + start/stop + logs -->
         <activity
-            android:name="app.andbott.MainActivity"
+            android:name="app.rbot.MainActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
 
         <!-- Core service: chroot management + command execution -->
         <service
-            android:name="app.andbott.BotDropService"
+            android:name="app.rbot.RbotService"
             android:exported="false" />
 
         <!-- Foreground service: keep AstrBot alive + notifications -->
         <service
-            android:name="app.andbott.GatewayMonitorService"
+            android:name="app.rbot.GatewayMonitorService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -93,19 +93,19 @@
 
         <!-- Boot receiver: auto-start gateway on device boot -->
         <receiver
-            android:name="app.andbott.BootReceiver"
+            android:name="app.rbot.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
 
-        <!-- Clipboard receiver for botdrop-u2 skill -->
+        <!-- Clipboard receiver for rbot-u2 skill -->
         <receiver
-            android:name="app.andbott.ClipboardReceiver"
+            android:name="app.rbot.ClipboardReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="app.andbott.SET_CLIPBOARD" />
+                <action android:name="app.rbot.SET_CLIPBOARD" />
             </intent-filter>
         </receiver>
 

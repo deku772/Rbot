@@ -1,4 +1,4 @@
-package app.andbott;
+package app.rbot;
 
 import android.app.Service;
 import android.content.Context;
@@ -13,7 +13,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 /**
- * Background service for managing the BotDrop chroot environment.
+ * Background service for managing the Rbot chroot environment.
  * Delegates all root/chroot operations to {@link ChrootManager}.
  *
  * Responsibilities:
@@ -22,17 +22,17 @@ import java.util.concurrent.Executors;
  * - Running status checks
  * - Foreground service lifecycle for Android keep-alive
  */
-public class BotDropService extends Service {
+public class RbotService extends Service {
 
-    private static final String TAG = "BotDropService";
+    private static final String TAG = "RbotService";
 
     private final IBinder mBinder = new LocalBinder();
     private final ExecutorService mExecutor = Executors.newSingleThreadExecutor();
     private final Handler mHandler = new Handler(Looper.getMainLooper());
 
     public class LocalBinder extends Binder {
-        public BotDropService getService() {
-            return BotDropService.this;
+        public RbotService getService() {
+            return RbotService.this;
         }
     }
 
@@ -91,7 +91,7 @@ public class BotDropService extends Service {
         return ChrootManager.isRootfsReady();
     }
 
-    /** Check if AstrBot is installed (replaces isBootstrapInstalled + isAstrBotInstalled) */
+    /** Check if AstrBot is installed */
     public static boolean isAstrBotInstalled() {
         return ChrootManager.isAstrBotInstalled();
     }
@@ -108,7 +108,7 @@ public class BotDropService extends Service {
      * Full installation flow:
      * Step 0: Check root access
      * Step 1: Find rootfs tarball (3-tier fallback)
-     * Step 2: Extract rootfs to /data/botdrop
+     * Step 2: Extract rootfs to /data/rbot
      * Step 3: Install AstrBot inside chroot
      */
     public void installAstrBot(InstallProgressCallback callback) {
@@ -116,7 +116,7 @@ public class BotDropService extends Service {
             // Step 0: Check root
             mHandler.post(() -> callback.onStepStart(0, "检查 Root 权限..."));
             if (!ChrootManager.isRootAvailable()) {
-                mHandler.post(() -> callback.onError("未获取 Root 权限，请授予 BotDrop Root 权限后重试"));
+                mHandler.post(() -> callback.onError("未获取 Root 权限，请授予 Rbot Root 权限后重试"));
                 return;
             }
             mHandler.post(() -> callback.onStepComplete(0));
@@ -138,7 +138,7 @@ public class BotDropService extends Service {
             // Step 2: Extract rootfs
             mHandler.post(() -> callback.onStepStart(2, "解压系统镜像（约 1-3 分钟）..."));
             if (ChrootManager.ensureChrootDir()) {
-                mHandler.post(() -> callback.onError("无法创建 /data/botdrop 目录"));
+                mHandler.post(() -> callback.onError("无法创建 /data/rbot 目录"));
                 return;
             }
             if (ChrootManager.extractRootfs(tarballPath, new ChrootManager.ProgressCallback() {
@@ -212,7 +212,6 @@ public class BotDropService extends Service {
 
     public void getGatewayUptime(CommandCallback callback) {
         safeExecuteWithResult(callback, () -> {
-            // Read uptime from chroot process
             ChrootManager.CommandResult result = ChrootManager.execInChroot(
                 "if [ -f /root/astrbot/astrbot.pid ] && kill -0 $(cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
                 "  ps -p $(cat /root/astrbot/astrbot.pid) -o etime= 2>/dev/null || echo '—'; " +
@@ -223,22 +222,16 @@ public class BotDropService extends Service {
 
     // ─── Reinstall environment ───
 
-    /**
-     * Reinstall: clean internal rootfs, keep sdcard cache.
-     * After this, isAstrBotInstalled() returns false, user can re-install.
-     */
     public void reinstallEnvironment(CommandCallback callback) {
         safeExecuteWithResult(callback, () -> {
-            // Stop AstrBot first
             ChrootManager.stopAstrBot();
-            // Clean internal rootfs (keep sdcard cache)
             ChrootManager.CommandResult result = ChrootManager.execRoot(
-                "rm -rf " + BotDropConstants.CHROOT_DIR + "/*");
+                "rm -rf " + RbotConstants.CHROOT_DIR + "/*");
             return new CommandResult(result.success(), result.stdout(), result.stderr(), result.exitCode());
         });
     }
 
-    // ─── Update check stub (no longer npm-based) ───
+    // ─── Update check stub ───
 
     public boolean isUpdateInProgress() {
         return false;
@@ -246,62 +239,43 @@ public class BotDropService extends Service {
 
     // ─── Internal helpers ───
 
-    /**
-     * Find rootfs tarball using 3-tier fallback:
-     * 1. Local source: /storage/emulated/0/claw-apk/ubuntu22_openclaw.tar.gz
-     * 2. sdcard cache: /storage/emulated/0/botdrop/cache/ubuntu22_openclaw.tar.gz
-     * 3. (returns null — caller should download via downloadRootfs)
-     */
     private String findRootfsTarball() {
-        // Tier 1: Local source
-        if (new java.io.File(BotDropConstants.LOCAL_ROOTFS_SRC).exists()) {
-            Log.i(TAG, "Found local rootfs: " + BotDropConstants.LOCAL_ROOTFS_SRC);
-            // Auto-cache to sdcard for future use
-            cacheRootfsIfNeeded(BotDropConstants.LOCAL_ROOTFS_SRC);
-            return BotDropConstants.LOCAL_ROOTFS_SRC;
+        if (new java.io.File(RbotConstants.LOCAL_ROOTFS_SRC).exists()) {
+            Log.i(TAG, "Found local rootfs: " + RbotConstants.LOCAL_ROOTFS_SRC);
+            cacheRootfsIfNeeded(RbotConstants.LOCAL_ROOTFS_SRC);
+            return RbotConstants.LOCAL_ROOTFS_SRC;
         }
-
-        // Tier 2: sdcard cache
-        if (new java.io.File(BotDropConstants.SDCARD_ROOTFS_CACHE).exists()) {
-            Log.i(TAG, "Found cached rootfs: " + BotDropConstants.SDCARD_ROOTFS_CACHE);
-            return BotDropConstants.SDCARD_ROOTFS_CACHE;
+        if (new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
+            Log.i(TAG, "Found cached rootfs: " + RbotConstants.SDCARD_ROOTFS_CACHE);
+            return RbotConstants.SDCARD_ROOTFS_CACHE;
         }
-
         return null;
     }
 
-    /**
-     * Download rootfs from GitHub to sdcard cache.
-     * Returns the path to the downloaded file, or null on failure.
-     */
     private String downloadRootfs() {
-        // Ensure sdcard cache directory exists
-        ChrootManager.execRoot("mkdir -p " + BotDropConstants.SDCARD_CACHE_DIR);
+        ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR);
 
         ChrootManager.CommandResult result = ChrootManager.execRoot(
-            "curl -L --progress-bar -o " + BotDropConstants.SDCARD_ROOTFS_CACHE +
-            " '" + BotDropConstants.GITHUB_ROOTFS_URL + "'", 600);
+            "curl -L --progress-bar -o " + RbotConstants.SDCARD_ROOTFS_CACHE +
+            " '" + RbotConstants.GITHUB_ROOTFS_URL + "'", 600);
 
-        if (result.success() && new java.io.File(BotDropConstants.SDCARD_ROOTFS_CACHE).exists()) {
-            // Verify file size > 10MB
-            long size = new java.io.File(BotDropConstants.SDCARD_ROOTFS_CACHE).length();
+        if (result.success() && new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
+            long size = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).length();
             if (size > 10 * 1024 * 1024) {
-                return BotDropConstants.SDCARD_ROOTFS_CACHE;
+                return RbotConstants.SDCARD_ROOTFS_CACHE;
             }
         }
 
-        // Clean up failed download
-        ChrootManager.execRoot("rm -f " + BotDropConstants.SDCARD_ROOTFS_CACHE);
+        ChrootManager.execRoot("rm -f " + RbotConstants.SDCARD_ROOTFS_CACHE);
         return null;
     }
 
-    /** Cache rootfs from local source to sdcard for future reinstalls */
     private void cacheRootfsIfNeeded(String srcPath) {
-        java.io.File cached = new java.io.File(BotDropConstants.SDCARD_ROOTFS_CACHE);
+        java.io.File cached = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE);
         if (!cached.exists()) {
             Log.i(TAG, "Caching rootfs to sdcard for future use");
-            ChrootManager.execRoot("mkdir -p " + BotDropConstants.SDCARD_CACHE_DIR +
-                " && cp '" + srcPath + "' " + BotDropConstants.SDCARD_ROOTFS_CACHE);
+            ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR +
+                " && cp '" + srcPath + "' " + RbotConstants.SDCARD_ROOTFS_CACHE);
         }
     }
 

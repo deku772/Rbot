@@ -1,4 +1,4 @@
-package app.andbott;
+package app.rbot;
 
 import android.app.Activity;
 import android.content.Context;
@@ -19,7 +19,7 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.core.app.NotificationManagerCompat;
 
-import app.andbott.R;
+import app.rbot.R;
 import android.util.Log;
 
 
@@ -35,13 +35,13 @@ import android.util.Log;
  * 3. AstrBot not installed → SetupActivity (install step)
  * 4. All ready → MainActivity
  */
-public class BotDropLauncherActivity extends Activity {
+public class RbotLauncherActivity extends Activity {
 
-    private static final String TAG = "BotDropLauncherActivity";
+    private static final String TAG = "RbotLauncherActivity";
     private static final int REQUEST_CODE_NOTIFICATION_SETTINGS = 1001;
     private static final int REQUEST_CODE_BATTERY_OPTIMIZATION = 1002;
     private static final int REQUEST_CODE_ALL_FILES_ACCESS = 1003;
-    private static final String PREFS_NAME = "botdrop_launcher";
+    private static final String PREFS_NAME = "rbot_launcher";
     private static final String PREF_ONBOARDING_CONTINUE = "onboarding_continue_clicked";
 
     private View mWelcomeContainer;
@@ -314,8 +314,7 @@ public class BotDropLauncherActivity extends Activity {
         // Check 1: Root available?
         if (!ChrootManager.isRootAvailable()) {
             Log.w(TAG, "Root not available");
-            mStatusText.setText("需要 Root 权限才能运行 BotDrop");
-            // Don't route anywhere — user needs to grant root
+            mStatusText.setText("需要 Root 权限才能运行 Rbot");
             return;
         }
 
@@ -341,8 +340,8 @@ public class BotDropLauncherActivity extends Activity {
             return;
         }
 
-        // All ready — go to Dashboard
-        Log.i(TAG, "All ready, routing to dashboard");
+        // All ready — go to main
+        Log.i(TAG, "All ready, routing to main");
         mStatusText.setText(R.string.botdrop_starting_status);
         Intent intent = new Intent(this, MainActivity.class);
         startActivity(intent);
