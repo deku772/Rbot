@@ -38,6 +38,19 @@
             android:textSize="14sp"
             android:textColor="@color/botdrop_secondary_text" />
 
+        <Button
+            android:id="@+id/btn_terminal"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:text="终端"
+            android:textSize="12sp"
+            android:textColor="@color/botdrop_accent"
+            android:background="@drawable/botdrop_button_outline_bg"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:visibility="gone" />
+
     </LinearLayout>
 
     <!-- Control buttons -->

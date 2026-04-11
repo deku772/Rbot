@@ -44,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
     private Button mStartButton;
     private Button mStopButton;
     private Button mSetupButton;
+    private Button mTerminalButton;
     private ScrollView mLogScrollView;
     private CardView mWebuiPanel;
     private TextView mWebuiUrl;
@@ -90,6 +91,7 @@ public class MainActivity extends AppCompatActivity {
         mWebuiPanel = findViewById(R.id.webui_panel);
         mWebuiUrl = findViewById(R.id.webui_url);
         mOpenWebuiButton = findViewById(R.id.btn_open_webui);
+        mTerminalButton = findViewById(R.id.btn_terminal);
 
         createNotificationChannel();
 
@@ -104,6 +106,11 @@ public class MainActivity extends AppCompatActivity {
             String url = mWebuiUrl.getText().toString();
             Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             startActivity(browserIntent);
+        });
+        mTerminalButton.setOnClickListener(v -> {
+            // Launch terminal — note: TerminalActivity was removed during refactor.
+            // Show a toast for now since terminal integration requires rebuild.
+            android.widget.Toast.makeText(this, "终端功能需要完整编译后使用", android.widget.Toast.LENGTH_SHORT).show();
         });
     }
 
@@ -151,6 +158,7 @@ public class MainActivity extends AppCompatActivity {
             mStopButton.setEnabled(false);
             mSetupButton.setVisibility(View.GONE);
             mWebuiPanel.setVisibility(View.GONE);
+            mTerminalButton.setVisibility(View.GONE);
         } else if (!rootfsReady || !astrBotInstalled) {
             mStatusText.setText("📦 需要安装");
             mStartButton.setEnabled(false);
@@ -158,6 +166,7 @@ public class MainActivity extends AppCompatActivity {
             mSetupButton.setVisibility(View.VISIBLE);
             mSetupButton.setEnabled(true);
             mWebuiPanel.setVisibility(View.GONE);
+            mTerminalButton.setVisibility(View.GONE);
         } else if (astrBotRunning) {
             mStatusText.setText("✅ 运行中");
             mStartButton.setEnabled(false);
@@ -167,12 +176,14 @@ public class MainActivity extends AppCompatActivity {
             String webuiUrl = detectLanIp();
             mWebuiUrl.setText(webuiUrl);
             mWebuiPanel.setVisibility(View.VISIBLE);
+            mTerminalButton.setVisibility(View.VISIBLE);
         } else {
             mStatusText.setText("⏹ 已停止");
             mStartButton.setEnabled(true);
             mStopButton.setEnabled(false);
             mSetupButton.setVisibility(View.GONE);
             mWebuiPanel.setVisibility(View.GONE);
+            mTerminalButton.setVisibility(View.VISIBLE);
         }
     }
 

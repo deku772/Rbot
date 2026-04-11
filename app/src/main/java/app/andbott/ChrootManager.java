@@ -280,7 +280,7 @@ public final class ChrootManager {
         CommandResult result = execInChroot(
             "export DEBIAN_FRONTEND=noninteractive && " +
             "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
-            "apt install -y --allow-unauthenticated python3 python3-pip git curl gpgv coreutils", 300);
+            "apt install -y --allow-unauthenticated python3 python3-pip git curl gpgv coreutils procps", 300);
 
         if (!result.success) {
             if (callback != null) callback.onError("依赖安装失败: " + result.stderr);
@@ -367,9 +367,11 @@ public final class ChrootManager {
 
         // Use python3 directly (uv may not be installed in chroot;
         // dependencies are already installed via pip in installAstrBot)
+        // Use setsid so the Python process becomes a proper daemon and $! gives
+        // the Python PID (not nohup's PID, which would exit immediately).
         String chrootBashCmd =
             "cd /root/astrbot && " +
-            "nohup python3 main.py > /root/astrbot/astrbot.log 2>&1 & " +
+            "setsid python3 main.py > /root/astrbot/astrbot.log 2>&1 & " +
             "echo $! > /root/astrbot/astrbot.pid && " +
             "sleep 5 && " +
             "if kill -0 $(cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
@@ -385,12 +387,22 @@ public final class ChrootManager {
 
     /** Stop AstrBot */
     public static CommandResult stopAstrBot() {
+        // Try pid file first, then fall back to ps+pkill
         String stopCmd =
-            "if [ -f /root/astrbot/astrbot.pid ]; then " +
-            "  kill $(cat /root/astrbot/astrbot.pid) 2>/dev/null || true; " +
-            "  rm -f /root/astrbot/astrbot.pid; " +
+            "PIDFILE=/root/astrbot/astrbot.pid; " +
+            "if [ -f \"$PIDFILE\" ]; then " +
+            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  [ -n \"$SPECPID\" ] && kill $SPECPID 2>/dev/null; " +
+            "  rm -f $PIDFILE; " +
             "fi; " +
-            "pkill -f 'python3 main.py' 2>/dev/null || true; " +
+            "if which pkill >/dev/null 2>&1; then " +
+            "  pkill -f 'python3.*main.py' 2>/dev/null || true; " +
+            "else " +
+            "  for pid in $(ps -eo pid,cmd 2>/dev/null | grep 'python3.*main.py' | grep -v grep | awk '{print $1}'); do " +
+            "    kill $pid 2>/dev/null || true; " +
+            "  done; " +
+            "fi; " +
+            "sleep 1; " +
             "echo stopped";
         return execInChroot(stopCmd, 15);
     }
@@ -398,13 +410,17 @@ public final class ChrootManager {
     /** Check if AstrBot is running */
     public static boolean isAstrBotRunning() {
         CommandResult result = execInChroot(
-            "if [ -f /root/astrbot/astrbot.pid ] && kill -0 $(cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
-            "  echo running; " +
-            "elif pgrep -f 'python3 main.py' >/dev/null 2>&1; then " +
-            "  echo running; " +
+            "PIDFILE=/root/astrbot/astrbot.pid; " +
+            "if [ -f \"$PIDFILE\" ]; then " +
+            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  [ -n \"$SPECPID\" ] && kill -0 $SPECPID 2>/dev/null && { echo running; exit 0; }; " +
+            "fi; " +
+            "if which pgrep >/dev/null 2>&1; then " +
+            "  pgrep -f 'python3.*main.py' >/dev/null 2>&1 && { echo running; exit 0; }; " +
             "else " +
-            "  echo stopped; " +
-            "fi", 10);
+            "  ps -eo pid,cmd 2>/dev/null | grep 'python3.*main.py' | grep -v grep >/dev/null 2>&1 && { echo running; exit 0; }; " +
+            "fi; " +
+            "echo stopped", 10);
         return result.success && result.stdout.trim().equals("running");
     }
 
