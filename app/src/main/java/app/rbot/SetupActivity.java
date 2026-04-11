@@ -171,6 +171,45 @@ public class SetupActivity extends AppCompatActivity {
                 }
                 appendLog("✅ 系统镜像解压完成");
                 runOnUiThread(() -> mStepText.setText("解压 ✅"));
+
+                // Ask to restore AstrBot data if backup exists in unified location
+                if (new java.io.File(RbotConstants.EXTERNAL_DATA_BACKUP + "/data").exists()) {
+                    final boolean[] shouldRestore = {false};
+                    final Object lock = new Object();
+                    runOnUiThread(() -> {
+                        new androidx.appcompat.app.AlertDialog.Builder(SetupActivity.this)
+                            .setTitle("恢复 AstrBot 数据")
+                            .setMessage("检测到外部存储中有 AstrBot 数据备份，是否恢复？\n路径: " + RbotConstants.EXTERNAL_DATA_BACKUP)
+                            .setPositiveButton("恢复", (dialog, which) -> {
+                                synchronized (lock) {
+                                    shouldRestore[0] = true;
+                                    lock.notify();
+                                }
+                            })
+                            .setNegativeButton("跳过", (dialog, which) -> {
+                                synchronized (lock) {
+                                    lock.notify();
+                                }
+                            })
+                            .setCancelable(false)
+                            .show();
+                    });
+                    synchronized (lock) {
+                        try {
+                            lock.wait();
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
+                    }
+                    if (shouldRestore[0]) {
+                        appendLog("🔄 正在恢复 AstrBot 数据...");
+                        if (ChrootManager.restoreAstrBotData(makeCallback())) {
+                            appendLog("⚠️ 数据恢复失败，继续安装...");
+                        } else {
+                            appendLog("✅ AstrBot 数据已恢复");
+                        }
+                    }
+                }
             } else {
                 appendLog("⏭️ 系统镜像已存在，跳过解压");
             }

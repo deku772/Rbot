@@ -49,6 +49,10 @@ public final class ChrootManager {
                 // we're in an Android app environment (it would try jnius
                 // and crash with "Cannot find path to android app folder").
                 "unset ANDROID_ROOT && " +
+                // Ensure temp files stay inside chroot - prevent leaking to host Android paths
+                "export TMPDIR=/tmp && " +
+                "export TEMP=/tmp && " +
+                "export TMP=/tmp && " +
                 "export XDG_CACHE_HOME=/root/.cache && " +
                 "export XDG_CONFIG_HOME=/root/.config && " +
                 "export XDG_DATA_HOME=/root/.local/share && " +
@@ -114,6 +118,15 @@ public final class ChrootManager {
         // Unmount bind-mounted devices before cleaning dirs (avoid deleting host /dev/null etc.)
         cleanupChrootDevices();
 
+        // Backup AstrBot data to unified external storage location (survives app uninstall)
+        boolean hasAstrBotData = new File(RbotConstants.CHROOT_DIR + "/root/astrbot/data").exists();
+        if (hasAstrBotData) {
+            if (callback != null) callback.onProgress("检测到 AstrBot 数据，正在备份...");
+            execRoot("mkdir -p " + RbotConstants.EXTERNAL_DATA_BACKUP + " && rm -rf " + RbotConstants.EXTERNAL_DATA_BACKUP + "/*");
+            execRoot("cp -a " + RbotConstants.CHROOT_DIR + "/root/astrbot/data " + RbotConstants.EXTERNAL_DATA_BACKUP + "/");
+            if (callback != null) callback.onProgress("数据已备份到: " + RbotConstants.EXTERNAL_DATA_BACKUP);
+        }
+
         // Clean staging AND chroot dir (chroot may have partial files from a previous failed run)
         execRoot("rm -rf " + stagingDir + " && rm -rf " + RbotConstants.CHROOT_DIR + " && mkdir -p " + RbotConstants.CHROOT_DIR + " " + stagingDir);
 
@@ -170,6 +183,32 @@ public final class ChrootManager {
         return false;
     }
 
+    /** Restore AstrBot data from unified external storage backup */
+    public static boolean restoreAstrBotData(ProgressCallback callback) {
+        File backupData = new File(RbotConstants.EXTERNAL_DATA_BACKUP + "/data");
+
+        if (!backupData.exists()) {
+            if (callback != null) callback.onError("未找到备份数据: " + RbotConstants.EXTERNAL_DATA_BACKUP + "/data");
+            return true;
+        }
+
+        if (callback != null) callback.onProgress("正在从外部存储恢复 AstrBot 数据...");
+
+        // Ensure astrbot directory exists
+        execRoot("mkdir -p " + RbotConstants.CHROOT_DIR + "/root/astrbot");
+
+        // Restore data
+        CommandResult result = execRoot("cp -a " + RbotConstants.EXTERNAL_DATA_BACKUP + "/data " + RbotConstants.CHROOT_DIR + "/root/astrbot/");
+
+        if (!result.success()) {
+            if (callback != null) callback.onError("恢复数据失败: " + result.stderr());
+            return true;
+        }
+
+        if (callback != null) callback.onProgress("AstrBot 数据已恢复");
+        return false;
+    }
+
     /**
      * Set up essential device nodes, filesystem mounts inside the chroot.
      * Must be called after extractRootfs and before any chroot command.
@@ -206,10 +245,16 @@ public final class ChrootManager {
 
         execRoot(bindCmd, 15);
 
-        // Step 3: Mount /dev/pts — try bind first (SELinux friendly), fall back to new mount
+        // Step 3: Mount /dev/pts — must use devpts with correct options for apt/ssh to work
+        // Create a new devpts instance with proper permissions
         execRoot(
-            "mount --bind /dev/pts " + D + "/dev/pts 2>/dev/null || " +
+            "mkdir -p " + D + "/dev/pts; " +
+            "mount -t devpts -o newinstance,ptmxmode=0666 devpts " + D + "/dev/pts 2>/dev/null || " +
             "mount -t devpts devpts " + D + "/dev/pts 2>/dev/null; " +
+            "chmod 666 " + D + "/dev/pts/ptmx 2>/dev/null || true; " +
+            "rm -f " + D + "/dev/ptmx 2>/dev/null; " +
+            "ln -sf pts/ptmx " + D + "/dev/ptmx; " +
+            "ls -la " + D + "/dev/ptmx " + D + "/dev/pts/ptmx 2>/dev/null; " +
             "echo pts_done", 15);
 
         // Step 4: Mount /proc and /sys
@@ -220,7 +265,13 @@ public final class ChrootManager {
 
         execRoot(fsCmd, 15);
 
-        // Step 5: Copy host's DNS config into chroot
+        // Step 5: Mount tmpfs on /tmp for apt/mktemp to work properly
+        execRoot(
+            "chmod 1777 " + D + "/tmp 2>/dev/null; " +
+            "mount -t tmpfs -o size=512M,mode=1777 tmpfs " + D + "/tmp 2>/dev/null || true; " +
+            "echo tmp_done", 10);
+
+        // Step 6: Copy host's DNS config into chroot
         execRoot(
             "rm -f " + D + "/etc/resolv.conf 2>/dev/null; " +
             "cp /etc/resolv.conf " + D + "/etc/resolv.conf 2>/dev/null || " +
@@ -393,21 +444,35 @@ public final class ChrootManager {
         }
     }
 
-    /** Stop AstrBot */
+    /** Stop AstrBot - kills from both inside and outside chroot */
     public static CommandResult stopAstrBot() {
-        // Try pid file first, then fall back to ps+pkill
+        // First try to stop from outside chroot (in case chroot is broken)
+        // Kill by PID file content (read from outside)
+        execRoot(
+            "PIDFILE=" + RbotConstants.CHROOT_DIR + "/root/astrbot/astrbot.pid; " +
+            "if [ -f \"$PIDFILE\" ]; then " +
+            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
+            "  rm -f $PIDFILE; " +
+            "fi; " +
+            "echo host_killed", 10);
+
+        // Also try pkill from host side
+        execRoot("pkill -9 -f 'python3.*main.py' 2>/dev/null || true; echo pkill_done", 5);
+
+        // Then try from inside chroot as backup
         String stopCmd =
             "PIDFILE=/root/astrbot/astrbot.pid; " +
             "if [ -f \"$PIDFILE\" ]; then " +
             "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
-            "  [ -n \"$SPECPID\" ] && kill $SPECPID 2>/dev/null; " +
+            "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
             "  rm -f $PIDFILE; " +
             "fi; " +
             "if which pkill >/dev/null 2>&1; then " +
-            "  pkill -f 'python3.*main.py' 2>/dev/null || true; " +
+            "  pkill -9 -f 'python3.*main.py' 2>/dev/null || true; " +
             "else " +
             "  for pid in $(ps -eo pid,cmd 2>/dev/null | grep 'python3.*main.py' | grep -v grep | awk '{print $1}'); do " +
-            "    kill $pid 2>/dev/null || true; " +
+            "    kill -9 $pid 2>/dev/null || true; " +
             "  done; " +
             "fi; " +
             "sleep 1; " +
@@ -438,9 +503,18 @@ public final class ChrootManager {
     public record FullStatus(
         boolean rootAvailable,
         boolean rootfsReady,
+        boolean chrootMounted,
         boolean astrBotInstalled,
         boolean astrBotRunning
     ) {}
+
+    /** Check if chroot filesystems are mounted (proc/sys/dev/pts) */
+    public static boolean isChrootMounted() {
+        // Check if /proc in chroot is mounted (simple check)
+        CommandResult result = execRoot(
+            "mount | grep -q '" + RbotConstants.CHROOT_DIR + "/proc ' && echo mounted || echo not_mounted", 5);
+        return result.success() && result.stdout().trim().equals("mounted");
+    }
 
     /**
      * Get all status values in a single su call.
@@ -449,6 +523,7 @@ public final class ChrootManager {
         CommandResult idResult = execRoot("id", 5);
         boolean rootAvailable = idResult.success() && idResult.stdout().contains("uid=0");
         boolean rootfsReady = isRootfsReady();
+        boolean chrootMounted = isChrootMounted();
         boolean astrBotInstalled = isAstrBotInstalled();
         boolean astrBotRunning = false;
         if (rootfsReady && astrBotInstalled) {
@@ -462,19 +537,22 @@ public final class ChrootManager {
                 "fi", 10);
             astrBotRunning = runningResult.success() && runningResult.stdout().trim().equals("running");
         }
-        return new FullStatus(rootAvailable, rootfsReady, astrBotInstalled, astrBotRunning);
+        return new FullStatus(rootAvailable, rootfsReady, chrootMounted, astrBotInstalled, astrBotRunning);
     }
 
     // ─── Backup & Restore ───
 
     /**
      * Create a backup of AstrBot data directory.
-     * Backup file: /sdcard/rbot/backup/rbot-backup-{timestamp}.tar.gz
+     * Backup: /sdcard/rbot/backups/astrbot_data_backup/{timestamp}/
      * @param callback Progress callback for UI updates
-     * @return Backup file path on success, null on failure
+     * @return Backup directory path on success, null on failure
      */
     public static String backupAstrBotData(ProgressCallback callback) {
         if (callback != null) callback.onProgress("准备备份...");
+
+        // Ensure chroot environment is set up (mounts /dev, /dev/pts, /proc, /sys, /tmp)
+        setupChrootEnvironment(callback);
 
         // Ensure backup directory exists
         CommandResult mkdirResult = execRoot("mkdir -p " + RbotConstants.BACKUP_DIR);
@@ -483,98 +561,53 @@ public final class ChrootManager {
             return null;
         }
 
-        // Generate timestamped filename
+        // Generate timestamped backup directory
         String timestamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.getDefault())
             .format(new java.util.Date());
-        String backupFileName = "rbot-backup-" + timestamp + ".tar.gz";
-        String backupPath = RbotConstants.BACKUP_DIR + "/" + backupFileName;
+        String backupDir = RbotConstants.BACKUP_DIR + "/astrbot_data_" + timestamp;
 
-        if (callback != null) callback.onProgress("正在打包 data 目录...");
+        if (callback != null) callback.onProgress("正在复制 data 目录...");
 
-        // Create tar.gz archive of data directory
-        // Use chroot path: /root/astrbot/data -> tar czf backup.tar.gz -C /root/astrbot data
-        String tarCmd = "chroot " + RbotConstants.CHROOT_DIR +
-            " /bin/bash -c " + shellQuote(
-                "cd /root/astrbot && " +
-                "tar czf /tmp/backup.tar.gz data/ 2>&1 && " +
-                "echo backup_ok"
-            );
+        // Direct cp -r from chroot data to backup dir (no tar compression)
+        CommandResult cpResult = execRoot(
+            "cp -r " + RbotConstants.ASTRBOT_HOME + "/data '" + backupDir + "'");
 
-        CommandResult tarResult = execRoot(tarCmd, 120);
-        if (!tarResult.success || !tarResult.stdout.contains("backup_ok")) {
-            if (callback != null) callback.onError("打包失败: " + tarResult.stderr);
+        if (!cpResult.success) {
+            if (callback != null) callback.onError("复制失败: " + cpResult.stderr);
             return null;
         }
 
-        if (callback != null) callback.onProgress("正在移动到存储...");
-
-        // Move from chroot tmp to sdcard
-        CommandResult mvResult = execRoot(
-            "mv " + RbotConstants.CHROOT_DIR + "/tmp/backup.tar.gz " + backupPath + " && " +
-            "chmod 644 " + backupPath);
-
-        if (!mvResult.success) {
-            if (callback != null) callback.onError("保存备份失败");
-            return null;
-        }
-
-        // Get file size for confirmation
-        CommandResult sizeResult = execRoot("ls -lh " + backupPath + " | awk '{print $5}'");
-        String size = sizeResult.success ? sizeResult.stdout.trim() : "unknown";
-
-        if (callback != null) callback.onProgress("备份完成: " + size);
-        return backupPath;
+        if (callback != null) callback.onProgress("备份完成: " + backupDir);
+        return backupDir;
     }
 
     /**
-     * Restore AstrBot data from a backup file.
-     * @param backupPath Full path to the backup tar.gz file
+     * Restore AstrBot data from a backup directory.
+     * @param backupDir Full path to the backup directory
      * @param callback Progress callback for UI updates
      * @return true on failure, false on success
      */
-    public static boolean restoreAstrBotData(String backupPath, ProgressCallback callback) {
-        if (callback != null) callback.onProgress("检查备份文件...");
+    public static boolean restoreAstrBotData(String backupDir, ProgressCallback callback) {
+        if (callback != null) callback.onProgress("检查备份...");
 
-        // Verify backup file exists
-        CommandResult checkResult = execRoot("test -f '" + backupPath + "' && echo exists");
+        // Verify backup directory exists
+        CommandResult checkResult = execRoot("test -d '" + backupDir + "' && echo exists");
         if (!checkResult.success || !checkResult.stdout.trim().equals("exists")) {
-            if (callback != null) callback.onError("备份文件不存在");
-            return true;
-        }
-
-        // Verify it's a valid tar.gz
-        CommandResult verifyResult = execRoot("file '" + backupPath + "'");
-        if (!verifyResult.success || !verifyResult.stdout.contains("gzip")) {
-            if (callback != null) callback.onError("无效的备份文件格式");
+            if (callback != null) callback.onError("备份目录不存在");
             return true;
         }
 
         if (callback != null) callback.onProgress("停止 AstrBot...");
-
-        // Stop AstrBot before restore
         stopAstrBot();
 
-        if (callback != null) callback.onProgress("正在恢复数据...");
+        if (callback != null) callback.onProgress("正在恢复 data 目录...");
 
-        // Copy backup to chroot tmp
-        CommandResult cpResult = execRoot("cp '" + backupPath + "' " + RbotConstants.CHROOT_DIR + "/tmp/restore.tar.gz");
+        // Direct cp -r -f to overwrite (no tar extraction)
+        CommandResult cpResult = execRoot(
+            "cp -r -f '" + backupDir + "/data' " + RbotConstants.ASTRBOT_HOME + "/");
+
         if (!cpResult.success) {
-            if (callback != null) callback.onError("无法复制备份文件");
-            return true;
-        }
-
-        // Extract backup to astrbot directory
-        String extractCmd = "chroot " + RbotConstants.CHROOT_DIR +
-            " /bin/bash -c " + shellQuote(
-                "cd /root/astrbot && " +
-                "tar xzf /tmp/restore.tar.gz 2>&1 && " +
-                "rm /tmp/restore.tar.gz && " +
-                "echo restore_ok"
-            );
-
-        CommandResult extractResult = execRoot(extractCmd, 120);
-        if (!extractResult.success || !extractResult.stdout.contains("restore_ok")) {
-            if (callback != null) callback.onError("恢复失败: " + extractResult.stderr);
+            if (callback != null) callback.onError("恢复失败: " + cpResult.stderr);
             return true;
         }
 
@@ -583,12 +616,12 @@ public final class ChrootManager {
     }
 
     /**
-     * List all available backup files.
-     * @return Array of backup file paths, sorted by modification time (newest first)
+     * List all available backup directories.
+     * @return Array of backup directory paths, sorted by modification time (newest first)
      */
     public static String[] listBackups() {
         CommandResult result = execRoot(
-            "ls -1t " + RbotConstants.BACKUP_DIR + "/rbot-backup-*.tar.gz 2>/dev/null || echo none");
+            "ls -1dt " + RbotConstants.BACKUP_DIR + "/astrbot_data_* 2>/dev/null || echo none");
 
         if (!result.success || result.stdout.trim().equals("none")) {
             return new String[0];

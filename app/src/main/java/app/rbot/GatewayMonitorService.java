@@ -154,16 +154,11 @@ public class GatewayMonitorService extends Service {
             return;
         }
 
+        // Monitor mode: only check status, never auto-restart
+        // User controls AstrBot start/stop manually via the app
         try {
             boolean isRunning = ChrootManager.isAstrBotRunning();
-            if (isRunning) {
-                mRestartAttempts = 0;
-                updateStatus("Running");
-            } else {
-                Log.i(TAG, "AstrBot is not running, attempting restart");
-                updateStatus("Restarting...");
-                restartAstrBot();
-            }
+            updateStatus(isRunning ? "Running" : "Stopped");
         } catch (Exception e) {
             Log.e(TAG, "Error checking AstrBot status: " + e.getMessage());
         }

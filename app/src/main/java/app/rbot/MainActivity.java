@@ -43,7 +43,6 @@ public class MainActivity extends AppCompatActivity {
     private Button mStartButton;
     private Button mStopButton;
     private Button mSetupButton;
-    private Button mSshButton;
     private Button mBackupButton;
     private Button mRestoreButton;
     private CardView mSshInfoPanel;
@@ -112,7 +111,6 @@ public class MainActivity extends AppCompatActivity {
         mWebuiPanel = findViewById(R.id.webui_panel);
         mWebuiUrl = findViewById(R.id.webui_url);
         mOpenWebuiButton = findViewById(R.id.btn_open_webui);
-        mSshButton = findViewById(R.id.btn_ssh);
         mBackupButton = findViewById(R.id.btn_backup);
         mRestoreButton = findViewById(R.id.btn_restore);
         mSshInfoPanel = findViewById(R.id.ssh_info_panel);
@@ -148,7 +146,6 @@ public class MainActivity extends AppCompatActivity {
             Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
             startActivity(browserIntent);
         });
-        mSshButton.setOnClickListener(v -> toggleSshService());
         mSshToggleButton.setOnClickListener(v -> toggleSshService());
         mBackupButton.setOnClickListener(v -> showBackupDialog());
         mRestoreButton.setOnClickListener(v -> showRestoreDialog());
@@ -220,11 +217,12 @@ public class MainActivity extends AppCompatActivity {
     private void refreshStatusOffThread() {
         ChrootManager.FullStatus status = ChrootManager.getFullStatus();
         mHandler.post(() -> updateStatusUI(status.rootAvailable(), status.rootfsReady(),
-            status.astrBotInstalled(), status.astrBotRunning()));
+            status.chrootMounted(), status.astrBotInstalled(), status.astrBotRunning()));
     }
 
     /** Update UI based on status — must be called on main thread */
-    private void updateStatusUI(boolean rootAvailable, boolean rootfsReady, boolean astrBotInstalled, boolean astrBotRunning) {
+    private void updateStatusUI(boolean rootAvailable, boolean rootfsReady, boolean chrootMounted,
+                                boolean astrBotInstalled, boolean astrBotRunning) {
         if (!rootAvailable) {
             mStatusText.setText("⚠ 需要 Root 权限");
             mStartButton.setEnabled(false);
@@ -232,7 +230,6 @@ public class MainActivity extends AppCompatActivity {
             mSetupButton.setVisibility(View.GONE);
             mWebuiPanel.setVisibility(View.GONE);
             mSshInfoPanel.setVisibility(View.GONE);
-            mSshButton.setVisibility(View.GONE);
         } else if (!rootfsReady || !astrBotInstalled) {
             mStatusText.setText("📦 需要安装");
             mStartButton.setEnabled(false);
@@ -241,32 +238,28 @@ public class MainActivity extends AppCompatActivity {
             mSetupButton.setEnabled(true);
             mWebuiPanel.setVisibility(View.GONE);
             mSshInfoPanel.setVisibility(View.GONE);
-            mSshButton.setVisibility(View.GONE);
             mBackupButton.setVisibility(View.GONE);
             mRestoreButton.setVisibility(View.GONE);
-        } else if (astrBotRunning) {
-            mStatusText.setText("✅ 运行中");
-            mStartButton.setEnabled(false);
-            mStopButton.setEnabled(true);
-            mSetupButton.setVisibility(View.GONE);
-            String webuiUrl = detectLanIp();
-            mWebuiUrl.setText(webuiUrl);
-            mWebuiPanel.setVisibility(View.VISIBLE);
-            mSshInfoPanel.setVisibility(View.VISIBLE);
-            mSshButton.setVisibility(View.VISIBLE);
-            mBackupButton.setVisibility(View.VISIBLE);
-            mRestoreButton.setVisibility(View.VISIBLE);
-            mBackupButton.setEnabled(!mBackupInProgress);
-            // Update SSH panel
-            updateSshPanel();
         } else {
-            mStatusText.setText("⏹ 已停止");
-            mStartButton.setEnabled(true);
-            mStopButton.setEnabled(false);
+            // Show dual status: Ubuntu + AstrBot
+            String ubuntuStatus = chrootMounted ? "🐧 Ubuntu: 运行中" : "🐧 Ubuntu: 未挂载";
+            String astrbotStatus = astrBotRunning ? "🤖 AstrBot: 运行中" : "🤖 AstrBot: 已停止";
+            mStatusText.setText(ubuntuStatus + "\n" + astrbotStatus);
+
+            mStartButton.setEnabled(!astrBotRunning);
+            mStopButton.setEnabled(astrBotRunning);
+
             mSetupButton.setVisibility(View.GONE);
-            mWebuiPanel.setVisibility(View.GONE);
+
+            if (astrBotRunning) {
+                String webuiUrl = detectLanIp();
+                mWebuiUrl.setText(webuiUrl);
+                mWebuiPanel.setVisibility(View.VISIBLE);
+            } else {
+                mWebuiPanel.setVisibility(View.GONE);
+            }
+
             mSshInfoPanel.setVisibility(View.VISIBLE);
-            mSshButton.setVisibility(View.VISIBLE);
             mBackupButton.setVisibility(View.VISIBLE);
             mRestoreButton.setVisibility(View.VISIBLE);
             mBackupButton.setEnabled(!mBackupInProgress);
@@ -283,6 +276,14 @@ public class MainActivity extends AppCompatActivity {
             mHandler.post(() -> {
                 mSshInfo.setText(sshInfo);
                 mSshPassword.setText("密码: " + (rootPassword.isEmpty() ? "(未设置)" : rootPassword));
+
+                // Click to copy SSH connection string
+                mSshInfo.setOnClickListener(v -> {
+                    android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("SSH", sshInfo);
+                    clipboard.setPrimaryClip(clip);
+                    android.widget.Toast.makeText(this, "已复制: " + sshInfo, android.widget.Toast.LENGTH_SHORT).show();
+                });
                 if (isRunning) {
                     mSshStatus.setText("运行中");
                     mSshStatus.setTextColor(getColor(android.R.color.holo_green_light));
@@ -330,7 +331,21 @@ public class MainActivity extends AppCompatActivity {
         stopService(new Intent(this, GatewayMonitorService.class));
 
         new Thread(() -> {
+            // Kill AstrBot
             ChrootManager.stopAstrBot();
+
+            // Verify it's dead - wait up to 3 seconds
+            for (int i = 0; i < 6; i++) {
+                try {
+                    Thread.sleep(500);
+                } catch (InterruptedException e) {}
+                if (!ChrootManager.isAstrBotRunning()) {
+                    break;
+                }
+                // If still running, kill again
+                ChrootManager.stopAstrBot();
+            }
+
             refreshStatusOffThread();
         }).start();
     }
@@ -611,11 +626,19 @@ public class MainActivity extends AppCompatActivity {
     private void showReinstallDepsDialog() {
         new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("重装系统依赖")
-            .setMessage("将重新运行 apt update 和安装 Python 3.13、SSH 等依赖。\n\nAstrBot 数据不会丢失。")
+            .setMessage("将重新运行 apt update 和安装 Python 3.13、SSH 等依赖。\n\n如果 AstrBot 正在运行，将会先停止。")
             .setPositiveButton("开始重装", (dialog, which) -> {
+                dialog.dismiss(); // Close dialog immediately
                 switchTab(TAB_LOG);
                 appendToLog("\n🔄 开始重装系统依赖...");
                 new Thread(() -> {
+                    // Stop AstrBot if running
+                    ChrootManager.FullStatus status = ChrootManager.getFullStatus();
+                    if (status.astrBotRunning()) {
+                        mHandler.post(() -> appendToLog("  ⏹ 正在停止 AstrBot..."));
+                        ChrootManager.stopAstrBot();
+                    }
+
                     ChrootManager.ProgressCallback cb = new ChrootManager.ProgressCallback() {
                         @Override public void onProgress(String msg) {
                             mHandler.post(() -> appendToLog("  " + msg));
@@ -631,6 +654,7 @@ public class MainActivity extends AppCompatActivity {
                     } else {
                         mHandler.post(() -> appendToLog("✅ 系统依赖重装完成"));
                     }
+                    refreshStatusOffThread();
                 }).start();
             })
             .setNegativeButton("取消", null)
@@ -795,7 +819,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void startSshService() {
         mSshStarting = true;
-        mSshButton.setEnabled(false);
         mSshToggleButton.setEnabled(false);
         appendToLog("\n🔌 正在启动 SSH 服务...");
 
@@ -812,7 +835,6 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     appendToLog("❌ SSH 启动失败: " + result.stderr());
                 }
-                mSshButton.setEnabled(true);
                 mSshToggleButton.setEnabled(true);
             });
         }).start();
@@ -820,7 +842,6 @@ public class MainActivity extends AppCompatActivity {
 
     private void stopSshService() {
         mSshStarting = true;
-        mSshButton.setEnabled(false);
         mSshToggleButton.setEnabled(false);
         appendToLog("\n🔌 正在停止 SSH 服务...");
 
@@ -832,7 +853,6 @@ public class MainActivity extends AppCompatActivity {
                 mSshStarting = false;
                 updateSshPanel();
                 appendToLog(stopped ? "✅ SSH 服务已停止" : "⚠️ SSH 停止可能失败");
-                mSshButton.setEnabled(true);
                 mSshToggleButton.setEnabled(true);
             });
         }).start();

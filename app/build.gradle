@@ -14,8 +14,10 @@ android {
         applicationId "app.rbot"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        versionCode 20
-        versionName "1.0.0-root"
+        // Auto-increment version code based on git commit count
+        versionCode getVersionCode()
+        // Version name: MAJOR.MINOR.PATCH-gitCommitCount (e.g., 1.0.0-123)
+        versionName getVersionName()
 
         manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.rbot"
         manifestPlaceholders.TERMUX_APP_NAME = "Rbot"
@@ -94,8 +96,39 @@ dependencies {
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:1.1.5"
 }
 
-task versionName {
+// Auto-increment version based on git commits
+def getVersionCode() {
+    try {
+        // Use rootProject.rootDir to ensure we start from the git repository root
+        def workingDir = rootProject.rootDir
+        // Use array form for ProcessBuilder to avoid shell parsing issues on Windows
+        def process = new ProcessBuilder(["git", "rev-list", "--count", "HEAD"])
+            .directory(workingDir)
+            .redirectErrorStream(true)
+            .start()
+        process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
+        def output = process.inputStream.text.trim()
+        if (output.isEmpty() || !output.isNumber()) {
+            return 1
+        }
+        return output.toInteger()
+    } catch (Exception e) {
+        println "Warning: Failed to get git version code: ${e.message}"
+        return 1
+    }
+}
+
+def getVersionName() {
+    try {
+        def commitCount = getVersionCode()
+        return "1.0.${commitCount}"
+    } catch (Exception e) {
+        return "1.0.0"
+    }
+}
+
+tasks.register('versionName') {
     doLast {
-        print android.defaultConfig.versionName
+        println getVersionName()
     }
 }

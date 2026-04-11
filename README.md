@@ -128,6 +128,15 @@ APK 位于 `app/build/outputs/apk/debug/`。
 
 ## 版本历史
 
+### v1.0.1765+ (2026-04-11)
+
+- 修复 `/tmp` 不可写导致备份失败（tmpfs + TMPDIR）
+- 修复停止后 AstrBot 自动重启（同步 commit + 验证杀死）
+- 备份恢复改为直接 cp，更稳定
+- SSH 信息点击复制
+- 移除 Header 右上角 SSH 按钮
+- 构建修复：Android Studio versionCode/versionName 为空
+
 ### v1.0 (2026-04-11)
 
 - 全新 UI：日志/管理双 Tab 设计

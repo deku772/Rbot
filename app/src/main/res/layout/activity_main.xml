@@ -39,19 +39,6 @@
             android:textSize="14sp"
             android:textColor="@color/botdrop_secondary_text" />
 
-        <Button
-            android:id="@+id/btn_ssh"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_marginStart="8dp"
-            android:text="启动 SSH"
-            android:textSize="12sp"
-            android:textColor="@color/botdrop_accent"
-            android:background="@drawable/botdrop_button_outline_bg"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:visibility="gone" />
-
     </LinearLayout>
 
     <!-- Control buttons -->
@@ -67,11 +54,11 @@
             android:layout_height="44dp"
             android:layout_weight="1"
             android:layout_marginEnd="6dp"
-            android:text="可以开始启动"
+            android:text="启动"
             android:textSize="14sp"
             android:textStyle="bold"
-            android:textColor="#FFFFFF"
-            android:background="@drawable/botdrop_button_green_bg" />
+            android:textColor="@color/botdrop_accent"
+            android:background="@drawable/botdrop_button_outline_bg" />
 
         <Button
             android:id="@+id/btn_stop"

@@ -53,8 +53,11 @@ public final class RbotConstants {
     /** Install script path (on host) */
     public static final String INSTALL_SCRIPT = RBOT_TMP + "/install.sh";
 
-    /** Backup directory on sdcard */
-    public static final String BACKUP_DIR = SDCARD_DIR + "/backup";
+    /** Backup directory on sdcard (unified location for easy restore after reinstall) */
+    public static final String BACKUP_DIR = SDCARD_DIR + "/backups";
+
+    /** Default external data backup path (used during rootfs reinstall) */
+    public static final String EXTERNAL_DATA_BACKUP = BACKUP_DIR + "/astrbot_data_backup";
 
     /** AstrBot data directory inside chroot (relative to ASTRBOT_HOME) */
     public static final String ASTRBOT_DATA_DIR = "data";
