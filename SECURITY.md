@@ -2,7 +2,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in BotDrop, please report it responsibly:
+If you discover a security vulnerability in ANDBOTT, please report it responsibly:
 
 1. **Do not** open a public GitHub issue for security vulnerabilities
 2. Email security concerns to the maintainers via the contact listed in the repository

@@ -1,23 +1,73 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <!--
-     https://material.io/develop/android/theming/dark
+     BotDrop BaseActivity themes — self-contained, no termux-shared dependency.
     -->
 
-    <!-- TermuxApp Light DarkActionBar theme. -->
+    <!-- BaseActivity Light DarkActionBar theme -->
+    <style name="Theme.BaseActivity.Light.DarkActionBar" parent="Theme.MaterialComponents.Light.DarkActionBar">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/botdrop_surface</item>
+        <item name="colorPrimaryVariant">#111111</item>
+        <item name="colorOnPrimary">@color/botdrop_on_background</item>
+
+        <!-- Secondary brand color -->
+        <item name="colorSecondary">@color/botdrop_accent</item>
+        <item name="colorSecondaryVariant">@color/botdrop_accent_dark</item>
+        <item name="colorOnSecondary">@color/botdrop_background</item>
+
+        <!-- Status bar color -->
+        <item name="android:statusBarColor" tools:targetApi="l">#111111</item>
+        <item name="colorPrimaryDark" tools:targetApi="l">@color/botdrop_surface</item>
+
+        <!-- Text color -->
+        <item name="android:textColorPrimary">@color/botdrop_on_background</item>
+    </style>
+
+    <!-- BaseActivity Light NoActionBar theme -->
+    <style name="Theme.BaseActivity.Light.NoActionBar" parent="Theme.BaseActivity.Light.DarkActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- BaseActivity DayNight DarkActionBar theme -->
+    <style name="Theme.BaseActivity.DayNight.DarkActionBar" parent="Theme.MaterialComponents">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/botdrop_surface</item>
+        <item name="colorPrimaryVariant">#111111</item>
+        <item name="colorOnPrimary">@color/botdrop_on_background</item>
+
+        <!-- Secondary brand color -->
+        <item name="colorSecondary">@color/botdrop_accent</item>
+        <item name="colorSecondaryVariant">@color/botdrop_accent_dark</item>
+        <item name="colorOnSecondary">@color/botdrop_background</item>
+
+        <!-- Status bar color -->
+        <item name="android:statusBarColor" tools:targetApi="l">#111111</item>
+        <item name="colorPrimaryDark" tools:targetApi="l">@color/botdrop_surface</item>
+    </style>
+
+    <!-- BaseActivity DayNight NoActionBar theme -->
+    <style name="Theme.BaseActivity.DayNight.NoActionBar" parent="Theme.BaseActivity.DayNight.DarkActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- ──── TermuxApp themes (child of BaseActivity) ──── -->
+
+    <!-- TermuxApp Light DarkActionBar theme -->
     <style name="Theme.TermuxApp.Light.DarkActionBar" parent="Theme.BaseActivity.Light.DarkActionBar"/>
-    <!-- TermuxApp Light NoActionBar theme. -->
+    <!-- TermuxApp Light NoActionBar theme -->
     <style name="Theme.TermuxApp.Light.NoActionBar" parent="Theme.BaseActivity.Light.NoActionBar"/>
 
-    <!-- TermuxApp DayNight DarkActionBar theme. -->
+    <!-- TermuxApp DayNight DarkActionBar theme -->
     <style name="Theme.TermuxApp.DayNight.DarkActionBar" parent="Theme.BaseActivity.DayNight.DarkActionBar"/>
-    <!-- TermuxApp DayNight NoActionBar theme. -->
+    <!-- TermuxApp DayNight NoActionBar theme -->
     <style name="Theme.TermuxApp.DayNight.NoActionBar" parent="Theme.BaseActivity.DayNight.NoActionBar"/>
 
-
-    <!-- TermuxActivity DayNight NoActionBar theme. -->
+    <!-- TermuxActivity DayNight NoActionBar theme -->
     <style name="Theme.TermuxActivity.DayNight.NoActionBar" parent="Theme.TermuxApp.DayNight.NoActionBar">
-        <!-- BotDrop primary brand color. -->
+        <!-- BotDrop primary brand color -->
         <item name="colorPrimary">@color/botdrop_background</item>
         <item name="colorPrimaryDark">#111111</item>
         <item name="colorPrimaryVariant">@color/botdrop_background</item>
@@ -30,23 +80,21 @@
         <item name="android:statusBarColor">#111111</item>
         <item name="android:navigationBarColor">#111111</item>
 
-        <!-- Avoid action mode toolbar pushing down terminal content when
-             selecting text on pre-6.0 (non-floating toolbar). -->
+        <!-- Avoid action mode toolbar pushing down terminal content -->
         <item name="android:windowActionModeOverlay">true</item>
 
         <item name="android:windowTranslucentStatus">true</item>
         <item name="android:windowTranslucentNavigation">true</item>
 
-        <!-- https://developer.android.com/training/tv/start/start.html#transition-color -->
         <item name="android:windowAllowReturnTransitionOverlap">true</item>
         <item name="android:windowAllowEnterTransitionOverlap">true</item>
 
-        <!-- Left drawer. -->
+        <!-- Left drawer -->
         <item name="buttonBarButtonStyle">@style/TermuxActivity.Drawer.ButtonBarStyle.Dark</item>
         <item name="termuxActivityDrawerBackground">@color/botdrop_surface</item>
         <item name="termuxActivityDrawerImageTint">@color/botdrop_accent</item>
 
-        <!-- Extra keys colors. -->
+        <!-- Extra keys colors -->
         <item name="extraKeysButtonTextColor">@color/botdrop_on_background</item>
         <item name="extraKeysButtonActiveTextColor">@color/botdrop_accent</item>
         <item name="extraKeysButtonBackgroundColor">@color/botdrop_surface</item>

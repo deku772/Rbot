@@ -44,7 +44,7 @@ async function handleVersion(request, env, url) {
       const res = await fetch(
         `https://api.github.com/repos/${repo}/releases/latest`,
         {
-          headers: { 'User-Agent': 'botdrop-api-worker', Accept: 'application/vnd.github.v3+json' },
+          headers: { 'User-Agent': 'andbott-api-worker', Accept: 'application/vnd.github.v3+json' },
           cf: { cacheTtl: 0, cacheEverything: false },
         },
       );

@@ -5,20 +5,20 @@ plugins {
 }
 
 android {
-    namespace "com.termux"
+    namespace "app.andbott"
 
     compileSdkVersion project.properties.compileSdkVersion.toInteger()
     ndkVersion = System.getenv("JITPACK_NDK_VERSION") ?: project.properties.ndkVersion
 
     defaultConfig {
-        applicationId "app.botdrop"
+        applicationId "app.andbott"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
         versionCode 20
         versionName "1.0.0-root"
 
-        manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.botdrop"
-        manifestPlaceholders.TERMUX_APP_NAME = "BotDrop"
+        manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.andbott"
+        manifestPlaceholders.TERMUX_APP_NAME = "ANDBOTT"
 
         ndk {
             abiFilters 'arm64-v8a'

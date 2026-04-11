@@ -1,4 +1,4 @@
-name = "botdrop-api"
+name = "andbott-api"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
@@ -19,4 +19,4 @@ preview_id = "3a31fbd42b1140feb57f4d64c9e7feed"
 
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
-dataset = "botdrop_version_checks"
+dataset = "andbott_version_checks"

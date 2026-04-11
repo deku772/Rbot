@@ -46,4 +46,14 @@
         <item name="android:textStyle">bold</item>
     </style>
 
+    <!-- BaseToolbar Title text appearance (from termux-shared) -->
+    <style name="TextAppearance.Widget.BaseToolbar.Title" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- BaseToolbar Subtitle text appearance (from termux-shared) -->
+    <style name="TextAppearance.Widget.BaseToolbar.Subtitle" parent="TextAppearance.Widget.AppCompat.Toolbar.Subtitle">
+        <item name="android:textSize">12sp</item>
+    </style>
+
 </resources>

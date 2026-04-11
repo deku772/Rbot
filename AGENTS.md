@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 This is a multi-module Android project built with Gradle.
-- `app/`: main BotDrop Android app (UI, services, setup flow, resources, native bootstrap glue).
+- `app/`: main ANDBOTT Android app (UI, services, setup flow, resources, native bootstrap glue).
 - `termux-shared/`: shared Termux-based Android utilities used by the app.
 - `terminal-emulator/` and `terminal-view/`: terminal engine and rendering libraries.
 - `app/src/test/` and `terminal-emulator/src/test/`: JVM unit tests.

@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-// BotDrop chroot branch: only the app module
+// ANDBOTT chroot branch: only the app module
 // Termux modules (terminal-emulator, terminal-view, termux-shared, api/*, server, starter, shell, manager)
 // are no longer needed — all Linux operations run via su + chroot.
 include ':app'

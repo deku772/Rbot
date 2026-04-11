@@ -1,4 +1,4 @@
-BotDrop is a derivative work of [termux/termux-app](https://github.com/termux/termux-app), released under the same GPLv3 license.
+ANDBOTT is a derivative work of [termux/termux-app](https://github.com/termux/termux-app), released under the same GPLv3 license.
 
 The `termux/termux-app` repository is released under [GPLv3 only](https://www.gnu.org/licenses/gpl-3.0.html) license.
 

@@ -12,4 +12,7 @@
     <!-- Status colors -->
     <color name="status_connected">#4CAF50</color>
     <color name="status_disconnected">#9E9E9E</color>
+
+    <!-- Standard colors (from termux-shared) -->
+    <color name="black">#FF000000</color>
 </resources>

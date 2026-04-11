@@ -1,6 +1,6 @@
-# Contributing to BotDrop
+# Contributing to ANDBOTT
 
-Thanks for your interest in contributing to BotDrop!
+Thanks for your interest in contributing to ANDBOTT!
 
 ## Getting Started
 

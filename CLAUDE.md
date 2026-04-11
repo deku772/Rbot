@@ -55,7 +55,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@17
 
 ## Project Structure
 
-- **Android App:** `app/` - Main BotDrop Android application
+- **Android App:** `app/` - Main ANDBOTT Android application
 - **Termux Core:** `termux-shared/`, `terminal-*` - Forked from Termux
 - **Version API:** `worker/` - Cloudflare Worker for version checking
 - **Documentation:** `docs/` - Design docs, plans, troubleshooting guides
@@ -74,7 +74,7 @@ JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew assembleRelease
 JAVA_HOME=/opt/homebrew/opt/openjdk@17 ./gradlew installDebug
 
 # View logs from device
-adb logcat | grep -E "BotDrop|Termux"
+adb logcat | grep -E "ANDBOTT|Termux"
 ```
 
 ## Bootstrap Management

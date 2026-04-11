@@ -37,10 +37,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <application
-        android:name="app.botdrop.BotDropApplication"
+        android:name="app.andbott.BotDropApplication"
         android:allowBackup="false"
         android:banner="@drawable/banner"
-        android:extractNativeLibs="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/application_name"
         android:requestLegacyExternalStorage="true"
@@ -52,7 +51,7 @@
 
         <!-- Launcher -->
         <activity
-            android:name="app.botdrop.BotDropLauncherActivity"
+            android:name="app.andbott.BotDropLauncherActivity"
             android:exported="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar">
@@ -65,40 +64,26 @@
 
         <!-- Setup wizard -->
         <activity
-            android:name="app.botdrop.SetupActivity"
+            android:name="app.andbott.SetupActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
 
-        <!-- Dashboard -->
+        <!-- Main screen: status + start/stop + logs -->
         <activity
-            android:name="app.botdrop.DashboardActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
-
-        <!-- Settings -->
-        <activity
-            android:name="app.botdrop.BotDropSettingsActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"
-            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
-
-        <!-- Automation panel -->
-        <activity
-            android:name="app.botdrop.AutomationPanelActivity"
+            android:name="app.andbott.MainActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
 
         <!-- Core service: chroot management + command execution -->
         <service
-            android:name="app.botdrop.BotDropService"
+            android:name="app.andbott.BotDropService"
             android:exported="false" />
 
         <!-- Foreground service: keep AstrBot alive + notifications -->
         <service
-            android:name="app.botdrop.GatewayMonitorService"
+            android:name="app.andbott.GatewayMonitorService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
@@ -108,7 +93,7 @@
 
         <!-- Boot receiver: auto-start gateway on device boot -->
         <receiver
-            android:name="app.botdrop.BootReceiver"
+            android:name="app.andbott.BootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
@@ -117,10 +102,10 @@
 
         <!-- Clipboard receiver for botdrop-u2 skill -->
         <receiver
-            android:name="app.botdrop.ClipboardReceiver"
+            android:name="app.andbott.ClipboardReceiver"
             android:exported="true">
             <intent-filter>
-                <action android:name="app.botdrop.SET_CLIPBOARD" />
+                <action android:name="app.andbott.SET_CLIPBOARD" />
             </intent-filter>
         </receiver>
 
