@@ -34,8 +34,9 @@ cd "$NEWROOT"
 tar xf "$WORKDIR/ubuntu2404-rootfs.tar.xz"
 echo "  解压完成"
 
-# 4. 挂载必要文件系统
-echo "[4/6] 挂载文件系统..."
+# 4. 配置 DNS + 挂载必要文件系统
+echo "[4/6] 配置 DNS + 挂载文件系统..."
+cp /etc/resolv.conf "$NEWROOT/etc/resolv.conf"
 mount --bind /dev dev
 mount --bind /dev/pts dev/pts
 mount --bind /proc proc
