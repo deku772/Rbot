@@ -36,10 +36,10 @@ public final class RbotConstants {
     public static final String SDCARD_CACHE_DIR = SDCARD_DIR + "/cache";
 
     /** Local rootfs source (Tier 1) */
-    public static final String LOCAL_ROOTFS_SRC = "/storage/emulated/0/环境/ubuntu22_openclaw.tar.gz";
+    public static final String LOCAL_ROOTFS_SRC = "/storage/emulated/0/rbot/cache/ubuntu24_rbot.tar.gz";
 
     /** sdcard cached rootfs (Tier 2) */
-    public static final String SDCARD_ROOTFS_CACHE = SDCARD_CACHE_DIR + "/ubuntu22_openclaw.tar.gz";
+    public static final String SDCARD_ROOTFS_CACHE = SDCARD_CACHE_DIR + "/ubuntu24_rbot.tar.gz";
 
     /** GitHub rootfs download URL (Tier 3) */
     public static final String GITHUB_ROOTFS_URL = "https://github.com/TermuxCHN/rootfs/releases/download/ubuntu2204/rootfs.tar.xz";

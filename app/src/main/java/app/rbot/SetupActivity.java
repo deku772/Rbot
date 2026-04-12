@@ -3,20 +3,26 @@ package app.rbot;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.View;
+import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
+import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
+import java.util.ArrayList;
+import java.util.List;
+
 /**
  * Setup activity for chroot-based AstrBot installation.
- * Supports selective reinstall: user can choose which steps to re-run.
+ * Interactive step-by-step: each step pauses for user confirmation.
  */
 public class SetupActivity extends AppCompatActivity {
 
@@ -41,8 +47,15 @@ public class SetupActivity extends AppCompatActivity {
     private CheckBox mCbReinstallRootfs;
     private CheckBox mCbReinstallDeps;
     private CheckBox mCbReinstallAstrbot;
+    private android.widget.EditText mEtCustomProxy;
 
     private boolean mInstalling = false;
+
+    // Cached installation decisions (set by dialogs, consumed by install thread)
+    private int mSelectedProxyIndex = 0;
+    private String mSelectedAstrbotVersion = "";  // empty = latest
+    private List<String> mAstrbotVersions = new ArrayList<>();
+    private List<String> mAstrbotVersionArgs = new ArrayList<>();
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -59,15 +72,15 @@ public class SetupActivity extends AppCompatActivity {
         mCbReinstallRootfs = findViewById(R.id.cb_reinstall_rootfs);
         mCbReinstallDeps = findViewById(R.id.cb_reinstall_deps);
         mCbReinstallAstrbot = findViewById(R.id.cb_reinstall_astrbot);
+        mEtCustomProxy = findViewById(R.id.et_custom_proxy);
+
+        // Show proxy section
+        android.view.View proxySection = findViewById(R.id.proxy_section);
+        proxySection.setVisibility(View.VISIBLE);
 
         mActionButton.setOnClickListener(v -> startInstallation());
 
-        int startStep = getIntent().getIntExtra(EXTRA_START_STEP, -1);
-        if (startStep == STEP_INSTALL) {
-            startInstallation();
-        } else {
-            updateStatusUI();
-        }
+        updateStatusUI();
     }
 
     private void updateStatusUI() {
@@ -91,6 +104,10 @@ public class SetupActivity extends AppCompatActivity {
         }
     }
 
+    /**
+     * Main entry point — starts the interactive installation.
+     * Each step shows a dialog to confirm before proceeding.
+     */
     private void startInstallation() {
         if (mInstalling) return;
         mInstalling = true;
@@ -102,15 +119,31 @@ public class SetupActivity extends AppCompatActivity {
         mReinstallOptions.setVisibility(View.GONE);
         mLogText.setText("");
 
+        // Set custom proxy if provided
+        String customProxy = mEtCustomProxy.getText() != null ? mEtCustomProxy.getText().toString().trim() : "";
+        if (!customProxy.isEmpty()) {
+            GitHubProxyManager.setCustomProxy(customProxy);
+        }
+
         boolean reinstallRootfs = mCbReinstallRootfs.isChecked();
         boolean reinstallDeps = mCbReinstallDeps.isChecked();
         boolean reinstallAstrbot = mCbReinstallAstrbot.isChecked();
 
+        // When reinstall is checked, remove markers so the steps actually execute
+        if (reinstallRootfs) {
+            ChrootManager.execRoot("rm -f " + RbotConstants.ROOTFS_MARKER);
+        }
+        if (reinstallAstrbot) {
+            ChrootManager.execRoot("rm -f " + RbotConstants.ASTRBOT_MARKER);
+            ChrootManager.execInChroot("rm -rf /root/astrbot", 30);
+        }
+
         boolean needRootfs = !ChrootManager.isRootfsReady() || reinstallRootfs;
-        boolean needDeps = reinstallDeps || needRootfs;
+        boolean needDeps = reinstallDeps;  // Don't force deps reinstall on new rootfs (it already has them)
         boolean needAstrbot = !ChrootManager.isAstrBotInstalled() || reinstallAstrbot;
 
         if (!needRootfs && !needDeps && !needAstrbot) {
+            mInstalling = false;
             Toast.makeText(this, "所有组件已安装，正在跳转...", Toast.LENGTH_SHORT).show();
             Intent intent = new Intent(SetupActivity.this, MainActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -119,144 +152,299 @@ public class SetupActivity extends AppCompatActivity {
             return;
         }
 
-        new Thread(() -> {
-            // ─── Step 0: Root check ───
-            appendLog("🔍 检查 Root 权限...");
-            if (!ChrootManager.isRootAvailable()) {
+        // Start the interactive flow on a background thread
+        new Thread(() -> runInteractiveInstall(needRootfs, needDeps, needAstrbot)).start();
+    }
+
+    /**
+     * Interactive install flow — pauses at key steps for user input.
+     * Uses wait/notify to block the background thread until the user responds on UI thread.
+     */
+    private void runInteractiveInstall(boolean needRootfs, boolean needDeps, boolean needAstrbot) {
+        // ─── Step 0: Root check ───
+        appendLog("🔍 检查 Root 权限...");
+        if (!ChrootManager.isRootAvailable()) {
+            runOnUiThread(() -> {
+                appendLog("❌ 未获取 Root 权限");
+                finishInstall("需要 Root 权限", "重试");
+                Toast.makeText(this, "请授予 Root 权限后重试", Toast.LENGTH_LONG).show();
+            });
+            return;
+        }
+        appendLog("✅ Root 权限已获取");
+        runOnUiThread(() -> mStepText.setText("Root ✅"));
+
+        // ─── Step 1: Test proxies + let user choose ───
+        appendLog("🌐 测试 GitHub 连接...");
+        runOnUiThread(() -> mStepText.setText("测试网络..."));
+        int bestProxy = GitHubProxyManager.testProxies();
+        appendLog("✅ 最快线路: " + GitHubProxyManager.getProxyName(bestProxy));
+
+        // Show proxy selection dialog and wait for user
+        final Object proxyLock = new Object();
+        final boolean[] proxyConfirmed = {false};
+        runOnUiThread(() -> {
+            // Build proxy list with latency info
+            String[] proxyDisplayNames = GitHubProxyManager.getAllProxyNamesWithLatency();
+            Spinner proxySpinner = new Spinner(this);
+            ArrayAdapter<String> proxyAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_dropdown_item, proxyDisplayNames);
+            proxySpinner.setAdapter(proxyAdapter);
+            proxySpinner.setSelection(bestProxy);
+            proxySpinner.setPadding(48, 24, 48, 24);
+
+            LinearLayout layout = new LinearLayout(this);
+            layout.setOrientation(LinearLayout.VERTICAL);
+            layout.setPadding(48, 24, 48, 0);
+
+            // Show all test results
+            StringBuilder results = new StringBuilder("测速结果：\n");
+            for (int i = 0; i < proxyDisplayNames.length; i++) {
+                results.append("  ").append(proxyDisplayNames[i]).append("\n");
+            }
+            results.append("\n推荐: ").append(GitHubProxyManager.getProxyName(bestProxy));
+            results.append("\n\n你也可以手动选择其他线路：");
+
+            TextView label = new TextView(this);
+            label.setText(results.toString());
+            label.setTextSize(14);
+            label.setPadding(0, 0, 0, 16);
+            layout.addView(label);
+            layout.addView(proxySpinner);
+
+            new androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("🌐 选择 GitHub 线路")
+                .setView(layout)
+                .setCancelable(false)
+                .setPositiveButton("确认", (dialog, which) -> {
+                    mSelectedProxyIndex = proxySpinner.getSelectedItemPosition();
+                    appendLog("  ✅ 用户选择线路: " + GitHubProxyManager.getProxyName(mSelectedProxyIndex));
+                    synchronized (proxyLock) {
+                        proxyConfirmed[0] = true;
+                        proxyLock.notify();
+                    }
+                })
+                .show();
+        });
+        synchronized (proxyLock) {
+            while (!proxyConfirmed[0]) {
+                try { proxyLock.wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+            }
+        }
+        runOnUiThread(() -> mStepText.setText("网络 ✅"));
+
+        // ─── Step 2: Extract rootfs (if needed) ───
+        if (needRootfs) {
+            appendLog("📦 查找系统镜像...");
+            String tarballPath = findRootfsTarball();
+            if (tarballPath == null) {
+                appendLog("⬇️ 下载系统镜像中（首次需下载约 480MB）...");
+                runOnUiThread(() -> mStepText.setText("下载系统镜像..."));
+                tarballPath = downloadRootfs();
+                if (tarballPath == null) {
+                    runOnUiThread(() -> {
+                        appendLog("❌ 系统镜像下载失败");
+                        finishInstall("下载失败 — 可切换线路后重试", "重试");
+                        Toast.makeText(this, "请检查网络或切换线路后重试", Toast.LENGTH_LONG).show();
+                    });
+                    return;
+                }
+            }
+            appendLog("✅ 系统镜像就绪: " + tarballPath);
+            runOnUiThread(() -> mStepText.setText("镜像 ✅"));
+
+            appendLog("📂 解压系统镜像（约 1-3 分钟）...");
+            runOnUiThread(() -> mStepText.setText("解压系统镜像..."));
+
+            if (ChrootManager.ensureChrootDir()) {
                 runOnUiThread(() -> {
-                    appendLog("❌ 未获取 Root 权限");
-                    finishInstall("需要 Root 权限", "重试");
-                    Toast.makeText(this, "请授予 Root 权限后重试", Toast.LENGTH_LONG).show();
+                    appendLog("❌ 无法创建 /data/rbot 目录");
+                    finishInstall("目录创建失败", "重试");
                 });
                 return;
             }
-            appendLog("✅ Root 权限已获取");
-            runOnUiThread(() -> mStepText.setText("Root ✅"));
 
-            // ─── Step 1: Extract rootfs (if needed) ───
-            if (needRootfs) {
-                appendLog("📦 查找系统镜像...");
-                String tarballPath = findRootfsTarball();
-                if (tarballPath == null) {
-                    appendLog("⬇️ 下载系统镜像中（首次需下载约 200MB）...");
-                    runOnUiThread(() -> mStepText.setText("下载系统镜像..."));
-                    tarballPath = downloadRootfs();
-                    if (tarballPath == null) {
-                        runOnUiThread(() -> {
-                            appendLog("❌ 系统镜像下载失败");
-                            finishInstall("下载失败", "重试");
-                            Toast.makeText(this, "请检查网络连接后重试", Toast.LENGTH_LONG).show();
-                        });
-                        return;
+            ChrootManager.ProgressCallback extractCb = makeCallback();
+            if (ChrootManager.extractRootfs(tarballPath, extractCb)) {
+                runOnUiThread(() -> finishInstall("解压失败", "重试"));
+                return;
+            }
+            appendLog("✅ 系统镜像解压完成");
+            runOnUiThread(() -> mStepText.setText("解压 ✅"));
+
+            // Ask to restore AstrBot data if backup exists
+            if (new java.io.File(RbotConstants.EXTERNAL_DATA_BACKUP).exists()) {
+                final boolean[] shouldRestore = {false};
+                final Object restoreLock = new Object();
+                runOnUiThread(() -> {
+                    new androidx.appcompat.app.AlertDialog.Builder(SetupActivity.this)
+                        .setTitle("恢复 AstrBot 数据")
+                        .setMessage("检测到外部存储中有 AstrBot 数据备份，是否恢复？\n路径: " + RbotConstants.EXTERNAL_DATA_BACKUP)
+                        .setPositiveButton("恢复", (dialog, which) -> {
+                            synchronized (restoreLock) { shouldRestore[0] = true; restoreLock.notify(); }
+                        })
+                        .setNegativeButton("跳过", (dialog, which) -> {
+                            synchronized (restoreLock) { restoreLock.notify(); }
+                        })
+                        .setCancelable(false)
+                        .show();
+                });
+                synchronized (restoreLock) {
+                    try { restoreLock.wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                }
+                if (shouldRestore[0]) {
+                    appendLog("🔄 正在恢复 AstrBot 数据...");
+                    if (ChrootManager.restoreAstrBotData(makeCallback())) {
+                        appendLog("⚠️ 数据恢复失败，继续安装...");
+                    } else {
+                        appendLog("✅ AstrBot 数据已恢复");
                     }
                 }
-                appendLog("✅ 系统镜像就绪: " + tarballPath);
-                runOnUiThread(() -> mStepText.setText("镜像 ✅"));
+            }
+        } else {
+            appendLog("⏭️ 系统镜像已存在，跳过解压");
+        }
 
-                appendLog("📂 解压系统镜像（约 1-3 分钟）...");
-                runOnUiThread(() -> mStepText.setText("解压系统镜像..."));
+        // ─── Step 3: Setup chroot + apt ───
+        appendLog("🔧 初始化 chroot 环境...");
+        runOnUiThread(() -> mStepText.setText("初始化 chroot..."));
+        ChrootManager.setupChrootEnvironment(makeCallback());
 
-                if (ChrootManager.ensureChrootDir()) {
-                    runOnUiThread(() -> {
-                        appendLog("❌ 无法创建 /data/rbot 目录");
-                        finishInstall("目录创建失败", "重试");
-                    });
-                    return;
-                }
+        // Always do apt update after fresh rootfs extract or when reinstalling deps
+        if (needRootfs || needDeps) {
+            appendLog("📡 更新软件源...");
+            runOnUiThread(() -> mStepText.setText("更新软件源..."));
+            if (ChrootManager.aptUpdate(makeCallback())) {
+                runOnUiThread(() -> finishInstall("软件源更新失败", "重试"));
+                return;
+            }
+            appendLog("✅ 软件源更新完成");
+        }
 
-                ChrootManager.ProgressCallback extractCb = makeCallback();
-                if (ChrootManager.extractRootfs(tarballPath, extractCb)) {
-                    runOnUiThread(() -> finishInstall("解压失败", "重试"));
-                    return;
-                }
-                appendLog("✅ 系统镜像解压完成");
-                runOnUiThread(() -> mStepText.setText("解压 ✅"));
+        if (needDeps) {
+            appendLog("📦 安装系统依赖...");
+            runOnUiThread(() -> mStepText.setText("安装系统依赖..."));
+            if (ChrootManager.aptInstallDeps(makeCallback())) {
+                runOnUiThread(() -> finishInstall("依赖安装失败", "重试"));
+                return;
+            }
+            appendLog("✅ 系统依赖安装完成");
+        } else {
+            appendLog("⏭️ 系统依赖已存在，跳过安装");
+        }
 
-                // Ask to restore AstrBot data if backup exists in unified location
-                if (new java.io.File(RbotConstants.EXTERNAL_DATA_BACKUP + "/data").exists()) {
-                    final boolean[] shouldRestore = {false};
-                    final Object lock = new Object();
-                    runOnUiThread(() -> {
-                        new androidx.appcompat.app.AlertDialog.Builder(SetupActivity.this)
-                            .setTitle("恢复 AstrBot 数据")
-                            .setMessage("检测到外部存储中有 AstrBot 数据备份，是否恢复？\n路径: " + RbotConstants.EXTERNAL_DATA_BACKUP)
-                            .setPositiveButton("恢复", (dialog, which) -> {
-                                synchronized (lock) {
-                                    shouldRestore[0] = true;
-                                    lock.notify();
-                                }
-                            })
-                            .setNegativeButton("跳过", (dialog, which) -> {
-                                synchronized (lock) {
-                                    lock.notify();
-                                }
-                            })
-                            .setCancelable(false)
-                            .show();
-                    });
-                    synchronized (lock) {
-                        try {
-                            lock.wait();
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                    }
-                    if (shouldRestore[0]) {
-                        appendLog("🔄 正在恢复 AstrBot 数据...");
-                        if (ChrootManager.restoreAstrBotData(makeCallback())) {
-                            appendLog("⚠️ 数据恢复失败，继续安装...");
-                        } else {
-                            appendLog("✅ AstrBot 数据已恢复");
-                        }
-                    }
+        // Set root password after fresh rootfs (default is 'rbot', change to random)
+        if (needRootfs) {
+            appendLog("🔐 设置 root 密码...");
+            runOnUiThread(() -> mStepText.setText("设置 root 密码..."));
+            String defaultPassword = generateRandomPassword();
+            if (ChrootManager.setRootPassword(defaultPassword)) {
+                appendLog("✅ root 密码已设置: " + defaultPassword);
+                appendLog("   (请妥善保存，用于 SSH 登录)");
+            } else {
+                appendLog("⚠️ root 密码设置失败，SSH 可能无法登录");
+            }
+        }
+
+        // ─── Step 4: Clone AstrBot (with version selection) ───
+        if (needAstrbot) {
+            // Fetch versions from GitHub API
+            appendLog("📡 获取 AstrBot 版本列表...");
+            List<String> releases = GitHubProxyManager.fetchAstrBotReleases(5);
+
+            mAstrbotVersions.clear();
+            mAstrbotVersionArgs.clear();
+            mAstrbotVersions.add("最新版 (main)");
+            mAstrbotVersionArgs.add("");
+
+            if (releases != null) {
+                for (String tag : releases) {
+                    mAstrbotVersions.add(tag);
+                    mAstrbotVersionArgs.add(tag);
                 }
             } else {
-                appendLog("⏭️ 系统镜像已存在，跳过解压");
+                // Fallback
+                mAstrbotVersions.add("v4.22.3");
+                mAstrbotVersionArgs.add("v4.22.3");
+                appendLog("  ⚠️ 无法获取版本列表，使用默认版本");
             }
 
-            // ─── Step 2: Setup chroot environment ───
-            appendLog("🔧 初始化 chroot 环境...");
-            runOnUiThread(() -> mStepText.setText("初始化 chroot..."));
-            ChrootManager.setupChrootEnvironment(makeCallback());
+            // Show version selection dialog and wait for user
+            final Object versionLock = new Object();
+            final boolean[] versionConfirmed = {false};
+            runOnUiThread(() -> {
+                Spinner versionSpinner = new Spinner(this);
+                ArrayAdapter<String> versionAdapter = new ArrayAdapter<>(this,
+                    android.R.layout.simple_spinner_dropdown_item,
+                    mAstrbotVersions.toArray(new String[0]));
+                versionSpinner.setAdapter(versionAdapter);
+                versionSpinner.setPadding(48, 24, 48, 24);
 
-            // ─── Step 3: apt update (if deps needed) ───
-            if (needDeps) {
-                appendLog("📡 更新软件源...");
-                runOnUiThread(() -> mStepText.setText("更新软件源..."));
-                if (ChrootManager.aptUpdate(makeCallback())) {
-                    runOnUiThread(() -> finishInstall("软件源更新失败", "重试"));
-                    return;
-                }
-                appendLog("✅ 软件源更新完成");
+                // Proxy spinner for this operation (with latency info)
+                Spinner proxySpinner = new Spinner(this);
+                String[] proxyDisplayNames = GitHubProxyManager.getAllProxyNamesWithLatency();
+                ArrayAdapter<String> proxyAdapter = new ArrayAdapter<>(this,
+                    android.R.layout.simple_spinner_dropdown_item, proxyDisplayNames);
+                proxySpinner.setAdapter(proxyAdapter);
+                proxySpinner.setSelection(mSelectedProxyIndex);
+                proxySpinner.setPadding(48, 24, 48, 24);
 
-                appendLog("📦 安装系统依赖...");
-                runOnUiThread(() -> mStepText.setText("安装系统依赖..."));
-                if (ChrootManager.aptInstallDeps(makeCallback())) {
-                    runOnUiThread(() -> finishInstall("依赖安装失败", "重试"));
-                    return;
-                }
-                appendLog("✅ 系统依赖安装完成");
+                LinearLayout layout = new LinearLayout(this);
+                layout.setOrientation(LinearLayout.VERTICAL);
+                layout.setPadding(48, 24, 48, 0);
 
-                // ─── Step 3b: Set root password ───
-                appendLog("🔐 设置 root 密码...");
-                runOnUiThread(() -> mStepText.setText("设置 root 密码..."));
-                String defaultPassword = generateRandomPassword();
-                if (ChrootManager.setRootPassword(defaultPassword)) {
-                    appendLog("✅ root 密码已设置: " + defaultPassword);
-                    appendLog("   (请妥善保存，用于 SSH 登录)");
-                } else {
-                    appendLog("⚠️ root 密码设置失败，SSH 可能无法登录");
+                TextView versionLabel = new TextView(this);
+                versionLabel.setText("选择版本：");
+                versionLabel.setTextSize(15);
+                versionLabel.setPadding(0, 0, 0, 8);
+                layout.addView(versionLabel);
+                layout.addView(versionSpinner);
+
+                TextView proxyLabel = new TextView(this);
+                proxyLabel.setText("\n下载线路：");
+                proxyLabel.setTextSize(15);
+                proxyLabel.setPadding(0, 8, 0, 8);
+                layout.addView(proxyLabel);
+                layout.addView(proxySpinner);
+
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("🤖 安装 AstrBot")
+                    .setMessage("确认后开始克隆安装：")
+                    .setView(layout)
+                    .setCancelable(false)
+                    .setPositiveButton("确认安装", (dialog, which) -> {
+                        mSelectedAstrbotVersion = mAstrbotVersionArgs.get(versionSpinner.getSelectedItemPosition());
+                        mSelectedProxyIndex = proxySpinner.getSelectedItemPosition();
+                        String versionDisplay = mSelectedAstrbotVersion.isEmpty() ? "最新版" : mSelectedAstrbotVersion;
+                        appendLog("  ✅ 用户选择: " + versionDisplay + " | 线路: " + GitHubProxyManager.getProxyName(mSelectedProxyIndex));
+                        synchronized (versionLock) {
+                            versionConfirmed[0] = true;
+                            versionLock.notify();
+                        }
+                    })
+                    .setNegativeButton("取消", (dialog, which) -> {
+                        appendLog("  ⏭️ 用户取消 AstrBot 安装");
+                        synchronized (versionLock) {
+                            versionLock.notify();
+                        }
+                    })
+                    .show();
+            });
+            synchronized (versionLock) {
+                while (!versionConfirmed[0]) {
+                    try { versionLock.wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
                 }
+            }
+
+            if (!versionConfirmed[0]) {
+                appendLog("⏭️ 跳过 AstrBot 安装");
             } else {
-                appendLog("⏭️ 系统依赖已存在，跳过安装");
-            }
-
-            // ─── Step 4: Clone AstrBot (if needed) ───
-            if (needAstrbot) {
-                appendLog("🤖 克隆 AstrBot...");
+                String versionDisplay = mSelectedAstrbotVersion.isEmpty() ? "最新版" : mSelectedAstrbotVersion;
+                appendLog("🤖 克隆 AstrBot (" + versionDisplay + ")...");
                 runOnUiThread(() -> mStepText.setText("克隆 AstrBot..."));
-                if (ChrootManager.cloneAstrBot(makeCallback())) {
-                    runOnUiThread(() -> finishInstall("AstrBot 克隆失败", "重试"));
+
+                if (ChrootManager.cloneAstrBotWithProxy(makeCallback(), mSelectedAstrbotVersion, mSelectedProxyIndex)) {
+                    runOnUiThread(() -> finishInstall("AstrBot 克隆失败 — 可切换线路后重试", "重试"));
                     return;
                 }
 
@@ -267,24 +455,24 @@ public class SetupActivity extends AppCompatActivity {
                     return;
                 }
                 appendLog("✅ AstrBot 安装完成");
-            } else {
-                appendLog("⏭️ AstrBot 已安装，跳过");
             }
+        } else {
+            appendLog("⏭️ AstrBot 已安装，跳过");
+        }
 
-            // ─── All done ───
-            runOnUiThread(() -> {
-                mStepText.setText("安装完成 ✅");
-                mProgressBar.setVisibility(View.GONE);
-                mTitleText.setText("安装完成");
-                mInstalling = false;
+        // ─── All done ───
+        runOnUiThread(() -> {
+            mStepText.setText("安装完成 ✅");
+            mProgressBar.setVisibility(View.GONE);
+            mTitleText.setText("安装完成");
+            mInstalling = false;
 
-                appendLog("➡️ 正在跳转到主界面...");
-                Intent intent = new Intent(SetupActivity.this, MainActivity.class);
-                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                startActivity(intent);
-                finish();
-            });
-        }).start();
+            appendLog("➡️ 正在跳转到主界面...");
+            Intent intent = new Intent(SetupActivity.this, MainActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+        });
     }
 
     // ─── Rootfs tarball finding ───
@@ -305,9 +493,11 @@ public class SetupActivity extends AppCompatActivity {
     private String downloadRootfs() {
         ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR);
 
+        String downloadUrl = GitHubProxyManager.buildUrl(RbotConstants.GITHUB_ROOTFS_URL, mSelectedProxyIndex);
+
         ChrootManager.CommandResult result = ChrootManager.execRoot(
             "curl -L --progress-bar -o " + RbotConstants.SDCARD_ROOTFS_CACHE +
-            " '" + RbotConstants.GITHUB_ROOTFS_URL + "'", 600);
+            " '" + downloadUrl + "'", 600);
 
         if (result.success() && new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
             long size = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).length();
@@ -354,8 +544,9 @@ public class SetupActivity extends AppCompatActivity {
 
     private void appendLog(String message) {
         runOnUiThread(() -> {
-            mLogText.append(message + "\n");
-            mLogScrollView.post(() -> mLogScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+            String oldText = mLogText.getText().toString();
+            mLogText.setText(message + "\n" + oldText);
+            mLogScrollView.post(() -> mLogScrollView.scrollTo(0, 0));
         });
     }
 

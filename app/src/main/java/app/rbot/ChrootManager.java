@@ -119,19 +119,21 @@ public final class ChrootManager {
         cleanupChrootDevices();
 
         // Backup AstrBot data to unified external storage location (survives app uninstall)
-        boolean hasAstrBotData = new File(RbotConstants.CHROOT_DIR + "/root/astrbot/data").exists();
+        // Must use root check — /data/rbot/root/ is root:root 700, app process can't see it
+        CommandResult dataCheck = execRoot("test -d " + RbotConstants.CHROOT_DIR + "/root/astrbot/data && echo yes");
+        boolean hasAstrBotData = dataCheck.success && dataCheck.stdout.trim().equals("yes");
         if (hasAstrBotData) {
             if (callback != null) callback.onProgress("检测到 AstrBot 数据，正在备份...");
-            execRoot("mkdir -p " + RbotConstants.EXTERNAL_DATA_BACKUP + " && rm -rf " + RbotConstants.EXTERNAL_DATA_BACKUP + "/*");
-            execRoot("cp -a " + RbotConstants.CHROOT_DIR + "/root/astrbot/data " + RbotConstants.EXTERNAL_DATA_BACKUP + "/");
+            execRoot("rm -rf " + RbotConstants.EXTERNAL_DATA_BACKUP);
+            execRoot("cp -r " + RbotConstants.CHROOT_DIR + "/root/astrbot/data " + RbotConstants.EXTERNAL_DATA_BACKUP);
             if (callback != null) callback.onProgress("数据已备份到: " + RbotConstants.EXTERNAL_DATA_BACKUP);
         }
 
         // Clean staging AND chroot dir (chroot may have partial files from a previous failed run)
         execRoot("rm -rf " + stagingDir + " && rm -rf " + RbotConstants.CHROOT_DIR + " && mkdir -p " + RbotConstants.CHROOT_DIR + " " + stagingDir);
 
-        // Step 1: extract to staging
-        CommandResult result = execRoot(tarCmd, 600);
+        // Step 1: extract to staging with real-time progress
+        CommandResult result = execRootWithProgress(tarCmd, 600, callback);
         if (!result.success) {
             if (callback != null) callback.onError("解压失败: " + result.stderr);
             execRoot("rm -rf " + stagingDir);
@@ -154,9 +156,24 @@ public final class ChrootManager {
         // Note: cp -aL may fail on broken symlinks (e.g., node-compile-cache) but most
         // files succeed. We append "; true" so the overall command succeeds, then check
         // that critical files actually exist rather than relying on cp's exit code.
-        CommandResult copyResult = execRoot(
-            "cp -aL " + stagingDir + "/. " + RbotConstants.CHROOT_DIR + "/ 2>&1; true",
-            600);
+        //
+        // Progress: use a background subshell to report size changes every 5s.
+        // This gives the user visual feedback during the ~2 minute copy.
+        String copyCmd =
+            "( " +
+            "  SRC=" + stagingDir + "; " +
+            "  DST=" + RbotConstants.CHROOT_DIR + "; " +
+            "  TOTAL=$(du -sm $SRC 2>/dev/null | cut -f1); " +
+            "  (while cp -aL $SRC/. $DST/ 2>/dev/null; do break; done) & " +
+            "  CP_PID=$!; " +
+            "  while kill -0 $CP_PID 2>/dev/null; do " +
+            "    DONE=$(du -sm $DST 2>/dev/null | cut -f1); " +
+            "    echo \"[同步] ${DONE}MB / ~${TOTAL}MB\"; " +
+            "    sleep 5; " +
+            "  done; " +
+            "  wait $CP_PID; " +
+            ") 2>&1; true";
+        CommandResult copyResult = execRootWithProgress(copyCmd, 600, callback);
 
         // Clean up staging
         execRoot("rm -rf " + stagingDir);
@@ -179,16 +196,22 @@ public final class ChrootManager {
         // Create marker
         execRoot("touch " + RbotConstants.ROOTFS_MARKER);
 
+        // Ensure /dev directory exists (tar excluded it)
+        execRoot("mkdir -p " + RbotConstants.CHROOT_DIR + "/dev " +
+                 RbotConstants.CHROOT_DIR + "/dev/pts " +
+                 RbotConstants.CHROOT_DIR + "/proc " +
+                 RbotConstants.CHROOT_DIR + "/sys", 5);
+
         if (callback != null) callback.onProgress("系统镜像解压完成");
         return false;
     }
 
     /** Restore AstrBot data from unified external storage backup */
     public static boolean restoreAstrBotData(ProgressCallback callback) {
-        File backupData = new File(RbotConstants.EXTERNAL_DATA_BACKUP + "/data");
-
-        if (!backupData.exists()) {
-            if (callback != null) callback.onError("未找到备份数据: " + RbotConstants.EXTERNAL_DATA_BACKUP + "/data");
+        // EXTERNAL_DATA_BACKUP itself IS the data directory
+        CommandResult checkResult = execRoot("test -d '" + RbotConstants.EXTERNAL_DATA_BACKUP + "' && echo exists");
+        if (!checkResult.success || !checkResult.stdout.trim().equals("exists")) {
+            if (callback != null) callback.onError("未找到备份数据: " + RbotConstants.EXTERNAL_DATA_BACKUP);
             return true;
         }
 
@@ -197,8 +220,8 @@ public final class ChrootManager {
         // Ensure astrbot directory exists
         execRoot("mkdir -p " + RbotConstants.CHROOT_DIR + "/root/astrbot");
 
-        // Restore data
-        CommandResult result = execRoot("cp -a " + RbotConstants.EXTERNAL_DATA_BACKUP + "/data " + RbotConstants.CHROOT_DIR + "/root/astrbot/");
+        // backupDir IS the data — remove old data and copy backup as new data
+        CommandResult result = execRoot("rm -rf " + RbotConstants.ASTRBOT_HOME + "/data && cp -r '" + RbotConstants.EXTERNAL_DATA_BACKUP + "' " + RbotConstants.ASTRBOT_HOME + "/data");
 
         if (!result.success()) {
             if (callback != null) callback.onError("恢复数据失败: " + result.stderr());
@@ -218,43 +241,23 @@ public final class ChrootManager {
 
         String D = RbotConstants.CHROOT_DIR;
 
-        // Step 1: Clean up stale symlinks/files, create mount point directories
-        String prepCmd =
-            "rm -rf " + D + "/dev/null " + D + "/dev/zero " +
-                       D + "/dev/random " + D + "/dev/urandom " +
-                       D + "/dev/tty " +
-                       D + "/dev/pts " + D + "/proc " + D + "/sys 2>/dev/null; " +
-            "mkdir -p " + D + "/dev " + D + "/dev/pts " +
-                         D + "/proc " + D + "/sys; " +
-            // Create empty regular files as mount --bind targets
-            "touch " + D + "/dev/null " + D + "/dev/zero " +
-                   D + "/dev/random " + D + "/dev/urandom " +
-                   D + "/dev/tty; " +
-            "echo prep_done";
+        // Step 1: Create mount point directories
+        execRoot("mkdir -p " + D + "/dev " + D + "/dev/pts " +
+                              D + "/proc " + D + "/sys " + D + "/tmp", 10);
 
-        execRoot(prepCmd, 15);
+        // Step 2: Bind-mount entire /dev — ensures all device nodes have correct permissions
+        // This is the standard approach used by Termux and other chroot solutions.
+        // Individual bind mounts (mount --bind /dev/null) can cause permission issues
+        // because apt-key and other tools need write access to /dev/null.
+        execRoot("mount --bind /dev " + D + "/dev 2>/dev/null || true", 10);
 
-        // Step 2: Bind-mount host device nodes into chroot
-        String bindCmd =
-            "mount --bind /dev/null    " + D + "/dev/null; " +
-            "mount --bind /dev/zero    " + D + "/dev/zero; " +
-            "mount --bind /dev/random  " + D + "/dev/random; " +
-            "mount --bind /dev/urandom " + D + "/dev/urandom; " +
-            "mount --bind /dev/tty     " + D + "/dev/tty; " +
-            "echo bind_done";
-
-        execRoot(bindCmd, 15);
-
-        // Step 3: Mount /dev/pts — must use devpts with correct options for apt/ssh to work
-        // Create a new devpts instance with proper permissions
+        // Step 3: Mount devpts — must use new instance with proper permissions for apt/ssh
         execRoot(
-            "mkdir -p " + D + "/dev/pts; " +
             "mount -t devpts -o newinstance,ptmxmode=0666 devpts " + D + "/dev/pts 2>/dev/null || " +
             "mount -t devpts devpts " + D + "/dev/pts 2>/dev/null; " +
             "chmod 666 " + D + "/dev/pts/ptmx 2>/dev/null || true; " +
             "rm -f " + D + "/dev/ptmx 2>/dev/null; " +
             "ln -sf pts/ptmx " + D + "/dev/ptmx; " +
-            "ls -la " + D + "/dev/ptmx " + D + "/dev/pts/ptmx 2>/dev/null; " +
             "echo pts_done", 15);
 
         // Step 4: Mount /proc and /sys
@@ -275,7 +278,8 @@ public final class ChrootManager {
         execRoot(
             "rm -f " + D + "/etc/resolv.conf 2>/dev/null; " +
             "cp /etc/resolv.conf " + D + "/etc/resolv.conf 2>/dev/null || " +
-            "echo 'nameserver 8.8.8.8' > " + D + "/etc/resolv.conf; " +
+            "echo 'nameserver 223.5.5.5' > " + D + "/etc/resolv.conf; " + 
+            "echo 'nameserver 8.8.8.8' >> " + D + "/etc/resolv.conf; " +
             "echo dns_done", 10);
 
         if (callback != null) {
@@ -298,19 +302,127 @@ public final class ChrootManager {
     /** Step 1: Setup chroot environment (mount devices, proc, sys, pts) */
     public static boolean setupChrootEnvironment(ProgressCallback callback) {
         setupChrootDevices(callback);
+        // Fix /dev/null permissions and ensure gpgv is installed for apt to work
+        fixDevNull(callback);
+        ensureGpgv(callback);
+        // Switch to Chinese mirror early so all apt operations are fast
+        switchToChineseMirror(callback);
         return false;  // setupChrootDevices doesn't return failure
+    }
+
+    /** Fix /dev/null — common issue after rootfs extract where /dev/null is a regular file with wrong permissions */
+    private static void fixDevNull(ProgressCallback callback) {
+        // Verify /dev/null works inside chroot
+        CommandResult check = execInChroot("echo test > /dev/null 2>&1 && echo ok || echo broken", 5);
+        if (check.success() && check.stdout().trim().contains("ok")) {
+            return; // /dev/null works fine
+        }
+
+        if (callback != null) callback.onProgress("修复 /dev/null 权限...");
+
+        String D = RbotConstants.CHROOT_DIR;
+        // Unmount first (may be stale bind mount)
+        execRoot("umount " + D + "/dev/null 2>/dev/null", 5);
+        // Remove broken file/node
+        execRoot("rm -f " + D + "/dev/null", 5);
+        // Recreate and bind mount
+        execRoot("touch " + D + "/dev/null && mount --bind /dev/null " + D + "/dev/null", 5);
+
+        // Verify again
+        CommandResult verify = execInChroot("echo test > /dev/null 2>&1 && echo ok || echo broken", 5);
+        if (verify.success() && verify.stdout().trim().contains("ok")) {
+            if (callback != null) callback.onProgress("/dev/null 已修复");
+        } else {
+            if (callback != null) callback.onProgress("⚠️ /dev/null 修复可能失败，部分操作可能出错");
+        }
+    }
+
+    /** Ensure gpgv is installed — required by apt for repository verification */
+    private static void ensureGpgv(ProgressCallback callback) {
+        // Check if gpgv exists in chroot
+        CommandResult check = execInChroot("which gpgv 2>/dev/null && echo exists || echo missing", 5);
+        if (check.success() && check.stdout().trim().contains("exists")) {
+            return; // gpgv already installed
+        }
+
+        if (callback != null) callback.onProgress("安装 gpgv (签名验证工具)...");
+
+        // Install gpgv without verification (chicken-and-egg problem)
+        CommandResult result = execInChrootWithProgress(
+            "export DEBIAN_FRONTEND=noninteractive && " +
+            "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+            "apt update --allow-unauthenticated 2>/dev/null; " +
+            "apt install -y --allow-unauthenticated gpgv 2>&1", 60, callback);
+
+        if (result.success()) {
+            if (callback != null) callback.onProgress("gpgv 安装完成");
+        } else {
+            if (callback != null) callback.onProgress("⚠️ gpgv 安装失败，后续 apt 操作可能受限");
+        }
+    }
+
+    /** Switch apt sources to Aliyun mirror for faster downloads in China.
+     *  Detects Ubuntu version from /etc/os-release and replaces sources.list.
+     */
+    private static void switchToChineseMirror(ProgressCallback callback) {
+        if (callback != null) callback.onProgress("正在切换国内镜像源...");
+
+        // Check if already using Chinese mirror
+        CommandResult check = execInChroot("grep -q 'aliyun\\|tuna\\|ustc\\|163' /etc/apt/sources.list 2>/dev/null && echo already", 10);
+        if (check.success() && check.stdout().trim().contains("already")) {
+            if (callback != null) callback.onProgress("已使用国内镜像源，跳过");
+            return;
+        }
+
+        // Detect Ubuntu codename (e.g., "noble" for 24.04)
+        CommandResult codenameResult = execInChroot(
+            "grep '^UBUNTU_CODENAME=' /etc/os-release 2>/dev/null | cut -d= -f2 || " +
+            "lsb_release -cs 2>/dev/null || echo noble", 10);
+        String codename = codenameResult.stdout().trim();
+        if (codename.isEmpty()) codename = "noble";
+
+        // Write Aliyun mirror sources.list (arm64 uses ports.ubuntu.com, but Aliyun mirrors that too)
+        String sourcesContent =
+            "# Aliyun mirror - auto-configured by Rbot\n" +
+            "deb http://mirrors.aliyun.com/ubuntu-ports/ " + codename + " main restricted universe multiverse\n" +
+            "deb http://mirrors.aliyun.com/ubuntu-ports/ " + codename + "-updates main restricted universe multiverse\n" +
+            "deb http://mirrors.aliyun.com/ubuntu-ports/ " + codename + "-security main restricted universe multiverse\n";
+
+        // Write via host root (more reliable than chroot for file operations)
+        String tmpFile = RbotConstants.RBOT_TMP + "/sources.list";
+        execRoot("mkdir -p " + RbotConstants.RBOT_TMP, 5);
+        try {
+            java.io.FileWriter fw = new java.io.FileWriter(tmpFile);
+            fw.write(sourcesContent);
+            fw.close();
+        } catch (java.io.IOException e) {
+            // Fallback: write via echo
+            execRoot("echo 'deb http://mirrors.aliyun.com/ubuntu-ports/ " + codename + " main restricted universe multiverse\n" +
+                "deb http://mirrors.aliyun.com/ubuntu-ports/ " + codename + "-updates main restricted universe multiverse\n" +
+                "deb http://mirrors.aliyun.com/ubuntu-ports/ " + codename + "-security main restricted universe multiverse\n' > " + tmpFile, 10);
+        }
+        execRoot("cp " + tmpFile + " " + RbotConstants.CHROOT_DIR + "/etc/apt/sources.list && rm -f " + tmpFile, 10);
+
+        if (callback != null) callback.onProgress("已切换到阿里云镜像源 (" + codename + ")");
     }
 
     /** Step 2: apt update inside chroot */
     public static boolean aptUpdate(ProgressCallback callback) {
         if (callback != null) callback.onProgress("正在更新软件源...");
 
-        CommandResult result = execInChroot(
+        // Kill stale apt processes and clean locks from previous failed runs
+        execInChroot(
+            "pkill -9 apt 2>/dev/null; pkill -9 dpkg 2>/dev/null; " +
+            "rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend " +
+            "/var/cache/apt/archives/lock 2>/dev/null; " +
+            "sleep 1; echo locks_cleaned", 10);
+
+        CommandResult result = execInChrootWithProgress(
             "export DEBIAN_FRONTEND=noninteractive && " +
             "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
             "mkdir -p /var/lib/apt/lists/partial /var/lib/dpkg && " +
             "if [ ! -f /var/lib/dpkg/status ]; then touch /var/lib/dpkg/status; fi && " +
-            "apt update --allow-unauthenticated", 120);
+            "apt update --allow-unauthenticated", 60, callback);
 
         if (!result.success) {
             if (callback != null) callback.onError("软件源更新失败: " + result.stderr);
@@ -322,53 +434,116 @@ public final class ChrootManager {
 
     /** Step 3: apt install dependencies inside chroot */
     public static boolean aptInstallDeps(ProgressCallback callback) {
-        if (callback != null) callback.onProgress("正在安装依赖 (python3.13, pip, git, curl, gpgv)...");
+        // Ubuntu 24.04 ships Python 3.12 natively (meets AstrBot's 3.12+ requirement).
+        // No deadsnakes PPA needed. Check each dependency group before installing.
 
-        // Install Python 3.13 from deadsnakes PPA for AstrBot compatibility (requires 3.12+)
-        CommandResult result = execInChroot(
+        String[] depChecks = {
+            "python3 --version",                           // Python 3
+            "python3 -m venv --help >/dev/null 2>&1",     // python3-venv
+            "pip3 --version",                              // pip
+            "git --version",                               // git
+            "curl --version",                              // curl
+            "ssh -V 2>&1",                                 // openssh-server
+            "gpgv --version 2>&1",                         // gpgv
+            "locale -a 2>/dev/null | grep -q en_US",      // locales
+        };
+
+        String[] depNames = {
+            "Python 3", "python3-venv", "pip3", "git", "curl", "SSH", "gpgv", "locales"
+        };
+
+        boolean allPresent = true;
+        StringBuilder missing = new StringBuilder();
+        for (int i = 0; i < depChecks.length; i++) {
+            CommandResult check = execInChroot(depChecks[i] + " && echo ok", 10);
+            if (!check.success || !check.stdout.trim().endsWith("ok")) {
+                allPresent = false;
+                missing.append(depNames[i]).append(" ");
+            }
+        }
+
+        if (allPresent) {
+            if (callback != null) callback.onProgress("所有系统依赖已存在，跳过安装");
+            return false;
+        }
+
+        if (callback != null) callback.onProgress("缺少依赖: " + missing.toString().trim() + "，正在安装...");
+
+        // Kill stale apt/dpkg processes and clean locks
+        execInChroot(
+            "pkill -9 apt 2>/dev/null; pkill -9 dpkg 2>/dev/null; " +
+            "rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend " +
+            "/var/cache/apt/archives/lock 2>/dev/null; " +
+            "dpkg --configure -a 2>/dev/null; sleep 1; echo locks_cleaned", 15);
+
+        CommandResult result = execInChrootWithProgress(
             "export DEBIAN_FRONTEND=noninteractive && " +
             "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
-            "apt install -y --allow-unauthenticated software-properties-common gnupg && " +
-            "add-apt-repository -y ppa:deadsnakes/ppa && " +
-            "apt update && " +
-            "apt install -y --allow-unauthenticated python3.13 python3.13-venv python3.13-dev python3-pip git curl gpgv coreutils procps openssh-server", 600);
+            "apt install -y --allow-unauthenticated " +
+            "python3 python3-venv python3-pip python3-dev " +
+            "git curl wget gpgv coreutils procps openssh-server " +
+            "ca-certificates software-properties-common locales build-essential", 60, callback);
 
         if (!result.success) {
             if (callback != null) callback.onError("依赖安装失败: " + result.stderr);
             return true;
         }
 
-        // Set python3.13 as default python3
-        CommandResult altResult = execInChroot(
-            "update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.13 1 && " +
-            "update-alternatives --set python3 /usr/bin/python3.13", 30);
+        // Ensure locale and SSH config are correct
+        execInChroot("locale-gen en_US.UTF-8", 30);
+        execInChroot(
+            "mkdir -p /run/sshd && " +
+            "sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && " +
+            "sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config", 15);
 
-        if (!altResult.success) {
-            if (callback != null) callback.onError("Python 3.13 设置默认失败: " + altResult.stderr);
-            return true;
-        }
-
-        if (callback != null) callback.onProgress("依赖安装完成 (Python 3.13)");
+        if (callback != null) callback.onProgress("依赖安装完成 (Python 3.12+)");
         return false;
     }
 
     /** Step 4: clone AstrBot inside chroot from GitHub */
     public static boolean cloneAstrBot(ProgressCallback callback) {
-        // Already cloned? Skip.
-        CommandResult check = execInChroot(
-            "test -d /root/astrbot && test -f /root/astrbot/main.py && echo exists", 10);
+        return cloneAstrBot(callback, null);
+    }
 
-        if (check.success && check.stdout.trim().equals("exists")) {
-            if (callback != null) callback.onProgress("AstrBot 已存在，跳过克隆");
+    /** Step 4: clone AstrBot inside chroot from GitHub
+     *  @param version git tag/branch to checkout (null = latest main)
+     */
+    public static boolean cloneAstrBot(ProgressCallback callback, String version) {
+        return cloneAstrBotWithProxy(callback, version, GitHubProxyManager.getBestProxy());
+    }
+
+    /** Step 4: clone AstrBot with a specific proxy index */
+    public static boolean cloneAstrBotWithProxy(ProgressCallback callback, String version, int proxyIndex) {
+        // If marker says AstrBot is installed, skip
+        if (isAstrBotInstalled()) {
+            if (callback != null) callback.onProgress("AstrBot 已安装，跳过克隆");
             return false;
         }
 
-        if (callback != null) callback.onProgress("正在克隆 AstrBot...");
+        // Remove old directory if it exists (incomplete install, etc.)
+        execInChroot("rm -rf /root/astrbot", 30);
 
-        CommandResult result = execInChroot(
-            "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+        if (callback != null) {
+            if (version != null && !version.isEmpty()) {
+                callback.onProgress("正在克隆 AstrBot (" + version + ")...");
+            } else {
+                callback.onProgress("正在克隆 AstrBot (最新版)...");
+            }
+        }
+
+        String cloneCmd = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
             "export GIT_TERMINAL_PROMPT=0 && " +
-            "git clone --depth 1 https://github.com/AstrBotDevs/AstrBot.git /root/astrbot", 300);
+            "git clone --depth 1";
+
+        if (version != null && !version.isEmpty()) {
+            cloneCmd += " --branch " + version;
+        }
+
+        // Use specified proxy for GitHub access
+        String repoUrl = GitHubProxyManager.buildUrl("https://github.com/AstrBotDevs/AstrBot.git", proxyIndex);
+        cloneCmd += " " + repoUrl + " /root/astrbot";
+
+        CommandResult result = execInChrootWithProgress(cloneCmd, 60, callback);
 
         if (!result.success) {
             if (callback != null) callback.onError("AstrBot 克隆失败: " + result.stderr);
@@ -380,11 +555,24 @@ public final class ChrootManager {
 
     /** Step 5: pip install AstrBot dependencies */
     public static boolean pipInstallDeps(ProgressCallback callback) {
+        if (callback != null) callback.onProgress("正在创建 Python 虚拟环境...");
+
+        // Ubuntu 24.04 enforces PEP 668 — cannot pip install system-wide.
+        // Create a venv at /root/astrbot/venv and install deps there.
+        CommandResult venvResult = execInChrootWithProgress(
+            "python3 -m venv /root/astrbot/venv && " +
+            "/root/astrbot/venv/bin/pip install --upgrade pip", 60, callback);
+
+        if (!venvResult.success) {
+            if (callback != null) callback.onError("虚拟环境创建失败: " + venvResult.stderr);
+            return true;
+        }
+
         if (callback != null) callback.onProgress("正在安装 Python 依赖...");
 
-        CommandResult result = execInChroot(
-            "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
-            "cd /root/astrbot && pip install -r requirements.txt", 300);
+        CommandResult result = execInChrootWithProgress(
+            "export PATH=/root/astrbot/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+            "cd /root/astrbot && pip install -r requirements.txt", 300, callback);
 
         if (!result.success) {
             if (callback != null) callback.onError("Python 依赖安装失败: " + result.stderr);
@@ -406,11 +594,8 @@ public final class ChrootManager {
             "umount " + D + "/sys 2>/dev/null; " +
             "umount " + D + "/proc 2>/dev/null; " +
             "umount " + D + "/dev/pts 2>/dev/null; " +
-            "umount " + D + "/dev/tty 2>/dev/null; " +
-            "umount " + D + "/dev/urandom 2>/dev/null; " +
-            "umount " + D + "/dev/random 2>/dev/null; " +
-            "umount " + D + "/dev/zero 2>/dev/null; " +
-            "umount " + D + "/dev/null 2>/dev/null; " +
+            "umount " + D + "/dev 2>/dev/null; " +
+            "umount " + D + "/tmp 2>/dev/null; " +
             "echo cleanup_done", 15);
     }
 
@@ -425,12 +610,18 @@ public final class ChrootManager {
             // Kill any existing process first
             stopAstrBot();
 
-        // Use python3 (now Python 3.13 from deadsnakes PPA)
+        // Use venv python if available (PEP 668 on Ubuntu 24.04), fallback to system python3
         // Use setsid so the Python process becomes a proper daemon and $! gives
         // the Python PID (not nohup's PID, which would exit immediately).
+        String pythonBin = "python3"; // fallback
+        CommandResult venvCheck = execInChroot("test -f /root/astrbot/venv/bin/python3 && echo venv_ok", 5);
+        if (venvCheck.success() && venvCheck.stdout().trim().equals("venv_ok")) {
+            pythonBin = "/root/astrbot/venv/bin/python3";
+        }
+
         String chrootBashCmd =
             "cd /root/astrbot && " +
-            "setsid python3 main.py > /root/astrbot/astrbot.log 2>&1 & " +
+            "setsid " + pythonBin + " main.py > /root/astrbot/astrbot.log 2>&1 & " +
             "echo $! > /root/astrbot/astrbot.pid && " +
             "sleep 5 && " +
             "if kill -0 $(cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
@@ -602,9 +793,9 @@ public final class ChrootManager {
 
         if (callback != null) callback.onProgress("正在恢复 data 目录...");
 
-        // Direct cp -r -f to overwrite (no tar extraction)
+        // backupDir IS the data directory — copy its contents into ASTRBOT_HOME/data/
         CommandResult cpResult = execRoot(
-            "cp -r -f '" + backupDir + "/data' " + RbotConstants.ASTRBOT_HOME + "/");
+            "rm -rf " + RbotConstants.ASTRBOT_HOME + "/data && cp -r -f '" + backupDir + "' " + RbotConstants.ASTRBOT_HOME + "/data");
 
         if (!cpResult.success) {
             if (callback != null) callback.onError("恢复失败: " + cpResult.stderr);
@@ -725,12 +916,19 @@ public final class ChrootManager {
                 .redirectErrorStream(false)
                 .start();
 
+            // Adaptive timeout: reset idle timer on any output
+            final long[] lastActivity = {System.currentTimeMillis()};
+            final long startTime = System.currentTimeMillis();
+            final long maxWallTime = timeoutSec * 3 * 1000L;
+            final long idleTimeout = timeoutSec * 1000L;
+
             Thread stdoutThread = new Thread(() -> {
                 try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream()))) {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         stdout.append(line).append("\n");
+                        lastActivity[0] = System.currentTimeMillis();
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "stdout read error: " + e.getMessage());
@@ -743,6 +941,7 @@ public final class ChrootManager {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         stderr.append(line).append("\n");
+                        lastActivity[0] = System.currentTimeMillis();
                     }
                 } catch (Exception e) {
                     Log.w(TAG, "stderr read error: " + e.getMessage());
@@ -752,15 +951,27 @@ public final class ChrootManager {
             stdoutThread.start();
             stderrThread.start();
 
-            boolean finished = process.waitFor(timeoutSec, TimeUnit.SECONDS);
-            if (!finished) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Wait with adaptive timeout: reset on any output
+            while (process.isAlive()) {
+                long now = System.currentTimeMillis();
+                long elapsed = now - startTime;
+                long idle = now - lastActivity[0];
+
+                if (elapsed > maxWallTime) {
+                    Log.w(TAG, "Process exceeded max wall time (" + (maxWallTime/1000) + "s), killing");
                     process.destroyForcibly();
-                } else {
-                    process.destroy();
+                    return new CommandResult(false, stdout.toString(),
+                        "命令超过最大运行时间 (" + (maxWallTime/1000) + "s)", -1);
                 }
-                return new CommandResult(false, stdout.toString(),
-                    "Command timed out after " + timeoutSec + "s", -1);
+
+                if (idle > idleTimeout) {
+                    Log.w(TAG, "Process idle for " + (idle/1000) + "s, killing");
+                    process.destroyForcibly();
+                    return new CommandResult(false, stdout.toString(),
+                        "命令超时 (" + (idle/1000) + "s 无输出)", -1);
+                }
+
+                Thread.sleep(500);
             }
 
             stdoutThread.join(2000);
@@ -781,22 +992,171 @@ public final class ChrootManager {
         return "'" + s.replace("'", "'\\''") + "'";
     }
 
+    // ─── Internal: process execution with real-time progress ───
+
+    /**
+     * Execute a command as root and push real-time progress lines to callback.
+     * Reads both stdout and stderr, pushes meaningful lines via
+     * {@link ProgressCallback#onProgress}, and resets idle timer on any output.
+     */
+    @SuppressLint("NewApi")
+    private static CommandResult execRootWithProgress(String command, int timeoutSec, ProgressCallback callback) {
+        StringBuilder stdout = new StringBuilder();
+        StringBuilder stderr = new StringBuilder();
+
+        try {
+            Log.d(TAG, "Executing (progress): " + command);
+
+            final Process process = new ProcessBuilder("su", "-c", command)
+                .redirectErrorStream(false)
+                .start();
+
+            // Track last activity time — reset on each progress line
+            final long[] lastActivity = {System.currentTimeMillis()};
+            final long startTime = System.currentTimeMillis();
+            // Max total wall time: timeoutSec * 3 (generous upper bound)
+            final long maxWallTime = timeoutSec * 3 * 1000L;
+            // Idle timeout: timeoutSec (no output for this long = truly stuck)
+            final long idleTimeout = timeoutSec * 1000L;
+
+            // Read stdout in background — also push progress lines to callback
+            Thread stdoutThread = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        stdout.append(line).append("\n");
+                        lastActivity[0] = System.currentTimeMillis();
+                        // Push progress lines from stdout too (pip, cp -v, etc.)
+                        if (callback != null && isProgressLine(line)) {
+                            callback.onProgress(line.trim());
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "stdout read error: " + e.getMessage());
+                }
+            });
+
+            // Read stderr in background — push progress lines to callback, reset activity timer
+            Thread stderrThread = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getErrorStream()))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        stderr.append(line).append("\n");
+                        lastActivity[0] = System.currentTimeMillis();
+                        // Push meaningful progress lines to callback
+                        if (callback != null && isProgressLine(line)) {
+                            callback.onProgress(line.trim());
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "stderr read error: " + e.getMessage());
+                }
+            });
+
+            stdoutThread.start();
+            stderrThread.start();
+
+            // Wait for process with adaptive timeout:
+            // - If the process is still producing output, keep waiting (up to maxWallTime)
+            // - If no output for idleTimeout, treat as stuck and kill
+            while (process.isAlive()) {
+                long now = System.currentTimeMillis();
+                long elapsed = now - startTime;
+                long idle = now - lastActivity[0];
+
+                if (elapsed > maxWallTime) {
+                    // Total wall time exceeded — hard kill
+                    Log.w(TAG, "Process exceeded max wall time (" + (maxWallTime/1000) + "s), killing");
+                    process.destroyForcibly();
+                    return new CommandResult(false, stdout.toString(),
+                        "命令超过最大运行时间 (" + (maxWallTime/1000) + "s)", -1);
+                }
+
+                if (idle > idleTimeout) {
+                    // No output for idleTimeout — process is stuck
+                    Log.w(TAG, "Process idle for " + (idle/1000) + "s, killing");
+                    process.destroyForcibly();
+                    return new CommandResult(false, stdout.toString(),
+                        "命令超时 (" + (idle/1000) + "s 无输出)", -1);
+                }
+
+                Thread.sleep(1000); // Check every second
+            }
+
+            stdoutThread.join(2000);
+            stderrThread.join(2000);
+
+            int exitCode = process.exitValue();
+            return new CommandResult(exitCode == 0, stdout.toString(),
+                stderr.toString(), exitCode);
+
+        } catch (Exception e) {
+            Log.e(TAG, "Command execution failed: " + e.getMessage());
+            return new CommandResult(false, stdout.toString(), e.getMessage(), -1);
+        }
+    }
+
+    /** Execute a chroot command with real-time progress */
+    private static CommandResult execInChrootWithProgress(String command, int timeoutSec, ProgressCallback callback) {
+        String chrootCmd = "chroot " + RbotConstants.CHROOT_DIR +
+            " /bin/bash -c " +
+            shellQuote(
+                "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+                "unset ANDROID_ROOT && " +
+                "export TMPDIR=/tmp && " +
+                "export TEMP=/tmp && " +
+                "export TMP=/tmp && " +
+                "export XDG_CACHE_HOME=/root/.cache && " +
+                "export XDG_CONFIG_HOME=/root/.config && " +
+                "export XDG_DATA_HOME=/root/.local/share && " +
+                "export XDG_STATE_HOME=/root/.local/state && " +
+                command
+            );
+        return execRootWithProgress(chrootCmd, timeoutSec, callback);
+    }
+
+    /**
+     * Filter stderr lines to identify progress-worthy output.
+     * Shows most meaningful output, only skips truly noisy/repetitive lines.
+     */
+    private static boolean isProgressLine(String line) {
+        if (line == null || line.trim().isEmpty()) return false;
+        String l = line.trim();
+        // Skip very short lines (likely noise like single chars)
+        if (l.length() < 3) return false;
+        // Skip common noise patterns
+        if (l.startsWith("debconf:")) return false;
+        // Skip pip's "Requirement already satisfied" spam (too many lines)
+        if (l.startsWith("Requirement already satisfied:")) return false;
+        // Skip empty progress dots / carriage returns
+        if (l.equals(".") || l.equals("..") || l.equals("...")) return false;
+        // Show everything else — it's better to see too much than nothing at all
+        return true;
+    }
+
     /**
      * Build the appropriate tar extract command based on the tarball's
      * actual compression format (detected via `file` command).
+     * Uses --checkpoint to show periodic progress.
      */
     private static String buildTarExtractCommand(String tarballPath, String stagingDir) {
         CommandResult detect = execRoot("file '" + tarballPath + "'", 10);
         String info = detect.success ? detect.stdout.toLowerCase() : "";
 
+        String tarBase;
         if (info.contains("gzip") || info.contains("zlib")) {
-            return "tar -xzf '" + tarballPath + "' -C " + stagingDir;
+            tarBase = "tar -xzf '" + tarballPath + "'";
         } else if (info.contains("xz")) {
-            return "tar -xf '" + tarballPath + "' -C " + stagingDir;
+            tarBase = "tar -xf '" + tarballPath + "'";
         } else if (info.contains("zstd")) {
-            return "tar -I zstd -xf '" + tarballPath + "' -C " + stagingDir;
+            tarBase = "tar -I zstd -xf '" + tarballPath + "'";
         } else {
-            return "tar -xf '" + tarballPath + "' -C " + stagingDir;
+            tarBase = "tar -xf '" + tarballPath + "'";
         }
+
+        // --checkpoint=500 triggers every 500 entries, --checkpoint-action outputs progress
+        return tarBase + " --checkpoint=500 --checkpoint-action=echo='[解压] 已处理 %(T)s 个文件' -C " + stagingDir;
     }
 }

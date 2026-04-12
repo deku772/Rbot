@@ -78,6 +78,35 @@
             android:textSize="13sp"
             android:textColor="@color/botdrop_on_background" />
 
+        <!-- Custom proxy input -->
+        <LinearLayout
+            android:id="@+id/proxy_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="自定义 GitHub 代理地址："
+                android:textSize="12sp"
+                android:textColor="@color/botdrop_secondary_text" />
+
+            <EditText
+                android:id="@+id/et_custom_proxy"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:hint="例如: https://gh-proxy.com/"
+                android:textSize="13sp"
+                android:inputType="textUri"
+                android:background="#0D000000"
+                android:padding="8dp"
+                android:layout_marginTop="4dp" />
+
+        </LinearLayout>
+
     </LinearLayout>
 
     <!-- Progress -->

@@ -18,6 +18,9 @@ import android.widget.Button;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import androidx.cardview.widget.CardView;
 
 import androidx.annotation.NonNull;
@@ -52,6 +55,7 @@ public class MainActivity extends AppCompatActivity {
     private Button mSshToggleButton;
     private boolean mSshStarting = false;
     private ScrollView mLogScrollView;
+    private Button mClearLogButton;
     private boolean mBackupInProgress = false;
     private CardView mWebuiPanel;
     private TextView mWebuiUrl;
@@ -66,6 +70,7 @@ public class MainActivity extends AppCompatActivity {
     // Manage buttons
     private Button mReinstallDepsButton;
     private Button mReinstallAstrbotButton;
+    private Button mReinstallRootfsButton;
     private Button mResetPasswordButton;
     private Button mRepairEnvButton;
     private Button mCleanInstallButton;
@@ -105,6 +110,7 @@ public class MainActivity extends AppCompatActivity {
         mStatusText = findViewById(R.id.status_text);
         mLogText = findViewById(R.id.log_text);
         mLogScrollView = findViewById(R.id.log_scroll);
+        mClearLogButton = findViewById(R.id.btn_clear_log);
         mStartButton = findViewById(R.id.btn_start);
         mStopButton = findViewById(R.id.btn_stop);
         mSetupButton = findViewById(R.id.btn_setup);
@@ -128,6 +134,7 @@ public class MainActivity extends AppCompatActivity {
         // Manage buttons
         mReinstallDepsButton = findViewById(R.id.btn_reinstall_deps);
         mReinstallAstrbotButton = findViewById(R.id.btn_reinstall_astrbot);
+        mReinstallRootfsButton = findViewById(R.id.btn_reinstall_rootfs);
         mResetPasswordButton = findViewById(R.id.btn_reset_password);
         mRepairEnvButton = findViewById(R.id.btn_repair_env);
         mCleanInstallButton = findViewById(R.id.btn_clean_install);
@@ -147,6 +154,10 @@ public class MainActivity extends AppCompatActivity {
             startActivity(browserIntent);
         });
         mSshToggleButton.setOnClickListener(v -> toggleSshService());
+        mClearLogButton.setOnClickListener(v -> {
+            mLogText.setText("");
+            mLastLogTail = "";
+        });
         mBackupButton.setOnClickListener(v -> showBackupDialog());
         mRestoreButton.setOnClickListener(v -> showRestoreDialog());
 
@@ -157,6 +168,7 @@ public class MainActivity extends AppCompatActivity {
         // Manage buttons
         mReinstallDepsButton.setOnClickListener(v -> showReinstallDepsDialog());
         mReinstallAstrbotButton.setOnClickListener(v -> showReinstallAstrbotDialog());
+        mReinstallRootfsButton.setOnClickListener(v -> showReinstallRootfsDialog());
         mResetPasswordButton.setOnClickListener(v -> showResetPasswordDialog());
         mRepairEnvButton.setOnClickListener(v -> showRepairEnvDialog());
         mCleanInstallButton.setOnClickListener(v -> showCleanInstallDialog());
@@ -188,6 +200,11 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Add a clear separator when returning to the activity
+        String timestamp = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date());
+        appendToLog("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+        appendToLog("  📱 Rbot 返回前台 — " + timestamp);
+        appendToLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
         // Bind to RbotService
         Intent intent = new Intent(this, RbotService.class);
         bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
@@ -317,7 +334,7 @@ public class MainActivity extends AppCompatActivity {
             refreshStatusOffThread();
             mHandler.post(() -> {
                 if (!result.success()) {
-                    mLogText.append("启动失败: " + result.stderr() + "\n");
+                    appendToLog("启动失败: " + result.stderr());
                 }
             });
         }).start();
@@ -379,11 +396,6 @@ public class MainActivity extends AppCompatActivity {
                         synchronized (mLogLock) {
                             if (newTail.equals(mLastLogTail)) return;
 
-                            boolean hadSelection = mLogText.hasSelection();
-                            boolean wasAtEnd = !hadSelection &&
-                                (mLogText.getText().length() == 0 ||
-                                mLogScrollView.getScrollY() >= mLogScrollView.getMaxScrollAmount() - 50);
-
                             String current = mLogText.getText().toString();
                             StringBuilder delta = new StringBuilder();
                             String[] newLines = newTail.split("\n");
@@ -409,20 +421,32 @@ public class MainActivity extends AppCompatActivity {
                             }
 
                             if (delta.length() > 0) {
-                                mLogText.append(delta);
+                                // Insert new lines at the top (newest-first order)
+                                String[] deltaLines = delta.toString().split("\n");
+                                StringBuilder reversed = new StringBuilder();
+                                for (int i = deltaLines.length - 1; i >= 0; i--) {
+                                    if (!deltaLines[i].isEmpty()) {
+                                        reversed.append(deltaLines[i]).append("\n");
+                                    }
+                                }
+                                String oldText = mLogText.getText().toString();
+                                mLogText.setText(reversed.toString() + oldText);
                                 mLastLogTail = newTail;
 
+                                // Trim from the bottom (oldest lines) when exceeding limit
                                 String text = mLogText.getText().toString();
                                 String[] allLines = text.split("\n");
                                 if (allLines.length > MAX_LOG_LINES) {
-                                    int cutPos = text.indexOf(allLines[allLines.length - MAX_LOG_LINES]);
-                                    mLogText.setText(text.substring(Math.max(0, cutPos)));
+                                    int keepCount = MAX_LOG_LINES;
+                                    StringBuilder kept = new StringBuilder();
+                                    for (int i = 0; i < keepCount; i++) {
+                                        kept.append(allLines[i]).append("\n");
+                                    }
+                                    mLogText.setText(kept.toString());
                                 }
 
-                                if (wasAtEnd && !hadSelection) {
-                                    mLogScrollView.post(() ->
-                                        mLogScrollView.fullScroll(ScrollView.FOCUS_DOWN));
-                                }
+                                // Always scroll to top to see newest
+                                mLogScrollView.post(() -> mLogScrollView.scrollTo(0, 0));
                             }
                         }
                     });
@@ -617,8 +641,10 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void appendToLog(String message) {
-        mLogText.append(message + "\n");
-        mLogScrollView.post(() -> mLogScrollView.fullScroll(ScrollView.FOCUS_DOWN));
+        // Insert at top (newest-first order)
+        String oldText = mLogText.getText().toString();
+        mLogText.setText(message + "\n" + oldText);
+        mLogScrollView.post(() -> mLogScrollView.scrollTo(0, 0));
     }
 
     // ─── Manage Functions ───
@@ -626,7 +652,7 @@ public class MainActivity extends AppCompatActivity {
     private void showReinstallDepsDialog() {
         new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("重装系统依赖")
-            .setMessage("将重新运行 apt update 和安装 Python 3.13、SSH 等依赖。\n\n如果 AstrBot 正在运行，将会先停止。")
+            .setMessage("将重新运行 apt update 和安装 Python 3、SSH 等依赖。\n\n如果 AstrBot 正在运行，将会先停止。")
             .setPositiveButton("开始重装", (dialog, which) -> {
                 dialog.dismiss(); // Close dialog immediately
                 switchTab(TAB_LOG);
@@ -662,15 +688,158 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void showReinstallAstrbotDialog() {
+        // Build version list: latest + fetch from GitHub
+        List<String> versionDisplay = new ArrayList<>();
+        List<String> versionArgs = new ArrayList<>();
+        versionDisplay.add("最新版 (main)");
+        versionArgs.add("");
+
+        // Fetch releases in background
+        appendToLog("  📡 正在获取 AstrBot 版本列表...");
+        new Thread(() -> {
+            java.util.List<String> releases = GitHubProxyManager.fetchAstrBotReleases(5);
+            if (releases != null) {
+                for (String tag : releases) {
+                    versionDisplay.add(tag);
+                    versionArgs.add(tag);
+                }
+            } else {
+                // Fallback versions if API fails
+                versionDisplay.add("v4.22.3");
+                versionArgs.add("v4.22.3");
+                versionDisplay.add("v4.22.2");
+                versionArgs.add("v4.22.2");
+                versionDisplay.add("v4.22.1");
+                versionArgs.add("v4.22.1");
+            }
+
+            mHandler.post(() -> {
+                // Create dialog with dynamic versions
+                android.widget.Spinner spinner = new android.widget.Spinner(this);
+                android.widget.ArrayAdapter<String> adapter = new android.widget.ArrayAdapter<>(this,
+                    android.R.layout.simple_spinner_dropdown_item, versionDisplay.toArray(new String[0]));
+                spinner.setAdapter(adapter);
+                spinner.setPadding(48, 24, 48, 24);
+
+                android.widget.LinearLayout layout = new android.widget.LinearLayout(this);
+                layout.setOrientation(android.widget.LinearLayout.VERTICAL);
+                layout.setPadding(48, 24, 48, 0);
+
+                android.widget.TextView label = new android.widget.TextView(this);
+                label.setText("选择版本：");
+                label.setTextSize(16);
+                label.setPadding(0, 0, 0, 16);
+                layout.addView(label);
+                layout.addView(spinner);
+
+                // Proxy selection
+                android.widget.TextView proxyLabel = new android.widget.TextView(this);
+                proxyLabel.setText("下载线路：");
+                proxyLabel.setTextSize(16);
+                proxyLabel.setPadding(0, 24, 0, 16);
+                layout.addView(proxyLabel);
+
+                android.widget.Spinner proxySpinner = new android.widget.Spinner(this);
+                String[] proxyDisplayNames = GitHubProxyManager.getAllProxyNamesWithLatency();
+                android.widget.ArrayAdapter<String> proxyAdapter = new android.widget.ArrayAdapter<>(this,
+                    android.R.layout.simple_spinner_dropdown_item, proxyDisplayNames);
+                proxySpinner.setAdapter(proxyAdapter);
+                proxySpinner.setSelection(GitHubProxyManager.getBestProxy());
+                proxySpinner.setPadding(48, 24, 48, 24);
+                layout.addView(proxySpinner);
+
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("重装 AstrBot")
+                    .setMessage("将删除 /root/astrbot 目录并重新克隆安装。\n\n⚠️ data 目录（配置、数据库）会被保留，但自定义修改会丢失。")
+                    .setView(layout)
+                    .setPositiveButton("开始重装", (dialog, which) -> {
+                        String version = versionArgs.get(spinner.getSelectedItemPosition());
+                        // Re-test selected proxy
+                        int selectedProxyIndex = proxySpinner.getSelectedItemPosition();
+                        // If user selected a different proxy, override the cached one
+                        // We just use the selected index directly for this operation
+                        switchTab(TAB_LOG);
+                        appendToLog("\n🤖 开始重装 AstrBot...");
+                        new Thread(() -> {
+                            // Test the selected proxy
+                            appendToLog("  🌐 使用线路: " + GitHubProxyManager.getProxyName(selectedProxyIndex));
+                            // Backup data dir before removing
+                            ChrootManager.stopAstrBot();
+                            ChrootManager.execInChroot(
+                                "if [ -d /root/astrbot/data ]; then " +
+                                "  cp -a /root/astrbot/data /root/astrbot_data_backup; " +
+                                "fi && rm -rf /root/astrbot", 60);
+                            // Remove marker
+                            ChrootManager.execRoot("rm -f " + RbotConstants.ASTRBOT_MARKER);
+                            ChrootManager.ProgressCallback cb = new ChrootManager.ProgressCallback() {
+                                @Override public void onProgress(String msg) {
+                                    mHandler.post(() -> appendToLog("  " + msg));
+                                }
+                                @Override public void onError(String err) {
+                                    mHandler.post(() -> appendToLog("  ❌ " + err));
+                                }
+                            };
+
+                            // Temporarily override proxy for this clone operation
+                            String savedProxy = GitHubProxyManager.getCustomProxy();
+                            int savedBest = GitHubProxyManager.getBestProxy();
+
+                            if (ChrootManager.cloneAstrBotWithProxy(cb, version, selectedProxyIndex)) {
+                                mHandler.post(() -> appendToLog("❌ AstrBot 克隆失败，可尝试切换线路后重试"));
+                            } else if (ChrootManager.pipInstallDeps(cb)) {
+                                mHandler.post(() -> appendToLog("❌ Python 依赖安装失败"));
+                            } else {
+                                // Restore data backup
+                                ChrootManager.execInChroot(
+                                    "if [ -d /root/astrbot_data_backup ]; then " +
+                                    "  cp -a /root/astrbot_data_backup/. /root/astrbot/data/ 2>/dev/null; " +
+                                    "  rm -rf /root/astrbot_data_backup; " +
+                                    "fi", 60);
+                                mHandler.post(() -> {
+                                    appendToLog("✅ AstrBot 重装完成");
+                                    appendToLog("🔄 正在启动 AstrBot...");
+                                    ChrootManager.startAstrBot();
+                                });
+                                refreshStatusOffThread();
+                            }
+                        }).start();
+                    })
+                    .setNegativeButton("取消", null)
+                    .show();
+            });
+        }).start();
+    }
+
+    private void showReinstallRootfsDialog() {
+        // Check if rootfs cache exists
+        boolean hasLocalCache = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists();
+
+        String message = "将重新解压系统镜像到 /data/rbot，替换整个 Ubuntu 环境。\n\n" +
+            "• 如果存在 AstrBot 数据，会自动备份到 sdcard\n" +
+            "• rootfs 解压完成后会自动恢复 AstrBot 数据\n" +
+            "• 需要重新安装系统依赖（自动执行）\n\n" +
+            "⚠️ 注意：手动安装的额外包（非默认依赖）将丢失。";
+
+        if (!hasLocalCache) {
+            message += "\n\n❌ 未找到本地镜像缓存，请先将 ubuntu24_rbot.tar.gz 放到:\n" +
+                RbotConstants.SDCARD_ROOTFS_CACHE;
+        }
+
         new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("重装 AstrBot")
-            .setMessage("将删除 /root/astrbot 目录并重新克隆安装。\n\n⚠️ 注意：data 目录（配置、数据库）会被保留，但自定义修改会丢失。")
-            .setPositiveButton("开始重装", (dialog, which) -> {
+            .setTitle("💿 重装 rootfs")
+            .setMessage(message)
+            .setPositiveButton(hasLocalCache ? "开始重装" : "确定", (dialog, which) -> {
+                if (!hasLocalCache) return;
                 switchTab(TAB_LOG);
-                appendToLog("\n🤖 开始重装 AstrBot...");
+                appendToLog("\n💿 开始重装 rootfs...");
                 new Thread(() -> {
+                    // Stop services first
                     ChrootManager.stopAstrBot();
-                    ChrootManager.execInChroot("rm -rf /root/astrbot", 30);
+                    ChrootManager.stopSshService();
+
+                    // Remove markers so extractRootfs won't skip
+                    ChrootManager.execRoot("rm -f " + RbotConstants.ROOTFS_MARKER + " " + RbotConstants.ASTRBOT_MARKER);
+
                     ChrootManager.ProgressCallback cb = new ChrootManager.ProgressCallback() {
                         @Override public void onProgress(String msg) {
                             mHandler.post(() -> appendToLog("  " + msg));
@@ -679,18 +848,53 @@ public class MainActivity extends AppCompatActivity {
                             mHandler.post(() -> appendToLog("  ❌ " + err));
                         }
                     };
-                    if (ChrootManager.cloneAstrBot(cb)) {
-                        mHandler.post(() -> appendToLog("❌ AstrBot 克隆失败"));
-                    } else if (ChrootManager.pipInstallDeps(cb)) {
-                        mHandler.post(() -> appendToLog("❌ Python 依赖安装失败"));
-                    } else {
-                        mHandler.post(() -> {
-                            appendToLog("✅ AstrBot 重装完成");
-                            appendToLog("🔄 正在启动 AstrBot...");
-                            ChrootManager.startAstrBot();
-                            refreshStatusOffThread();
-                        });
+
+                    // Extract rootfs (auto-backups AstrBot data internally)
+                    if (ChrootManager.extractRootfs(RbotConstants.SDCARD_ROOTFS_CACHE, cb)) {
+                        mHandler.post(() -> appendToLog("❌ rootfs 解压失败"));
+                        return;
                     }
+
+                    // Setup chroot environment
+                    ChrootManager.setupChrootEnvironment(cb);
+
+                    // Reinstall system deps
+                    appendToLog("  📦 正在重装系统依赖...");
+                    if (ChrootManager.aptUpdate(cb)) {
+                        mHandler.post(() -> appendToLog("❌ 软件源更新失败"));
+                        return;
+                    }
+                    if (ChrootManager.aptInstallDeps(cb)) {
+                        mHandler.post(() -> appendToLog("❌ 依赖安装失败"));
+                        return;
+                    }
+
+                    // Restore AstrBot data if backup exists
+                    java.io.File backupData = new java.io.File(RbotConstants.EXTERNAL_DATA_BACKUP);
+                    if (backupData.exists()) {
+                        appendToLog("  🔄 正在恢复 AstrBot 数据...");
+                        if (ChrootManager.restoreAstrBotData(cb)) {
+                            mHandler.post(() -> appendToLog("  ⚠️ AstrBot 数据恢复失败，请手动恢复"));
+                        }
+                    }
+
+                    // Re-mark AstrBot as installed if data was restored
+                    if (backupData.exists()) {
+                        // Check if astrbot directory now exists in chroot
+                        ChrootManager.CommandResult check = ChrootManager.execInChroot(
+                            "test -d /root/astrbot && test -f /root/astrbot/main.py && echo exists", 10);
+                        if (check.success() && check.stdout().trim().equals("exists")) {
+                            ChrootManager.execRoot("touch " + RbotConstants.ASTRBOT_MARKER);
+                            appendToLog("  ✅ AstrBot 数据已恢复");
+                        } else {
+                            appendToLog("  ℹ️ 备份数据已恢复，但需要重装 AstrBot 程序");
+                        }
+                    }
+
+                    mHandler.post(() -> {
+                        appendToLog("✅ rootfs 重装完成");
+                        refreshStatusOffThread();
+                    });
                 }).start();
             })
             .setNegativeButton("取消", null)

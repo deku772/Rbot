@@ -255,9 +255,12 @@ public class RbotService extends Service {
     private String downloadRootfs() {
         ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR);
 
+        // Use proxy for GitHub download
+        String downloadUrl = GitHubProxyManager.buildUrl(RbotConstants.GITHUB_ROOTFS_URL);
+
         ChrootManager.CommandResult result = ChrootManager.execRoot(
             "curl -L --progress-bar -o " + RbotConstants.SDCARD_ROOTFS_CACHE +
-            " '" + RbotConstants.GITHUB_ROOTFS_URL + "'", 600);
+            " '" + downloadUrl + "'", 600);
 
         if (result.success() && new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
             long size = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).length();
