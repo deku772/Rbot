@@ -271,7 +271,7 @@ public class MainActivity extends AppCompatActivity {
     private void updateSshPanel() {
         new Thread(() -> {
             boolean isRunning = ChrootManager.isSshRunning();
-            String sshInfo = isRunning ? ChrootManager.getSshInfo() : ChrootManager.getSshInfo().split(":")[0] + ":22";
+            String sshInfo = ChrootManager.getSshInfo();
             String rootPassword = ChrootManager.getRootPassword();
             mHandler.post(() -> {
                 mSshInfo.setText(sshInfo);

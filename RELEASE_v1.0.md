@@ -2,22 +2,27 @@
 
 ## 更新日志
 
-### v1.0.1765+
+### v1.0.1762+
 
 **Bug 修复**
 - 修复 `/tmp` 不可写导致备份失败的问题（挂载 tmpfs + 设置 TMPDIR 环境变量）
-- 修复点击停止后 AstrBot 仍自动重启的问题（改用同步 commit + 验证杀死结果）
-- 修复 SSH 连接信息无法复制的问题（点击 `root@IP:端口` 即可复制）
+- 修复点击停止后 AstrBot 仍自动重启的问题（移除自动重启逻辑，改为纯手动启停）
+- 修复 SSH 连接信息无法复制的问题（点击 `root@IP` 即可复制）
+- 修复 Android Studio 构建时 versionCode/versionName 为空的问题（版本号逻辑移至 android{} 块之前）
+- 修复 Gradle 找不到 git 导致版本号获取失败的问题（改用本地 version.properties 计数器）
 
 **备份恢复**
 - 备份/恢复改为直接 `cp -r` 文件复制，不再依赖 tar 和 `/tmp` 临时空间，更稳定
+- 备份前自动初始化 chroot 环境，确保 tmpfs 已挂载
 
 **SSH 体验**
-- SSH 信息面板改为点击复制连接字符串
+- SSH 信息格式改为 `root@局域网IP`，点击即可复制
+- 改进局域网 IP 检测逻辑（ifconfig → ip addr → ip route → getprop）
 - 移除 Header 右上角 SSH 按钮（已有独立面板控制）
 
 **构建**
-- 修复 Android Studio 构建时 versionCode/versionName 为空的问题
+- 版本号改为本地 `version.properties` 自动递增，不再依赖 git
+- `version.properties` 已加入 `.gitignore`
 
 ---
 

@@ -664,17 +664,26 @@ public final class ChrootManager {
         return result.success && result.stdout.trim().equals("running");
     }
 
-    /** Get SSH connection info: IP:Port */
+    /** Get SSH connection info: root@IP */
     public static String getSshInfo() {
-        // Get IP address
-        CommandResult ipResult = execRoot("ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \\K[^ ]+' || echo 127.0.0.1", 5);
-        String ip = ipResult.success() && !ipResult.stdout().trim().isEmpty() ? ipResult.stdout().trim() : "127.0.0.1";
-        
-        // Check if sshd is listening on port 22
-        CommandResult portResult = execInChroot("ss -tlnp 2>/dev/null | grep ':22 ' >/dev/null 2>&1 && echo 22 || echo unknown", 5);
-        String port = portResult.success() && portResult.stdout().trim().equals("22") ? "22" : "22";
-        
-        return ip + ":" + port;
+        // Get LAN IP address - try multiple Android-compatible methods
+        String ip = "127.0.0.1";
+        CommandResult ipResult = execRoot(
+            "ifconfig wlan0 2>/dev/null | grep 'inet ' | awk '{print $2}' | cut -d: -f2 || " +
+            "ip addr show wlan0 2>/dev/null | grep -oP 'inet \\K[0-9.]+' || " +
+            "ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \\K[0-9.]+' || " +
+            "ip route get 8.8.8.8 2>/dev/null | grep -oP 'src \\K[0-9.]+' || " +
+            "getprop dhcp.wlan0.ipaddress 2>/dev/null || " +
+            "echo 127.0.0.1", 5);
+        if (ipResult.success() && !ipResult.stdout().trim().isEmpty()) {
+            String detected = ipResult.stdout().trim();
+            // Reject loopback/empty
+            if (!detected.equals("127.0.0.1") && !detected.equals("::1") && detected.matches("[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+")) {
+                ip = detected;
+            }
+        }
+
+        return "root@" + ip;
     }
 
     /** Get root password from chroot (stored in /root/.rbot_pass) */

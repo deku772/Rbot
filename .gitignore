@@ -14,6 +14,9 @@ release/
 # Local configuration file (sdk path, etc)
 local.properties
 
+# Local build counter - auto-incremented, not synced across machines
+version.properties
+
 # Firebase
 app/google-services.json
 

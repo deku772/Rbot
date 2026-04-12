@@ -4,6 +4,27 @@ plugins {
     id "com.android.application"
 }
 
+// Auto-increment version based on local counter — MUST be before android {}
+int computedVersionCode = 1
+String computedVersionName = "1.0.1"
+
+try {
+    def propsFile = new File(rootProject.rootDir, "version.properties")
+    def props = new Properties()
+    if (propsFile.exists()) {
+        props.load(new FileInputStream(propsFile))
+    }
+    int current = Integer.parseInt(props.getProperty("localVersionCode", "1"))
+    int next = current + 1
+    props.setProperty("localVersionCode", String.valueOf(next))
+    props.store(new FileOutputStream(propsFile), "Local build counter")
+    computedVersionCode = next
+    computedVersionName = "1.0." + next
+    println "[VERSION] versionCode=" + next + ", versionName=1.0." + next
+} catch (Exception e) {
+    println "[VERSION] Exception: " + e.getMessage()
+}
+
 android {
     namespace = "app.rbot"
 
@@ -14,10 +35,10 @@ android {
         applicationId "app.rbot"
         minSdkVersion project.properties.minSdkVersion.toInteger()
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
-        // Auto-increment version code based on git commit count
-        versionCode getVersionCode()
-        // Version name: MAJOR.MINOR.PATCH-gitCommitCount (e.g., 1.0.0-123)
-        versionName getVersionName()
+        // Auto-increment version code based on local build counter
+        versionCode computedVersionCode
+        // Version name: MAJOR.MINOR.BUILD_NUMBER
+        versionName computedVersionName
 
         manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.rbot"
         manifestPlaceholders.TERMUX_APP_NAME = "Rbot"
@@ -96,39 +117,8 @@ dependencies {
     coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:1.1.5"
 }
 
-// Auto-increment version based on git commits
-def getVersionCode() {
-    try {
-        // Use rootProject.rootDir to ensure we start from the git repository root
-        def workingDir = rootProject.rootDir
-        // Use array form for ProcessBuilder to avoid shell parsing issues on Windows
-        def process = new ProcessBuilder(["git", "rev-list", "--count", "HEAD"])
-            .directory(workingDir)
-            .redirectErrorStream(true)
-            .start()
-        process.waitFor(10, java.util.concurrent.TimeUnit.SECONDS)
-        def output = process.inputStream.text.trim()
-        if (output.isEmpty() || !output.isNumber()) {
-            return 1
-        }
-        return output.toInteger()
-    } catch (Exception e) {
-        println "Warning: Failed to get git version code: ${e.message}"
-        return 1
-    }
-}
-
-def getVersionName() {
-    try {
-        def commitCount = getVersionCode()
-        return "1.0.${commitCount}"
-    } catch (Exception e) {
-        return "1.0.0"
-    }
-}
-
 tasks.register('versionName') {
     doLast {
-        println getVersionName()
+        println computedVersionName
     }
 }
