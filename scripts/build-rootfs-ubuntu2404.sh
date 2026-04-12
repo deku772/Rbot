@@ -6,9 +6,9 @@
 
 set -e
 
-WORKDIR="/data/rbot/buildroot"
+WORKDIR="/root/buildroot"
 NEWROOT="$WORKDIR/rootfs"
-OUTPUT="/storage/emulated/0/rbot/cache/ubuntu24_rbot.tar.gz"
+OUTPUT="/root/ubuntu24_rbot.tar.gz"
 ROOTFS_URL="https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64-root.tar.xz"
 
 echo "=========================================="
