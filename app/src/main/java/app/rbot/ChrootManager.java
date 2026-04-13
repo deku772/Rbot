@@ -174,7 +174,7 @@ public final class ChrootManager {
             "  while kill -0 $CP_PID 2>/dev/null; do " +
             "    DONE=$(du -sm $DST 2>/dev/null | cut -f1); " +
             "    echo \"[同步] ${DONE}MB / ~${TOTAL}MB\"; " +
-            "    sleep 5; " +
+            "    /system/bin/sleep 5 2>/dev/null || sleep 5; " +
             "  done; " +
             "  wait $CP_PID; " +
             ") 2>&1; true";
@@ -242,6 +242,12 @@ public final class ChrootManager {
      * Must be called after extractRootfs and before any chroot command.
      */
     public static void setupChrootDevices(ProgressCallback callback) {
+        // Short-circuit: if already mounted, skip all mount operations
+        if (isChrootMounted()) {
+            if (callback != null) callback.onProgress("chroot 环境已挂载，跳过初始化");
+            return;
+        }
+
         if (callback != null) callback.onProgress("正在初始化 chroot 环境...");
 
         String D = RbotConstants.CHROOT_DIR;
@@ -287,6 +293,16 @@ public final class ChrootManager {
             "echo 'nameserver 8.8.8.8' >> " + D + "/etc/resolv.conf; " +
             "echo dns_done", 10);
 
+        // Step 7: Fix /bin symlink (Ubuntu 24.04 needs /bin -> usr/bin)
+        // cp -aL may have followed the symlink and created a plain directory,
+        // breaking PATH lookups for commands like cat, sleep, etc.
+        // If /bin is NOT a symlink and /usr/bin exists, replace /bin with a symlink.
+        execRoot(
+            "if [ ! -L " + D + "/bin ] && [ -d " + D + "/usr/bin ]; then " +
+            "  rm -rf " + D + "/bin && ln -s usr/bin " + D + "/bin; " +
+            "fi; " +
+            "echo symlink_done", 10);
+
         if (callback != null) {
             callback.onProgress("chroot 环境初始化完成");
         }
@@ -312,6 +328,8 @@ public final class ChrootManager {
         ensureGpgv(callback);
         // Switch to Chinese mirror early so all apt operations are fast
         switchToChineseMirror(callback);
+        // Try to start SSH if openssh-server is installed
+        startSshService(callback);
         return false;  // setupChrootDevices doesn't return failure
     }
 
@@ -420,7 +438,7 @@ public final class ChrootManager {
             "pkill -9 apt 2>/dev/null; pkill -9 dpkg 2>/dev/null; " +
             "rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend " +
             "/var/cache/apt/archives/lock 2>/dev/null; " +
-            "sleep 1; echo locks_cleaned", 10);
+            "/bin/sleep 1; echo locks_cleaned", 10);
 
         CommandResult result = execInChrootWithProgress(
             "export DEBIAN_FRONTEND=noninteractive && " +
@@ -479,7 +497,7 @@ public final class ChrootManager {
             "pkill -9 apt 2>/dev/null; pkill -9 dpkg 2>/dev/null; " +
             "rm -f /var/lib/apt/lists/lock /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend " +
             "/var/cache/apt/archives/lock 2>/dev/null; " +
-            "dpkg --configure -a 2>/dev/null; sleep 1; echo locks_cleaned", 15);
+            "dpkg --configure -a 2>/dev/null; /bin/sleep 1; echo locks_cleaned", 15);
 
         CommandResult result = execInChrootWithProgress(
             "export DEBIAN_FRONTEND=noninteractive && " +
@@ -487,7 +505,7 @@ public final class ChrootManager {
             "apt install -y --allow-unauthenticated " +
             "python3 python3-venv python3-pip python3-dev " +
             "git curl wget gpgv coreutils procps openssh-server " +
-            "ca-certificates software-properties-common locales build-essential", 60, callback);
+            "ca-certificates software-properties-common locales build-essential", 300, callback);
 
         if (!result.success) {
             if (callback != null) callback.onError("依赖安装失败: " + result.stderr);
@@ -609,11 +627,19 @@ public final class ChrootManager {
     /** Start AstrBot inside chroot in background */
     public static CommandResult startAstrBot() {
         synchronized (sChrootLock) {
-            // Ensure device nodes are mounted (may be lost after Android reboot)
-            setupChrootDevices(null);
+            // Note: chroot setup is handled by the caller (MainActivity.startGateway)
+            // Only ensure devices are mounted if not already (cheap check)
+            if (!isChrootMounted()) {
+                setupChrootDevices(null);
+            }
 
             // Kill any existing process first
             stopAstrBot();
+
+            // Ensure SSH is running after setupChrootDevices (which may remount /dev)
+            if (!isSshRunning()) {
+                startSshService(null);
+            }
 
         // Use venv python if available (PEP 668 on Ubuntu 24.04), fallback to system python3
         // Use setsid so the Python process becomes a proper daemon and $! gives
@@ -628,11 +654,11 @@ public final class ChrootManager {
             "cd /root/astrbot && " +
             "setsid " + pythonBin + " main.py > /root/astrbot/astrbot.log 2>&1 & " +
             "echo $! > /root/astrbot/astrbot.pid && " +
-            "sleep 5 && " +
-            "if kill -0 $(cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
+            "/bin/sleep 5 && " +
+            "if kill -0 $(/usr/bin/cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
             "  echo started; " +
             "else " +
-            "  cat /root/astrbot/astrbot.log 2>/dev/null; " +
+            "  /usr/bin/cat /root/astrbot/astrbot.log 2>/dev/null; " +
             "  echo 'AstrBot failed to start'; exit 1; " +
             "fi";
 
@@ -643,11 +669,11 @@ public final class ChrootManager {
     /** Stop AstrBot - kills from both inside and outside chroot */
     public static CommandResult stopAstrBot() {
         // First try to stop from outside chroot (in case chroot is broken)
-        // Kill by PID file content (read from outside)
+        // Kill by PID file content (read from outside — uses host cat)
         execRoot(
             "PIDFILE=" + RbotConstants.CHROOT_DIR + "/root/astrbot/astrbot.pid; " +
             "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  SPECPID=$(/system/bin/cat $PIDFILE 2>/dev/null || cat $PIDFILE 2>/dev/null); " +
             "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
             "  rm -f $PIDFILE; " +
             "fi; " +
@@ -660,7 +686,7 @@ public final class ChrootManager {
         String stopCmd =
             "PIDFILE=/root/astrbot/astrbot.pid; " +
             "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  SPECPID=$(/usr/bin/cat $PIDFILE 2>/dev/null); " +
             "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
             "  rm -f $PIDFILE; " +
             "fi; " +
@@ -671,7 +697,7 @@ public final class ChrootManager {
             "    kill -9 $pid 2>/dev/null || true; " +
             "  done; " +
             "fi; " +
-            "sleep 1; " +
+            "/bin/sleep 1; " +
             "echo stopped";
         return execInChroot(stopCmd, 15);
     }
@@ -681,7 +707,7 @@ public final class ChrootManager {
         CommandResult result = execInChroot(
             "PIDFILE=/root/astrbot/astrbot.pid; " +
             "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  SPECPID=$(/usr/bin/cat $PIDFILE 2>/dev/null); " +
             "  [ -n \"$SPECPID\" ] && kill -0 $SPECPID 2>/dev/null && { echo running; exit 0; }; " +
             "fi; " +
             "if which pgrep >/dev/null 2>&1; then " +
@@ -724,7 +750,7 @@ public final class ChrootManager {
         boolean astrBotRunning = false;
         if (rootfsReady && astrBotInstalled) {
             CommandResult runningResult = execInChroot(
-                "if [ -f /root/astrbot/astrbot.pid ] && kill -0 $(cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
+                "if [ -f /root/astrbot/astrbot.pid ] && kill -0 $(/usr/bin/cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
                 "  echo running; " +
                 "elif pgrep -f 'python3 main.py' >/dev/null 2>&1; then " +
                 "  echo running; " +
@@ -838,14 +864,108 @@ public final class ChrootManager {
 
     // ─── SSH Service ───
 
-    /** Start SSH service in chroot */
-    public static CommandResult startSshService() {
+    /** Start SSH service in chroot (non-blocking) */
+    public static CommandResult startSshService(ProgressCallback callback) {
+        // Check if openssh-server is installed via dpkg (more reliable than `which sshd`)
+        CommandResult checkPkg = execInChroot(
+            "dpkg -l openssh-server 2>/dev/null | grep -q '^ii' && echo installed || echo missing", 5);
+
+        if (!checkPkg.success() || !checkPkg.stdout().trim().equals("installed")) {
+            // openssh-server not installed — install it automatically
+            if (callback != null) callback.onProgress("SSH 未安装，正在自动安装 openssh-server...");
+            CommandResult installResult = execInChrootWithProgress(
+                "export DEBIAN_FRONTEND=noninteractive && " +
+                "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+                "apt update --allow-unauthenticated 2>/dev/null; " +
+                "apt install -y --allow-unauthenticated openssh-server 2>&1", 300, callback);
+            if (!installResult.success()) {
+                if (callback != null) callback.onError("openssh-server 安装失败: " + installResult.stderr());
+                return new CommandResult(false, "", "SSH install failed", 1);
+            }
+            // Configure SSH after install
+            execInChroot(
+                "mkdir -p /run/sshd && " +
+                "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && " +
+                "sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && " +
+                // Ubuntu 24.04 may have override files in sshd_config.d/ that disable password auth
+                "rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf /etc/ssh/sshd_config.d/50-ubuntu.conf && " +
+                // Also ensure no conflicting overrides remain
+                "for f in /etc/ssh/sshd_config.d/*.conf; do " +
+                "  [ -f \"$f\" ] && sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' \"$f\" 2>/dev/null; " +
+                "  [ -f \"$f\" ] && sed -i 's/^PermitRootLogin no/PermitRootLogin yes/' \"$f\" 2>/dev/null; " +
+                "done", 15);
+            // Set root password (Ubuntu root is locked by default, SSH needs a password to auth)
+            if (callback != null) callback.onProgress("设置 root 密码...");
+            String defaultPass = "rbot2024";
+            execInChroot("echo 'root:" + defaultPass + "' | chpasswd", 10);
+            // Unlock root account (may be locked with '!' prefix in shadow)
+            execInChroot("passwd -u root 2>/dev/null || true", 5);
+            // Save to .rbot_pass so getRootPassword() can read it
+            execInChroot("echo '" + defaultPass + "' > /root/.rbot_pass && chmod 600 /root/.rbot_pass", 5);
+            if (callback != null) callback.onProgress("openssh-server 安装完成 (密码: " + defaultPass + ")");
+        }
+
+        // Ensure SSH host keys exist (sshd won't start without them)
+        CommandResult checkKeys = execInChroot(
+            "ls /etc/ssh/ssh_host_*_key 2>/dev/null | head -1", 5);
+        if (!checkKeys.success() || checkKeys.stdout().trim().isEmpty()) {
+            if (callback != null) callback.onProgress("生成 SSH host keys...");
+            execInChroot("ssh-keygen -A 2>&1", 30);
+            if (callback != null) callback.onProgress("SSH host keys 已生成");
+        }
+
+        if (callback != null) callback.onProgress("启动 SSH 服务...");
+
+        // Check if already running
+        CommandResult checkRunning = execInChroot("pgrep -x sshd >/dev/null 2>&1 && echo running || echo stopped", 5);
+        if (checkRunning.success() && checkRunning.stdout().trim().equals("running")) {
+            if (callback != null) callback.onProgress("SSH 已运行");
+            return new CommandResult(true, "already running", "", 0);
+        }
+
+        // Kill any stale sshd processes
+        execInChroot("pkill -9 sshd 2>/dev/null || true", 5);
+
         // Ensure ssh directory exists with proper permissions
         execInChroot("mkdir -p /var/run/sshd && chmod 755 /var/run/sshd", 5);
+
+        // Configure SSH if needed
+        execInChroot(
+            "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null; " +
+            "sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null; " +
+            "rm -f /etc/ssh/sshd_config.d/50-cloud-init.conf /etc/ssh/sshd_config.d/50-ubuntu.conf 2>/dev/null; " +
+            "for f in /etc/ssh/sshd_config.d/*.conf; do " +
+            "  [ -f \"$f\" ] && sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' \"$f\" 2>/dev/null; " +
+            "  [ -f \"$f\" ] && sed -i 's/^PermitRootLogin no/PermitRootLogin yes/' \"$f\" 2>/dev/null; " +
+            "done; " +
+            "echo ssh_configured", 10);
+        // Ensure root has a password (required for SSH password auth)
+        String defaultPass = "rbot2024";
+        CommandResult checkPass = execInChroot("grep -q '^root:[!*]' /etc/shadow && echo locked || echo ok", 5);
+        if (!checkPass.success() || checkPass.stdout().trim().equals("locked")) {
+            execInChroot("echo 'root:" + defaultPass + "' | chpasswd", 5);
+            execInChroot("passwd -u root 2>/dev/null || true", 5);
+            execInChroot("echo '" + defaultPass + "' > /root/.rbot_pass && chmod 600 /root/.rbot_pass", 5);
+        }
+
+        // Start sshd in background (detached via setsid)
+        // IMPORTANT: Must use setsid instead of nohup — nohup'd processes can be killed
+        // when the parent bash shell is destroyedForcibly() by execInChroot's timeout.
+        // setsid creates a new session, fully detaching from the parent process group.
+        CommandResult result = execInChroot("setsid /usr/sbin/sshd > /tmp/sshd.log 2>&1 &", 5);
+
+        // Wait a moment and verify
+        try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
         
-        // Start sshd
-        String startCmd = "/usr/sbin/sshd -D &";
-        return execInChroot(startCmd, 10);
+        CommandResult verify = execInChroot("pgrep -x sshd >/dev/null 2>&1 && echo running || echo failed", 5);
+        if (verify.success() && verify.stdout().trim().equals("running")) {
+            if (callback != null) callback.onProgress("SSH 服务已启动 (端口 22)");
+            return new CommandResult(true, "started", "", 0);
+        } else {
+            if (callback != null) callback.onProgress("SSH 启动失败，查看日志排查");
+            CommandResult logResult = execInChroot("/usr/bin/cat /tmp/sshd.log 2>/dev/null || echo no log", 5);
+            return new CommandResult(false, "", "SSH failed: " + logResult.stdout(), 1);
+        }
     }
 
     /** Stop SSH service */
@@ -884,7 +1004,7 @@ public final class ChrootManager {
 
     /** Get root password from chroot (stored in /root/.rbot_pass) */
     public static String getRootPassword() {
-        CommandResult result = execInChroot("cat /root/.rbot_pass 2>/dev/null || echo ''", 5);
+        CommandResult result = execInChroot("/usr/bin/cat /root/.rbot_pass 2>/dev/null || echo ''", 5);
         return result.success() ? result.stdout().trim() : "";
     }
 
@@ -1025,6 +1145,8 @@ public final class ChrootManager {
             final long idleTimeout = timeoutSec * 1000L;
 
             // Read stdout in background — also push progress lines to callback
+            // Handles \r (carriage return) progress bars from apt/pip — splits on \r
+            // so that partial progress updates still reset the idle timer.
             Thread stdoutThread = new Thread(() -> {
                 try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream()))) {
@@ -1032,9 +1154,20 @@ public final class ChrootManager {
                     while ((line = reader.readLine()) != null) {
                         stdout.append(line).append("\n");
                         lastActivity[0] = System.currentTimeMillis();
-                        // Push progress lines from stdout too (pip, cp -v, etc.)
-                        if (callback != null && isProgressLine(line)) {
-                            callback.onProgress(line.trim());
+                        // Handle \r-separated progress lines (e.g., apt download: "  0% [Working]\r  5% [1 Package]")
+                        // Each \r segment is a separate progress update.
+                        if (line.contains("\r")) {
+                            String[] parts = line.split("\r");
+                            for (String part : parts) {
+                                if (callback != null && isProgressLine(part)) {
+                                    callback.onProgress(part.trim());
+                                }
+                            }
+                        } else {
+                            // Push progress lines from stdout too (pip, cp -v, etc.)
+                            if (callback != null && isProgressLine(line)) {
+                                callback.onProgress(line.trim());
+                            }
                         }
                     }
                 } catch (Exception e) {
@@ -1050,9 +1183,18 @@ public final class ChrootManager {
                     while ((line = reader.readLine()) != null) {
                         stderr.append(line).append("\n");
                         lastActivity[0] = System.currentTimeMillis();
-                        // Push meaningful progress lines to callback
-                        if (callback != null && isProgressLine(line)) {
-                            callback.onProgress(line.trim());
+                        // Handle \r-separated progress lines (apt download progress)
+                        if (line.contains("\r")) {
+                            String[] parts = line.split("\r");
+                            for (String part : parts) {
+                                if (callback != null && isProgressLine(part)) {
+                                    callback.onProgress(part.trim());
+                                }
+                            }
+                        } else {
+                            if (callback != null && isProgressLine(line)) {
+                                callback.onProgress(line.trim());
+                            }
                         }
                     }
                 } catch (Exception e) {

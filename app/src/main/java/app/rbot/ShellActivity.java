@@ -15,7 +15,6 @@ import com.termux.terminal.TerminalSessionClient;
 import com.termux.view.TerminalView;
 import com.termux.view.TerminalViewClient;
 
-import java.io.File;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -26,13 +25,13 @@ import java.nio.charset.StandardCharsets;
  * Prerequisites:
  * 1. setupChrootDevices() must have been called (mounts /dev/pts into chroot)
  * 2. /data/local/rbot_shell.sh must exist (deployed on first run)
+ * Uses RbotConstants.CHROOT_DIR ("/data/rbot") for the chroot path.
  */
 public class ShellActivity extends AppCompatActivity
     implements TerminalViewClient, TerminalSessionClient {
 
     private static final String TAG = "ShellActivity";
     private static final String SHELL_SCRIPT = "/data/local/rbot_shell.sh";
-    private static final String CHROOT_DIR = "/data/local/rbot";
 
     private TerminalView mTerminalView;
     private TerminalSession mSession;
@@ -74,24 +73,21 @@ public class ShellActivity extends AppCompatActivity
 
     private void deployShellScript() {
         // This script runs as: exec /system/bin/sh -c 'exec /data/local/rbot_shell.sh'
-        // The script itself does: exec chroot /data/local/rbot /bin/bash -l
+        // The script itself does: exec chroot /data/rbot /bin/bash -l
         // exec replaces the shell process, keeping the PTY stdin/stdout/stderr
         String script =
             "#!/system/bin/sh\n" +
             "export HOME=/root\n" +
             "export TERM=xterm-256color\n" +
-            "exec chroot " + CHROOT_DIR + " /bin/bash -l\n";
+            "exec chroot " + RbotConstants.CHROOT_DIR + " /bin/bash -l\n";
 
-        File f = new File(SHELL_SCRIPT);
-        try {
-            java.io.FileWriter w = new java.io.FileWriter(f);
-            w.write(script);
-            w.close();
-            f.setExecutable(true, false);
-            f.setReadable(true, false);
-            f.setWritable(true, false);
-        } catch (java.io.IOException e) {
-            android.util.Log.e(TAG, "Failed to deploy shell script: " + e.getMessage());
+        // Deploy via root shell — /data/local/ may not be writable by the app process
+        String deployCmd =
+            "echo '" + script.replace("'", "'\\''") + "' > " + SHELL_SCRIPT + " && " +
+            "chmod 755 " + SHELL_SCRIPT;
+        ChrootManager.CommandResult result = ChrootManager.execRoot(deployCmd, 5);
+        if (!result.success()) {
+            android.util.Log.e(TAG, "Failed to deploy shell script via root: " + result.stderr());
         }
     }
 
@@ -103,7 +99,7 @@ public class ShellActivity extends AppCompatActivity
         // 4. open pts -> PTY slave -> dup2 as stdin/stdout/stderr
         // 5. chdir("/root")
         // 6. execvp("/system/bin/sh", ["/system/bin/sh", "-c", "exec /data/local/rbot_shell.sh"])
-        // 7. Shell script: exec chroot /data/local/rbot /bin/bash -l
+        // 7. Shell script: exec chroot /data/rbot /bin/bash -l
         //    -> replaces shell with chroot+bash, PTY remains connected
         return new TerminalSession(
             "/system/bin/sh",

@@ -329,9 +329,10 @@ public class RbotLauncherActivity extends Activity {
             return;
         }
 
-        // Check 3: AstrBot installed?
-        if (!ChrootManager.isAstrBotInstalled()) {
-            Log.i(TAG, "AstrBot not installed, routing to setup");
+        // Check 3: Active bot installed? (supports both AstrBot and Hermes)
+        BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+        if (!activeBot.isInstalled()) {
+            Log.i(TAG, activeBot.getName() + " not installed, routing to setup");
             mStatusText.setText(R.string.botdrop_setup_required);
             Intent intent = new Intent(this, SetupActivity.class);
             intent.putExtra(SetupActivity.EXTRA_START_STEP, SetupActivity.STEP_INSTALL);

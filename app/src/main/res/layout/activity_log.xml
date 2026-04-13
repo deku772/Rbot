@@ -64,7 +64,7 @@
             android:textColor="#B0B0B0"
             android:fontFamily="monospace"
             android:textIsSelectable="true"
-            android:text="暂无日志内容...\n\n启动 AstrBot 后，日志将实时显示在这里。" />
+            android:text="暂无日志内容...\n\n启动 Bot 后，日志将实时显示在这里。" />
 
     </ScrollView>
 

@@ -8,7 +8,7 @@ import android.util.Log;
 
 /**
  * Receiver that starts the GatewayMonitorService on device boot.
- * This ensures AstrBot auto-starts after reboot if it was running before.
+ * This ensures the active bot auto-starts after reboot if it was running before.
  */
 public class BootReceiver extends BroadcastReceiver {
 
@@ -20,9 +20,10 @@ public class BootReceiver extends BroadcastReceiver {
             return;
         }
 
-        // Only auto-start if AstrBot is installed
-        if (!ChrootManager.isAstrBotInstalled()) {
-            Log.i(TAG, "AstrBot not installed, skipping auto-start");
+        // Only auto-start if an active bot is installed
+        BotAdapter activeBot = BotManager.getInstance(context).getActiveBot();
+        if (!activeBot.isInstalled()) {
+            Log.i(TAG, activeBot.getName() + " not installed, skipping auto-start");
             return;
         }
 

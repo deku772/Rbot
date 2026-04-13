@@ -2,31 +2,41 @@ package app.rbot;
 
 /**
  * BotAdapter implementation for Hermes Agent.
- * Ref: https://hermes-agent.nousresearch.com/docs/getting-started/termux
+ * Ref: https://github.com/NousResearch/hermes-agent
  *
- * Hermes uses:
- * - Home: ~/.hermes/ (inside chroot: /root/.hermes/)
- * - Installation: pip install -e '.[termux]' via venv at /root/hermes/venv
- * - Start: hermes gateway start
- * - Port: 8080 (gateway default)
- * - Log: /root/.hermes/gateway.log
+ * Installation: uses the official install.sh script via curl | bash
+ *   - Installs uv, Python 3.11, Node.js 22, Playwright, etc.
+ *   - All via `curl -fsSL <install.sh> | bash -- --skip-setup`
+ *   - We pass --skip-setup to avoid interactive wizard (user configures later)
+ *
+ * Directory layout (after official install):
+ *   ~/.hermes/hermes-agent/  - git repo + venv
+ *   ~/.local/bin/hermes      - symlink to hermes binary
+ *   ~/.hermes/               - config, logs, sessions, etc.
  */
 public class HermesAdapter extends BotAdapter {
 
     /** Hermes home directory inside chroot */
     private static final String HERMES_HOME = "/root/.hermes";
 
-    /** Hermes venv home inside chroot */
-    private static final String HERMES_VENV = "/root/hermes";
+    /** Hermes agent repo directory inside chroot (official install location) */
+    private static final String HERMES_REPO = HERMES_HOME + "/hermes-agent";
+
+    /** Hermes venv inside the repo directory */
+    private static final String HERMES_VENV = HERMES_REPO + "/venv";
 
     /** PID file for hermes gateway */
     private static final String HERMES_PID_FILE = HERMES_HOME + "/gateway.pid";
 
     /** Log file for hermes gateway */
-    private static final String HERMES_LOG_FILE = HERMES_HOME + "/gateway.log";
+    private static final String HERMES_LOG_FILE = HERMES_HOME + "/logs/gateway.log";
 
     /** Marker file indicating Hermes is installed (at chroot root so app process can read) */
     private static final String HERMES_MARKER = RbotConstants.CHROOT_DIR + "/.rbot-hermes-ready";
+
+    /** Official install script URL */
+    private static final String INSTALL_SCRIPT_URL =
+        "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh";
 
     public HermesAdapter(android.content.Context context) {
         super(context);
@@ -49,11 +59,8 @@ public class HermesAdapter extends BotAdapter {
 
     @Override
     public boolean isInstalled() {
-        // Check both venv hermes binary and marker
-        ChrootManager.CommandResult venvCheck = ChrootManager.execInChroot(
-            "test -f " + HERMES_VENV + "/bin/hermes && echo hermes_ok", 5);
-        boolean installed = venvCheck.success() && venvCheck.stdout().trim().equals("hermes_ok");
-        return installed;
+        // Use marker file (app-process-visible) — works even when chroot is not mounted
+        return new java.io.File(HERMES_MARKER).exists();
     }
 
     @Override
@@ -62,7 +69,7 @@ public class HermesAdapter extends BotAdapter {
         ChrootManager.CommandResult result = ChrootManager.execInChroot(
             "PIDFILE=" + HERMES_PID_FILE + "; " +
             "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  SPECPID=$(/usr/bin/cat $PIDFILE 2>/dev/null); " +
             "  [ -n \"$SPECPID\" ] && kill -0 $SPECPID 2>/dev/null && echo running; " +
             "else echo not_running; fi", 5);
         return result.success() && result.stdout().trim().equals("running");
@@ -70,87 +77,112 @@ public class HermesAdapter extends BotAdapter {
 
     @Override
     public boolean install(ChrootManager.ProgressCallback callback) {
-        if (callback != null) callback.onProgress("正在克隆 Hermes Agent...");
+        if (callback != null) callback.onProgress("正在运行 Hermes 官方安装脚本...");
+        if (callback != null) callback.onProgress("将自动安装 uv、Python 3.11、Node.js 22、Playwright 等依赖");
 
-        // Use streaming exec so git clone progress appears in real-time
-        String cloneCmd =
-            "cd /root && " +
-            "git clone https://github.com/NousResearch/hermes-agent.git hermes-agent-src 2>&1";
-        ChrootManager.CommandResult cloneResult =
-            ChrootManager.execInChrootWithProgress(cloneCmd, 120, callback);
-        if (!cloneResult.success()) {
-            if (callback != null) callback.onError("Hermes 克隆失败: " + cloneResult.stderr());
-            return true;
-        }
-        if (callback != null) callback.onProgress("正在创建虚拟环境...");
-
-        // Create venv and upgrade pip (streaming)
-        String venvCmd =
-            "cd /root && " +
-            "python3 -m venv " + HERMES_VENV + " && " +
-            HERMES_VENV + "/bin/pip install --upgrade pip";
-        ChrootManager.CommandResult venvResult =
-            ChrootManager.execInChrootWithProgress(venvCmd, 60, callback);
-        if (!venvResult.success()) {
-            if (callback != null) callback.onError("虚拟环境创建失败: " + venvResult.stderr());
-            return true;
+        // Ensure chroot is mounted before installing
+        if (!ChrootManager.isChrootMounted()) {
+            ChrootManager.setupChrootEnvironment(callback);
         }
 
-        if (callback != null) callback.onProgress("正在安装 Hermes 依赖 (termux)... 这可能需要 5-10 分钟，请耐心等待");
+        // Ensure git and curl are available first
+        ChrootManager.CommandResult depCheck = ChrootManager.execInChrootWithProgress(
+            "apt-get update -qq && " +
+            "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq git curl ca-certificates 2>&1",
+            120, callback);
+        // Don't fail hard — the install script itself will check
 
-        // pip install with ANDROID_API_LEVEL for jiter/maturin compilation
-        // execInChrootWithProgress streams output in real-time so user sees progress
+        // Run the official install script with --skip-setup (non-interactive)
+        // The script handles: uv, Python 3.11, Node.js 22, git clone, venv, pip install, Playwright, etc.
+        // PATH must include ~/.local/bin for uv to work (the script installs uv there)
         String installCmd =
-            "export ANDROID_API_LEVEL=$(getprop ro.build.version.sdk) && " +
-            "cd /root/hermes-agent-src && " +
-            HERMES_VENV + "/bin/pip install -e '.[termux]' -c constraints-termux.txt";
-        ChrootManager.CommandResult installResult =
-            ChrootManager.execInChrootWithProgress(installCmd, 1200, callback);
-        if (!installResult.success()) {
-            if (callback != null) callback.onError("Hermes 安装失败: " + installResult.stderr());
-            return true;
+            "export PATH=/root/.local/bin:$PATH && " +
+            "curl -fsSL " + INSTALL_SCRIPT_URL + " | bash -- --skip-setup 2>&1";
+
+        ChrootManager.CommandResult result =
+            ChrootManager.execInChrootWithProgress(installCmd, 1800, callback);
+        // 1800s = 30min timeout — the install can take a while on slow networks
+
+        if (!result.success()) {
+            // Check if it actually succeeded despite non-zero exit (some warnings cause exit 1)
+            ChrootManager.CommandResult checkResult = ChrootManager.execInChroot(
+                "test -x /root/.local/bin/hermes && echo ok || echo missing", 5);
+            if (!checkResult.success() || !checkResult.stdout().trim().equals("ok")) {
+                if (callback != null) callback.onError("Hermes 安装失败: " + result.stderr());
+                return true; // failure
+            }
         }
 
-        // Link hermes binary to venv/bin
-        ChrootManager.execInChroot(
-            "ln -sf /root/hermes-agent-src/hermes " + HERMES_VENV + "/bin/hermes", 10);
-
-        // Create .hermes directory
-        ChrootManager.execInChroot("mkdir -p " + HERMES_HOME, 5);
-
-        // Touch marker
+        // Create marker file
         ChrootManager.execRoot("touch " + HERMES_MARKER);
 
         if (callback != null) callback.onProgress("✅ Hermes Agent 安装完成");
-        return false;
+        return false; // success
     }
 
     @Override
     public boolean reinstall(ChrootManager.ProgressCallback callback, String version, int proxyIndex) {
-        // For Hermes, reinstall just means re-running install (no version selection currently)
-        ChrootManager.execInChroot("rm -rf " + HERMES_VENV + " /root/hermes-agent-src", 30);
+        // Clean up existing installation thoroughly
+        if (callback != null) callback.onProgress("正在清理旧安装...");
+        ChrootManager.execInChroot(
+            "rm -rf " + HERMES_HOME + " /root/.local/bin/hermes " +
+            "/root/.local/share/hermes " +
+            "/root/.cache/hermes " +
+            "/root/.config/hermes", 30);
         ChrootManager.execRoot("rm -f " + HERMES_MARKER);
+
+        // Re-run the official install script
         return install(callback);
     }
 
     @Override
     public ChrootManager.CommandResult start() {
         synchronized (ChrootManager.getChrootLock()) {
-            ChrootManager.setupChrootDevices(null);
+            // Note: chroot setup is handled by the caller (MainActivity.startGateway)
+            if (!ChrootManager.isChrootMounted()) {
+                ChrootManager.setupChrootDevices(null);
+            }
             stop(); // kill any existing
 
-            String hermesBin = HERMES_VENV + "/bin/hermes";
+            // Ensure SSH is running after setupChrootDevices (which may remount /dev)
+            if (!ChrootManager.isSshRunning()) {
+                ChrootManager.startSshService(null);
+            }
 
+            // Check if Hermes is actually installed before trying to start
+            if (!isInstalled()) {
+                return new ChrootManager.CommandResult(false, "",
+                    "Hermes 未安装，请先在设置中安装 Hermes Agent", 1);
+            }
+
+            // Official install puts hermes at ~/.local/bin/hermes
+            String hermesBin = "/root/.local/bin/hermes";
+
+            // Verify the hermes binary exists before executing
+            ChrootManager.CommandResult binCheck = ChrootManager.execInChroot(
+                "test -x " + hermesBin + " && echo ok || echo missing", 5);
+            if (!binCheck.success() || !binCheck.stdout().trim().equals("ok")) {
+                return new ChrootManager.CommandResult(false, "",
+                    "Hermes 可执行文件不存在或无执行权限 (" + hermesBin + ")，请重新安装", 1);
+            }
+
+            // Ensure log directory exists
+            ChrootManager.execInChroot("mkdir -p " + HERMES_HOME + "/logs", 5);
+
+            // Build start command with full PATH including ~/.local/bin for hermes subprocess calls
+            // Official install adds ~/.local/bin to PATH in .bashrc/.profile
             String startCmd =
                 "cd /root && " +
                 "export HOME=/root && " +
+                "export PATH=/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+                "mkdir -p " + HERMES_HOME + "/logs && " +
                 "setsid " + hermesBin + " gateway start > " + HERMES_LOG_FILE + " 2>&1 & " +
                 "echo $! > " + HERMES_PID_FILE + " && " +
-                "sleep 5 && " +
-                "if kill -0 $(cat " + HERMES_PID_FILE + ") 2>/dev/null; then " +
+                "/bin/sleep 5 && " +
+                "if kill -0 $(/usr/bin/cat " + HERMES_PID_FILE + ") 2>/dev/null; then " +
                 "  echo started; " +
                 "else " +
-                "  cat " + HERMES_LOG_FILE + " 2>/dev/null; " +
+                "  /usr/bin/cat " + HERMES_LOG_FILE + " 2>/dev/null; " +
                 "  echo 'Hermes failed to start'; exit 1; " +
                 "fi";
 
@@ -164,7 +196,7 @@ public class HermesAdapter extends BotAdapter {
         ChrootManager.execRoot(
             "PIDFILE=" + RbotConstants.CHROOT_DIR + HERMES_PID_FILE + "; " +
             "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  SPECPID=$(/system/bin/cat $PIDFILE 2>/dev/null || cat $PIDFILE 2>/dev/null); " +
             "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
             "  rm -f $PIDFILE; " +
             "fi; " +
@@ -177,12 +209,12 @@ public class HermesAdapter extends BotAdapter {
         String stopCmd =
             "PIDFILE=" + HERMES_PID_FILE + "; " +
             "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  SPECPID=$(/usr/bin/cat $PIDFILE 2>/dev/null); " +
             "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
             "  rm -f $PIDFILE; " +
             "fi; " +
             "pkill -9 -f 'hermes gateway' 2>/dev/null || true; " +
-            "sleep 1; " +
+            "/bin/sleep 1; " +
             "echo stopped";
         return ChrootManager.execInChroot(stopCmd, 15);
     }
@@ -220,7 +252,7 @@ public class HermesAdapter extends BotAdapter {
 
     @Override
     public String getInstallCommand() {
-        return "pip install -e '.[termux]' (via hermes-agent repo)";
+        return "curl -fsSL <install.sh> | bash -- --skip-setup";
     }
 
     @Override

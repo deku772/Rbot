@@ -24,7 +24,7 @@ import androidx.core.app.NotificationCompat;
 import app.rbot.R;
 
 /**
- * Foreground service that monitors and keeps the AstrBot chroot process alive.
+ * Foreground service that monitors and keeps the active bot chroot process alive.
  *
  * Battery-optimized architecture (2026-04 refactor):
  *
@@ -124,7 +124,7 @@ public class GatewayMonitorService extends Service {
         if (mIsMonitoring) return;
         mIsMonitoring = true;
 
-        Log.i(TAG, "Starting AstrBot monitoring (AlarmManager-based, no WakeLock/WifiLock)");
+        Log.i(TAG, "Starting bot monitoring (AlarmManager-based, no WakeLock/WifiLock)");
 
         // Schedule periodic alarms
         MonitorAlarmReceiver.scheduleNextAlarm(this);
@@ -220,10 +220,10 @@ public class GatewayMonitorService extends Service {
     // ─── Manual start/stop (called from UI) ───────────────────────────────────
 
     /**
-     * Manually start AstrBot from UI button.
+     * Manually start the active bot from UI button.
      * Called by MainActivity when user taps "启动".
      */
-    public void manualStartAstrBot() {
+    public void manualStartBot() {
         if (mRestartInFlight) return;
 
         mRestartAttempts = 0;
@@ -232,51 +232,54 @@ public class GatewayMonitorService extends Service {
 
         new Thread(() -> {
             try {
-                ChrootManager.CommandResult result = ChrootManager.startAstrBot();
+                BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+                ChrootManager.CommandResult result = activeBot.start();
                 mRestartInFlight = false;
 
                 if (result.success()) {
-                    Log.i(TAG, "AstrBot started successfully via manualStart");
+                    Log.i(TAG, activeBot.getName() + " started successfully via manualStart");
                     mRestartAttempts = 0;
                     mHandler.post(() -> updateStatusInternal("Running"));
                 } else {
-                    Log.e(TAG, "Failed to start AstrBot: " + result.stderr());
+                    Log.e(TAG, "Failed to start " + activeBot.getName() + ": " + result.stderr());
                     mHandler.post(() -> updateStatusInternal("Failed"));
                 }
             } catch (Exception e) {
                 mRestartInFlight = false;
-                Log.e(TAG, "Error starting AstrBot: " + e.getMessage());
+                Log.e(TAG, "Error starting bot: " + e.getMessage());
                 mHandler.post(() -> updateStatusInternal("Error"));
             }
         }).start();
     }
 
     /**
-     * Manually stop AstrBot from UI button.
+     * Manually stop the active bot from UI button.
      * Called by MainActivity when user taps "停止".
      */
-    public void manualStopAstrBot() {
-        ChrootManager.stopAstrBot();
+    public void manualStopBot() {
+        BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+        activeBot.stop();
         updateStatusInternal("Stopped");
         mRestartAttempts = 0;
     }
 
     /**
-     * Manually restart AstrBot from UI button.
+     * Manually restart the active bot from UI button.
      */
-    public void manualRestartAstrBot() {
+    public void manualRestartBot() {
         if (mRestartInFlight) return;
 
         mRestartInFlight = true;
         updateStatusInternal("Restarting...");
 
         new Thread(() -> {
-            ChrootManager.stopAstrBot();
+            BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+            activeBot.stop();
             try {
                 Thread.sleep(1000);
             } catch (InterruptedException ignored) {}
 
-            ChrootManager.CommandResult result = ChrootManager.startAstrBot();
+            ChrootManager.CommandResult result = activeBot.start();
             mRestartInFlight = false;
 
             if (result.success()) {
@@ -298,6 +301,9 @@ public class GatewayMonitorService extends Service {
         NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
         if (manager == null) return;
 
+        // Get active bot name for dynamic notification
+        String botName = BotManager.getInstance(context).getActiveBot().getName();
+
         Intent notificationIntent = new Intent(context, MainActivity.class);
         notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
 
@@ -309,7 +315,7 @@ public class GatewayMonitorService extends Service {
 
         Notification notification = new NotificationCompat.Builder(context, MainActivity.NOTIFICATION_CHANNEL_ID)
             .setContentTitle("Rbot")
-            .setContentText("AstrBot: " + status)
+            .setContentText(botName + ": " + status)
             .setSmallIcon(R.drawable.ic_service_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -327,7 +333,8 @@ public class GatewayMonitorService extends Service {
     private void updateStatusInternal(String status) {
         sCurrentStatus = status;
         if (sNotificationManager != null) {
-            Notification notification = buildNotification("AstrBot: " + status);
+            String botName = BotManager.getInstance(this).getActiveBot().getName();
+            Notification notification = buildNotification(botName + ": " + status);
             sNotificationManager.notify(NOTIFICATION_ID, notification);
         }
     }
@@ -343,7 +350,7 @@ public class GatewayMonitorService extends Service {
         NotificationChannel gatewayChannel = new NotificationChannel(
             MainActivity.NOTIFICATION_CHANNEL_ID,
             "Rbot 服务状态", NotificationManager.IMPORTANCE_LOW);
-        gatewayChannel.setDescription("Rbot AstrBot 运行状态");
+        gatewayChannel.setDescription("Rbot 运行状态");
         manager.createNotificationChannel(gatewayChannel);
 
         // Update channel

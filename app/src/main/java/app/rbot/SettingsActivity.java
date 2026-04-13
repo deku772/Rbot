@@ -1,7 +1,9 @@
 package app.rbot;
 
+import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
+import android.view.View;
 import android.os.Looper;
 import android.widget.Button;
 import android.widget.TextView;
@@ -26,6 +28,7 @@ public class SettingsActivity extends AppCompatActivity {
     private Button mRestoreButton;
     private Button mCleanInstallButton;
     private Button mSwitchBotButton;
+    private Button mOpenHermesPanelButton;
     private TextView mCurrentBotName;
     private TextView mCurrentBotStatus;
 
@@ -49,6 +52,7 @@ public class SettingsActivity extends AppCompatActivity {
         mRestoreButton = findViewById(R.id.btn_restore);
         mCleanInstallButton = findViewById(R.id.btn_clean_install);
         mSwitchBotButton = findViewById(R.id.btn_switch_bot);
+        mOpenHermesPanelButton = findViewById(R.id.btn_open_hermes_panel);
         mCurrentBotName = findViewById(R.id.current_bot_name);
         mCurrentBotStatus = findViewById(R.id.current_bot_status);
 
@@ -67,6 +71,10 @@ public class SettingsActivity extends AppCompatActivity {
         mRestoreButton.setOnClickListener(v -> showRestoreDialog());
         mCleanInstallButton.setOnClickListener(v -> showCleanInstallDialog());
         mSwitchBotButton.setOnClickListener(v -> showSwitchBotDialog());
+        mOpenHermesPanelButton.setOnClickListener(v -> {
+            Intent intent = new Intent(this, HermesManagementActivity.class);
+            startActivity(intent);
+        });
 
         refreshBotInfo();
     }
@@ -102,6 +110,13 @@ public class SettingsActivity extends AppCompatActivity {
 
         // Update reinstall button label
         mReinstallBotButton.setText("🤖 重装 " + bot.getName());
+
+        // Show/hide Hermes panel button based on current bot type
+        if (bot.getId().equals(BotAdapter.ID_HERMES)) {
+            mOpenHermesPanelButton.setVisibility(View.VISIBLE);
+        } else {
+            mOpenHermesPanelButton.setVisibility(View.GONE);
+        }
     }
 
     private void showReinstallDepsDialog() {
@@ -395,7 +410,7 @@ public class SettingsActivity extends AppCompatActivity {
                     mHandler.post(() -> appendToLog("  ✅ apt/dpkg 状态已修复"));
                     if (ChrootManager.isSshRunning()) {
                         ChrootManager.stopSshService();
-                        ChrootManager.startSshService();
+                        ChrootManager.startSshService(null);
                         mHandler.post(() -> appendToLog("  ✅ SSH 服务已重启"));
                     }
                     mHandler.post(() -> appendToLog("✅ 环境修复完成"));
@@ -582,8 +597,17 @@ public class SettingsActivity extends AppCompatActivity {
     }
 
     private void appendToLog(String message) {
+        // Write to OpLog so LogActivity can see it
+        String trimmed = message.replace("\n", " ").trim();
+        if (trimmed.contains("失败") || trimmed.startsWith("❌")) {
+            OpLog.error(trimmed);
+        } else if (trimmed.startsWith("  ")) {
+            OpLog.progress(trimmed);
+        } else {
+            OpLog.log(trimmed);
+        }
         // This Activity doesn't have a log view — just show toast for feedback
-        Toast.makeText(this, message.replace("\n", " ").trim(), Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, trimmed, Toast.LENGTH_SHORT).show();
     }
 
     private String generateRandomPassword() {

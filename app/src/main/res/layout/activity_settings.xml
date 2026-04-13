@@ -109,16 +109,36 @@
 
                     </LinearLayout>
 
-                    <Button
-                        android:id="@+id/btn_switch_bot"
+                    <LinearLayout
                         android:layout_width="wrap_content"
-                        android:layout_height="36dp"
-                        android:text="切换引擎"
-                        android:textSize="13sp"
-                        android:textColor="#FFFFFF"
-                        android:background="@drawable/botdrop_button_green_bg"
-                        android:paddingStart="16dp"
-                        android:paddingEnd="16dp" />
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <Button
+                            android:id="@+id/btn_open_hermes_panel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="打开面板"
+                            android:textSize="13sp"
+                            android:textColor="@color/botdrop_accent"
+                            android:background="@drawable/botdrop_button_outline_bg"
+                            android:paddingStart="12dp"
+                            android:paddingEnd="12dp"
+                            android:layout_marginEnd="8dp"
+                            android:visibility="gone" />
+
+                        <Button
+                            android:id="@+id/btn_switch_bot"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="切换引擎"
+                            android:textSize="13sp"
+                            android:textColor="#FFFFFF"
+                            android:background="@drawable/botdrop_button_green_bg"
+                            android:paddingStart="16dp"
+                            android:paddingEnd="16dp" />
+
+                    </LinearLayout>
 
                 </LinearLayout>
 
@@ -160,7 +180,7 @@
             android:layout_width="match_parent"
             android:layout_height="44dp"
             android:layout_marginBottom="8dp"
-            android:text="💿 重装 rootfs（保留 AstrBot 数据）"
+            android:text="💿 重装 rootfs（保留 Bot 数据）"
             android:textSize="13sp"
             android:textColor="@color/botdrop_on_background"
             android:background="@drawable/botdrop_button_outline_bg" />

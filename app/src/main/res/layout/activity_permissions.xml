@@ -91,7 +91,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="未关闭电池优化时，系统可能在后台自动停止 AstrBot。建议点击「优化」并选择「所有应用」→ 找到本应用 → 设为「不优化」。"
+                android:text="未关闭电池优化时，系统可能在后台自动停止 Rbot 服务。建议点击「优化」并选择「所有应用」→ 找到本应用 → 设为「不优化」。"
                 android:textSize="12sp"
                 android:textColor="#BF360C"
                 android:layout_marginTop="8dp" />
@@ -168,7 +168,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="AstrBot 需要访问存储来管理 rootfs 镜像、备份文件和日志。"
+                android:text="Rbot 需要访问存储来管理 rootfs 镜像、备份文件和日志。"
                 android:textSize="12sp"
                 android:textColor="#0D47A1"
                 android:layout_marginTop="8dp" />
@@ -313,7 +313,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Android 13+ 需要通知权限才能显示前台服务通知（AstrBot 运行状态）。"
+                android:text="Android 13+ 需要通知权限才能显示前台服务通知（Rbot 运行状态）。"
                 android:textSize="12sp"
                 android:textColor="#1B5E20"
                 android:layout_marginTop="8dp" />

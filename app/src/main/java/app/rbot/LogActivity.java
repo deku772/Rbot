@@ -13,7 +13,9 @@ import androidx.appcompat.app.AppCompatActivity;
 
 /**
  * Full-screen log viewer page.
+ * Shows both operation logs (app-initiated actions) and bot runtime logs.
  * BotPocket-style: clean layout with clear button, monospace font.
+ * Newest entries at top (reverse chronological).
  */
 public class LogActivity extends AppCompatActivity {
 
@@ -23,9 +25,12 @@ public class LogActivity extends AppCompatActivity {
 
     private Handler mHandler = new Handler(Looper.getMainLooper());
     private boolean mLogPolling = false;
-    private String mLastLogTail = "";
+    private String mLastOpLogTail = "";
+    private String mLastBotLogTail = "";
     private final Object mLogLock = new Object();
     private static final int MAX_LOG_LINES = 500;
+    private String mActiveBotName;
+    private String mBotLogFile;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -36,9 +41,16 @@ public class LogActivity extends AppCompatActivity {
         mLogScrollView = findViewById(R.id.log_scroll);
         mClearLogButton = findViewById(R.id.btn_clear_log);
 
+        // Get active bot info for dynamic log path
+        BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+        mActiveBotName = activeBot.getName();
+        mBotLogFile = RbotConstants.CHROOT_DIR + activeBot.getLogFile();
+
         mClearLogButton.setOnClickListener(v -> {
-            mLogText.setText("日志已清理。\n\n重新启动 AstrBot 后，日志将实时显示在这里。");
-            mLastLogTail = "";
+            OpLog.clear();
+            mLogText.setText("日志已清理。\n\n重新操作后，日志将实时显示在这里。");
+            mLastOpLogTail = "";
+            mLastBotLogTail = "";
         });
     }
 
@@ -46,7 +58,6 @@ public class LogActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         startLogPolling();
-        // Add header when opened
         appendToLog("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n  📋 日志页面已打开\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n", false);
     }
 
@@ -74,64 +85,75 @@ public class LogActivity extends AppCompatActivity {
 
         new Thread(() -> {
             try {
-                ChrootManager.CommandResult result = ChrootManager.execRoot(
-                    "tail -n 100 '" + RbotConstants.ASTRBOT_LOG_FILE + "' 2>/dev/null", 5);
+                // 1. Read operation log (app-initiated actions)
+                String opLog = OpLog.readTail(100);
 
-                if (result.success() && !result.stdout().trim().isEmpty()) {
-                    String newTail = result.stdout();
-                    mHandler.post(() -> {
-                        synchronized (mLogLock) {
-                            if (newTail.equals(mLastLogTail)) return;
-
-                            String[] newLines = newTail.split("\n");
-                            StringBuilder delta = new StringBuilder();
-
-                            int startIdx = 0;
-                            String current = mLogText.getText().toString();
-                            if (!current.isEmpty() && !mLastLogTail.isEmpty()) {
-                                outer:
-                                for (int i = Math.max(0, newLines.length - 150);
-                                     i < newLines.length; i++) {
-                                    for (int j = Math.max(0, newLines.length - i - 1);
-                                         j < newLines.length; j++) {
-                                        if (newLines[i].equals(newLines[j])) {
-                                            startIdx = i + 1;
-                                            break outer;
-                                        }
-                                    }
-                                }
-                            }
-
-                            for (int i = startIdx; i < newLines.length; i++) {
-                                delta.append(newLines[i]).append("\n");
-                            }
-
-                            if (delta.length() > 0) {
-                                String oldText = mLogText.getText().toString();
-                                // Remove placeholder
-                                if (oldText.contains("暂无日志内容") ||
-                                    oldText.contains("重新启动 AstrBot")) {
-                                    oldText = "";
-                                }
-                                mLogText.setText(delta.toString() + oldText);
-                                mLastLogTail = newTail;
-
-                                String text = mLogText.getText().toString();
-                                String[] allLines = text.split("\n");
-                                if (allLines.length > MAX_LOG_LINES) {
-                                    StringBuilder kept = new StringBuilder();
-                                    for (int i = 0; i < MAX_LOG_LINES; i++) {
-                                        kept.append(allLines[i]).append("\n");
-                                    }
-                                    mLogText.setText(kept.toString());
-                                }
-
-                                mLogScrollView.post(() ->
-                                    mLogScrollView.scrollTo(0, 0));
-                            }
-                        }
-                    });
+                // 2. Read bot runtime log
+                String botLog = "";
+                ChrootManager.CommandResult botResult = ChrootManager.execRoot(
+                    "tail -n 100 '" + mBotLogFile + "' 2>/dev/null", 5);
+                if (botResult.success() && !botResult.stdout().trim().isEmpty()) {
+                    botLog = botResult.stdout();
                 }
+
+                final String fOpLog = opLog;
+                final String fBotLog = botLog;
+
+                mHandler.post(() -> {
+                    synchronized (mLogLock) {
+                        // Check if anything changed
+                        boolean opChanged = !fOpLog.equals(mLastOpLogTail);
+                        boolean botChanged = !fBotLog.equals(mLastBotLogTail);
+                        if (!opChanged && !botChanged) return;
+
+                        mLastOpLogTail = fOpLog;
+                        mLastBotLogTail = fBotLog;
+
+                        // Build combined display: operation log + bot log
+                        StringBuilder display = new StringBuilder();
+
+                        // Operation log section
+                        if (!fOpLog.trim().isEmpty()) {
+                            display.append("═══ 操作日志 ═══\n");
+                            display.append(fOpLog);
+                        }
+
+                        // Bot runtime log section
+                        if (!fBotLog.trim().isEmpty()) {
+                            if (display.length() > 0) display.append("\n");
+                            display.append("═══ ").append(mActiveBotName).append(" 运行日志 ═══\n");
+                            display.append(fBotLog);
+                        }
+
+                        if (display.length() > 0) {
+                            String newText = display.toString();
+
+                            // Remove placeholder
+                            String oldText = mLogText.getText().toString();
+                            if (oldText.contains("暂无日志内容") ||
+                                oldText.contains("重新操作") ||
+                                oldText.contains("重新启动")) {
+                                oldText = "";
+                            }
+
+                            mLogText.setText(newText + oldText);
+
+                            // Trim to max lines
+                            String text = mLogText.getText().toString();
+                            String[] allLines = text.split("\n");
+                            if (allLines.length > MAX_LOG_LINES) {
+                                StringBuilder kept = new StringBuilder();
+                                for (int i = 0; i < MAX_LOG_LINES; i++) {
+                                    kept.append(allLines[i]).append("\n");
+                                }
+                                mLogText.setText(kept.toString());
+                            }
+
+                            mLogScrollView.post(() ->
+                                mLogScrollView.scrollTo(0, 0));
+                        }
+                    }
+                });
             } catch (Exception e) {
                 // Silently ignore
             }
@@ -148,7 +170,7 @@ public class LogActivity extends AppCompatActivity {
 
     private void appendToLog(String message, boolean top) {
         String oldText = mLogText.getText().toString();
-        if (oldText.contains("暂无日志内容") || oldText.contains("重新启动 AstrBot")) {
+        if (oldText.contains("暂无日志内容") || oldText.contains("重新操作")) {
             oldText = "";
         }
         if (top) {

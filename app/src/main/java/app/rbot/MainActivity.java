@@ -15,7 +15,6 @@ import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 
@@ -41,7 +40,6 @@ public class MainActivity extends AppCompatActivity {
     public static final String NOTIFICATION_CHANNEL_ID = "rbot_gateway";
 
     private TextView mStatusText;
-    private TextView mLogText;
     private Button mStartButton;
     private Button mStopButton;
     private Button mSetupButton;
@@ -51,17 +49,15 @@ public class MainActivity extends AppCompatActivity {
     private TextView mSshPassword;
     private Button mSshToggleButton;
     private boolean mSshStarting = false;
-    private ScrollView mLogScrollView;
-    private Button mClearLogButton;
     private CardView mWebuiPanel;
     private TextView mWebuiUrl;
     private Button mOpenWebuiButton;
 
     // Navigation buttons
     private Button mNavHomeButton;
+    private Button mNavTerminalButton;
     private Button mNavLogButton;
     private Button mNavSettingsButton;
-    private Button mNavPermissionsButton;
 
     // Component status dashboard (2x2 grid)
     private TextView mStatusBinaries;
@@ -72,17 +68,11 @@ public class MainActivity extends AppCompatActivity {
     private View mDotBootstrap;
     private TextView mStatusAstrbot;
     private View mDotAstrbot;
+    private TextView mStatusAstrbotLabel;
 
     private Handler mHandler = new Handler(Looper.getMainLooper());
     private RbotService mService;
     private boolean mBound = false;
-    private boolean mLogPolling = false;
-    /** Last tail output — used to detect new content */
-    private String mLastLogTail = "";
-    /** Lock to prevent concurrent poll runs from interleaving */
-    private final Object mLogLock = new Object();
-    /** Max log buffer lines (to prevent unbounded growth) */
-    private static final int MAX_LOG_LINES = 200;
 
     private final ServiceConnection mConnection = new ServiceConnection() {
         @Override
@@ -106,9 +96,6 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         mStatusText = findViewById(R.id.status_text);
-        mLogText = findViewById(R.id.log_text);
-        mLogScrollView = findViewById(R.id.log_scroll);
-        mClearLogButton = findViewById(R.id.btn_clear_log);
         mStartButton = findViewById(R.id.btn_start);
         mStopButton = findViewById(R.id.btn_stop);
         mSetupButton = findViewById(R.id.btn_setup);
@@ -123,9 +110,9 @@ public class MainActivity extends AppCompatActivity {
 
         // Navigation buttons
         mNavHomeButton = findViewById(R.id.btn_nav_home);
+        mNavTerminalButton = findViewById(R.id.btn_nav_terminal);
         mNavLogButton = findViewById(R.id.btn_nav_log);
         mNavSettingsButton = findViewById(R.id.btn_nav_settings);
-        mNavPermissionsButton = findViewById(R.id.btn_nav_permissions);
 
         // Component status dashboard — IDs are in the main screen layout
         mStatusBinaries = findViewById(R.id.status_binaries);
@@ -136,41 +123,46 @@ public class MainActivity extends AppCompatActivity {
         mDotBootstrap = findViewById(R.id.dot_bootstrap);
         mStatusAstrbot = findViewById(R.id.status_astrbot);
         mDotAstrbot = findViewById(R.id.dot_astrbot);
+        mStatusAstrbotLabel = findViewById(R.id.label_status_bot);
 
         createNotificationChannel();
 
-        mStartButton.setOnClickListener(v -> startGateway());
-        mStopButton.setOnClickListener(v -> stopGateway());
-        mSetupButton.setOnClickListener(v -> {
+        // Bind buttons with null-checks (layout may not have all buttons)
+        if (mStartButton != null) mStartButton.setOnClickListener(v -> startGateway());
+        if (mStopButton != null) mStopButton.setOnClickListener(v -> stopGateway());
+        if (mSetupButton != null) mSetupButton.setOnClickListener(v -> {
             Intent intent = new Intent(this, SetupActivity.class);
             intent.putExtra(SetupActivity.EXTRA_START_STEP, SetupActivity.STEP_INSTALL);
             startActivity(intent);
         });
-        mOpenWebuiButton.setOnClickListener(v -> {
-            String url = mWebuiUrl.getText().toString();
-            Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
-            startActivity(browserIntent);
+        if (mOpenWebuiButton != null) mOpenWebuiButton.setOnClickListener(v -> {
+            String url = mWebuiUrl != null ? mWebuiUrl.getText().toString() : "";
+            if (!url.isEmpty()) {
+                Intent browserIntent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                startActivity(browserIntent);
+            }
         });
-        mSshToggleButton.setOnClickListener(v -> toggleSshService());
-        mClearLogButton.setOnClickListener(v -> {
-            mLogText.setText("");
-            mLastLogTail = "";
-        });
+        if (mSshToggleButton != null) mSshToggleButton.setOnClickListener(v -> toggleSshService());
 
         // Navigation buttons
-        mNavHomeButton.setOnClickListener(v -> {
+        if (mNavHomeButton != null) mNavHomeButton.setOnClickListener(v -> {
             // Already on home — do nothing
         });
-        mNavLogButton.setOnClickListener(v -> {
+        if (mNavTerminalButton != null) mNavTerminalButton.setOnClickListener(v -> {
+            // Check if chroot is mounted before opening terminal
+            if (!ChrootManager.isChrootMounted()) {
+                android.widget.Toast.makeText(this, "请先启动后再使用终端", android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+            Intent shellIntent = new Intent(this, ShellActivity.class);
+            startActivity(shellIntent);
+        });
+        if (mNavLogButton != null) mNavLogButton.setOnClickListener(v -> {
             Intent intent = new Intent(this, LogActivity.class);
             startActivity(intent);
         });
-        mNavSettingsButton.setOnClickListener(v -> {
+        if (mNavSettingsButton != null) mNavSettingsButton.setOnClickListener(v -> {
             Intent intent = new Intent(this, SettingsActivity.class);
-            startActivity(intent);
-        });
-        mNavPermissionsButton.setOnClickListener(v -> {
-            Intent intent = new Intent(this, PermissionsActivity.class);
             startActivity(intent);
         });
     }
@@ -180,22 +172,15 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        // Add a clear separator when returning to the activity
-        String timestamp = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date());
-        appendToLog("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        appendToLog("  📱 Rbot 返回前台 — " + timestamp);
-        appendToLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
         // Bind to RbotService
         Intent intent = new Intent(this, RbotService.class);
         bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
         new Thread(this::refreshStatusOffThread).start();
-        startLogPolling();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        stopLogPolling();
         if (mBound) {
             unbindService(mConnection);
             mBound = false;
@@ -213,124 +198,149 @@ public class MainActivity extends AppCompatActivity {
     /** Refresh status — must be called off the main thread (runs root commands) */
     private void refreshStatusOffThread() {
         ChrootManager.FullStatus status = ChrootManager.getFullStatus();
-        mHandler.post(() -> updateStatusUI(status));
+        // Get active bot status off thread
+        BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+        boolean botInstalled = activeBot.isInstalled();
+        boolean botRunning = activeBot.isRunning();
+        mHandler.post(() -> updateStatusUI(status, activeBot, botInstalled, botRunning));
     }
 
     /** Update UI based on status — must be called on main thread */
-    private void updateStatusUI(ChrootManager.FullStatus status) {
+    private void updateStatusUI(ChrootManager.FullStatus status, BotAdapter activeBot, boolean botInstalled, boolean botRunning) {
         boolean rootAvailable = status.rootAvailable();
         boolean rootfsReady = status.rootfsReady();
         boolean chrootMounted = status.chrootMounted();
-        boolean astrBotInstalled = status.astrBotInstalled();
-        boolean astrBotRunning = status.astrBotRunning();
+        
+        if (mStatusText == null) return; // Guard against missing views
+        
         if (!rootAvailable) {
             mStatusText.setText("⚠ 需要 Root 权限");
-            mStartButton.setEnabled(false);
-            mStopButton.setEnabled(false);
-            mSetupButton.setVisibility(View.GONE);
-            mWebuiPanel.setVisibility(View.GONE);
-            mSshInfoPanel.setVisibility(View.GONE);
-        } else if (!rootfsReady || !astrBotInstalled) {
+            setButtonsEnabled(false, false);
+            hidePanels();
+        } else if (!rootfsReady || !botInstalled) {
             mStatusText.setText("📦 需要安装");
-            mStartButton.setEnabled(false);
-            mStopButton.setEnabled(false);
-            mSetupButton.setVisibility(View.VISIBLE);
-            mSetupButton.setEnabled(true);
-            mWebuiPanel.setVisibility(View.GONE);
-            mSshInfoPanel.setVisibility(View.GONE);
+            setButtonsEnabled(false, false);
+            hidePanels();
+            if (mSetupButton != null) {
+                mSetupButton.setVisibility(View.VISIBLE);
+                mSetupButton.setEnabled(true);
+            }
         } else {
-            // Show dual status: Ubuntu + AstrBot
+            // Show dynamic status: Ubuntu + active bot
             String ubuntuStatus = chrootMounted ? "🐧 Ubuntu: 运行中" : "🐧 Ubuntu: 未挂载";
-            String astrbotStatus = astrBotRunning ? "🤖 AstrBot: 运行中" : "🤖 AstrBot: 已停止";
-            mStatusText.setText(ubuntuStatus + "\n" + astrbotStatus);
+            String botStatus = botRunning ? "🤖 " + activeBot.getName() + ": 运行中" : "🤖 " + activeBot.getName() + ": 已停止";
+            mStatusText.setText(ubuntuStatus + "\n" + botStatus);
 
-            mStartButton.setEnabled(!astrBotRunning);
-            mStopButton.setEnabled(astrBotRunning);
+            setButtonsEnabled(!botRunning, botRunning);
+            if (mSetupButton != null) mSetupButton.setVisibility(View.GONE);
 
-            mSetupButton.setVisibility(View.GONE);
-
-            if (astrBotRunning) {
-                String webuiUrl = detectLanIp();
-                mWebuiUrl.setText(webuiUrl);
-                mWebuiPanel.setVisibility(View.VISIBLE);
+            // WebUI panel: only for bots that have it (AstrBot, not Hermes)
+            if (activeBot.getId().equals(BotAdapter.ID_ASTRBOT)) {
+                if (mWebuiPanel != null) {
+                    if (botRunning) {
+                        String webuiUrl = detectLanIp();
+                        if (mWebuiUrl != null) mWebuiUrl.setText(webuiUrl);
+                        mWebuiPanel.setVisibility(View.VISIBLE);
+                    } else {
+                        mWebuiPanel.setVisibility(View.GONE);
+                    }
+                }
             } else {
-                mWebuiPanel.setVisibility(View.GONE);
+                // Hermes has no WebUI
+                if (mWebuiPanel != null) mWebuiPanel.setVisibility(View.GONE);
             }
 
-            mSshInfoPanel.setVisibility(View.VISIBLE);
-            // Update SSH panel
+            if (mSshInfoPanel != null) mSshInfoPanel.setVisibility(View.VISIBLE);
             updateSshPanel();
         }
 
         // Update the component status dashboard
-        updateComponentStatusUI(status);
+        updateComponentStatusUI(status, activeBot, botInstalled, botRunning);
+
+        // Dynamically update the 4th status card label to match active bot
+        if (mStatusAstrbotLabel != null) {
+            mStatusAstrbotLabel.setText(activeBot.getStatusLabel());
+        }
+    }
+
+    private void setButtonsEnabled(boolean startEnabled, boolean stopEnabled) {
+        if (mStartButton != null) mStartButton.setEnabled(startEnabled);
+        if (mStopButton != null) mStopButton.setEnabled(stopEnabled);
+    }
+
+    private void hidePanels() {
+        if (mWebuiPanel != null) mWebuiPanel.setVisibility(View.GONE);
+        if (mSshInfoPanel != null) mSshInfoPanel.setVisibility(View.GONE);
     }
 
     /**
-     * Update the 2x2 component status dashboard (BINARIES / ROOTFS / BOOTSTRAP / ASTRBOT).
+     * Update the 2x2 component status dashboard (BINARIES / ROOTFS / BOOTSTRAP / BOT).
      * BotPocket-style status cards: shows ready/not_ready/warning/error per component.
      * Called on main thread from updateStatusUI.
      */
-    private void updateComponentStatusUI(ChrootManager.FullStatus status) {
+    private void updateComponentStatusUI(ChrootManager.FullStatus status, BotAdapter activeBot, boolean botInstalled, boolean botRunning) {
+        if (mStatusBinaries == null) return; // Guard against missing views
+
         // BINARIES: root shell access (su works)
         if (status.rootAvailable()) {
             mStatusBinaries.setText("已就绪");
             mStatusBinaries.setTextColor(getColor(R.color.status_connected));
-            mDotBinaries.setBackgroundResource(R.drawable.ic_status_ready);
+            if (mDotBinaries != null) mDotBinaries.setBackgroundResource(R.drawable.ic_status_ready);
         } else {
             mStatusBinaries.setText("不可用");
             mStatusBinaries.setTextColor(getColor(R.color.status_disconnected));
-            mDotBinaries.setBackgroundResource(R.drawable.ic_status_not_ready);
+            if (mDotBinaries != null) mDotBinaries.setBackgroundResource(R.drawable.ic_status_not_ready);
         }
 
         // ROOTFS: system image extracted
         if (status.rootfsReady()) {
             mStatusRootfs.setText("已就绪");
             mStatusRootfs.setTextColor(getColor(R.color.status_connected));
-            mDotRootfs.setBackgroundResource(R.drawable.ic_status_ready);
+            if (mDotRootfs != null) mDotRootfs.setBackgroundResource(R.drawable.ic_status_ready);
         } else {
             mStatusRootfs.setText("未安装");
             mStatusRootfs.setTextColor(getColor(R.color.status_disconnected));
-            mDotRootfs.setBackgroundResource(R.drawable.ic_status_not_ready);
+            if (mDotRootfs != null) mDotRootfs.setBackgroundResource(R.drawable.ic_status_not_ready);
         }
 
         // BOOTSTRAP: chroot environment mounted (proc/sys/dev/pts)
         if (status.chrootMounted()) {
             mStatusBootstrap.setText("运行中");
             mStatusBootstrap.setTextColor(getColor(R.color.status_connected));
-            mDotBootstrap.setBackgroundResource(R.drawable.ic_status_ready);
+            if (mDotBootstrap != null) mDotBootstrap.setBackgroundResource(R.drawable.ic_status_ready);
         } else if (status.rootfsReady()) {
-            // Mounted but chroot not set up yet
             mStatusBootstrap.setText("待初始化");
             mStatusBootstrap.setTextColor(getColor(R.color.status_warning));
-            mDotBootstrap.setBackgroundResource(R.drawable.ic_status_warning);
+            if (mDotBootstrap != null) mDotBootstrap.setBackgroundResource(R.drawable.ic_status_warning);
         } else {
             mStatusBootstrap.setText("未就绪");
             mStatusBootstrap.setTextColor(getColor(R.color.status_disconnected));
-            mDotBootstrap.setBackgroundResource(R.drawable.ic_status_not_ready);
+            if (mDotBootstrap != null) mDotBootstrap.setBackgroundResource(R.drawable.ic_status_not_ready);
         }
 
-        // ASTRBOT: installed + running status
-        if (status.astrBotInstalled() && status.astrBotRunning()) {
+        // Active Bot: installed + running status (dynamic based on active bot)
+        if (botInstalled && botRunning) {
             mStatusAstrbot.setText("运行中");
             mStatusAstrbot.setTextColor(getColor(R.color.status_connected));
-            mDotAstrbot.setBackgroundResource(R.drawable.ic_status_ready);
-        } else if (status.astrBotInstalled()) {
+            if (mDotAstrbot != null) mDotAstrbot.setBackgroundResource(R.drawable.ic_status_ready);
+        } else if (botInstalled) {
             mStatusAstrbot.setText("已安装");
             mStatusAstrbot.setTextColor(getColor(R.color.status_warning));
-            mDotAstrbot.setBackgroundResource(R.drawable.ic_status_warning);
+            if (mDotAstrbot != null) mDotAstrbot.setBackgroundResource(R.drawable.ic_status_warning);
         } else if (status.rootfsReady()) {
             mStatusAstrbot.setText("待安装");
             mStatusAstrbot.setTextColor(getColor(R.color.status_disconnected));
-            mDotAstrbot.setBackgroundResource(R.drawable.ic_status_not_ready);
+            if (mDotAstrbot != null) mDotAstrbot.setBackgroundResource(R.drawable.ic_status_not_ready);
         } else {
             mStatusAstrbot.setText("未就绪");
             mStatusAstrbot.setTextColor(getColor(R.color.status_disconnected));
-            mDotAstrbot.setBackgroundResource(R.drawable.ic_status_not_ready);
+            if (mDotAstrbot != null) mDotAstrbot.setBackgroundResource(R.drawable.ic_status_not_ready);
         }
     }
 
     private void updateSshPanel() {
+        if (mSshInfo == null || mSshStatus == null || mSshPassword == null || mSshToggleButton == null) return;
+
         new Thread(() -> {
             boolean isRunning = ChrootManager.isSshRunning();
             String sshInfo = ChrootManager.getSshInfo();
@@ -339,12 +349,15 @@ public class MainActivity extends AppCompatActivity {
                 mSshInfo.setText(sshInfo);
                 mSshPassword.setText("密码: " + (rootPassword.isEmpty() ? "(未设置)" : rootPassword));
 
-                // Click to copy SSH connection string
+                // Click to copy SSH connection string (long-press for help)
                 mSshInfo.setOnClickListener(v -> {
                     android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
                     android.content.ClipData clip = android.content.ClipData.newPlainText("SSH", sshInfo);
                     clipboard.setPrimaryClip(clip);
-                    android.widget.Toast.makeText(this, "已复制: " + sshInfo, android.widget.Toast.LENGTH_SHORT).show();
+                    String ip = sshInfo.replace("root@", "");
+                    android.widget.Toast.makeText(this,
+                        "已复制: " + sshInfo + "\n⚠️ 如遇 host key 错误: ssh-keygen -R " + ip,
+                        android.widget.Toast.LENGTH_LONG).show();
                 });
                 if (isRunning) {
                     mSshStatus.setText("运行中");
@@ -362,8 +375,8 @@ public class MainActivity extends AppCompatActivity {
     // ─── Gateway control ───
 
     private void startGateway() {
-        mStartButton.setEnabled(false);
-        mStatusText.setText("🔄 启动中...");
+        if (mStartButton != null) mStartButton.setEnabled(false);
+        if (mStatusText != null) mStatusText.setText("🔄 启动中...");
 
         // Start foreground monitor service
         Intent monitorIntent = new Intent(this, GatewayMonitorService.class);
@@ -373,135 +386,68 @@ public class MainActivity extends AppCompatActivity {
             startService(monitorIntent);
         }
 
-        // Also start via ChrootManager directly
+        // Start via active bot adapter (BotManager)
+        // Full chroot init (mount + SSH) before starting the bot
         new Thread(() -> {
-            ChrootManager.CommandResult result = ChrootManager.startAstrBot();
-            refreshStatusOffThread();
-            mHandler.post(() -> {
-                if (!result.success()) {
-                    appendToLog("启动失败: " + result.stderr());
+            BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+            OpLog.log("启动 " + activeBot.getName() + "...");
+
+            // Ensure chroot environment is fully set up (includes SSH startup)
+            if (!ChrootManager.isChrootMounted()) {
+                OpLog.progress("正在初始化 chroot 环境...");
+                ChrootManager.setupChrootEnvironment(new ChrootManager.ProgressCallback() {
+                    @Override public void onProgress(String msg) {
+                        OpLog.progress(msg);
+                    }
+                    @Override public void onError(String err) {
+                        OpLog.error(err);
+                    }
+                });
+            } else {
+                // Already mounted — just ensure SSH is running
+                if (!ChrootManager.isSshRunning()) {
+                    OpLog.progress("启动 SSH 服务...");
+                    ChrootManager.startSshService(new ChrootManager.ProgressCallback() {
+                        @Override public void onProgress(String msg) { OpLog.progress(msg); }
+                        @Override public void onError(String err) { OpLog.error(err); }
+                    });
                 }
-            });
+            }
+
+            ChrootManager.CommandResult result = activeBot.start();
+
+            // Verify SSH after bot start (bot's start() may remount /dev, killing sshd)
+            if (!ChrootManager.isSshRunning()) {
+                OpLog.progress("SSH 服务意外停止，重新启动...");
+                ChrootManager.startSshService(null);
+            }
+
+            refreshStatusOffThread();
+            if (!result.success()) {
+                OpLog.error(activeBot.getName() + " 启动失败: " + result.stderr());
+            } else {
+                OpLog.log(activeBot.getName() + " 已启动");
+            }
         }).start();
     }
 
     private void stopGateway() {
-        mStopButton.setEnabled(false);
-        mStatusText.setText("🔄 停止中...");
+        if (mStopButton != null) mStopButton.setEnabled(false);
+        if (mStatusText != null) mStatusText.setText("🔄 停止中...");
 
         // Stop monitor service
         stopService(new Intent(this, GatewayMonitorService.class));
 
+        // Stop via active bot adapter (BotManager)
         new Thread(() -> {
-            // Kill AstrBot
-            ChrootManager.stopAstrBot();
-
-            // Verify it's dead - wait up to 3 seconds
-            for (int i = 0; i < 6; i++) {
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {}
-                if (!ChrootManager.isAstrBotRunning()) {
-                    break;
-                }
-                // If still running, kill again
-                ChrootManager.stopAstrBot();
-            }
-
+            BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+            OpLog.log("停止 " + activeBot.getName() + "...");
+            ChrootManager.CommandResult result = activeBot.stop();
             refreshStatusOffThread();
-        }).start();
-    }
-
-    // ─── Log polling ───
-
-    private void startLogPolling() {
-        if (mLogPolling) return;
-        mLogPolling = true;
-        pollLog();
-    }
-
-    private void stopLogPolling() {
-        mLogPolling = false;
-        mHandler.removeCallbacks(mLogPollRunnable);
-    }
-
-    private final Runnable mLogPollRunnable = this::pollLog;
-
-    private void pollLog() {
-        if (!mLogPolling) return;
-
-        new Thread(() -> {
-            try {
-                ChrootManager.CommandResult result = ChrootManager.execRoot(
-                    "tail -n 50 '" + RbotConstants.ASTRBOT_LOG_FILE + "' 2>/dev/null", 5);
-
-                if (result.success() && !result.stdout().trim().isEmpty()) {
-                    String newTail = result.stdout();
-                    mHandler.post(() -> {
-                        synchronized (mLogLock) {
-                            if (newTail.equals(mLastLogTail)) return;
-
-                            String current = mLogText.getText().toString();
-                            StringBuilder delta = new StringBuilder();
-                            String[] newLines = newTail.split("\n");
-                            String[] curLines = current.split("\n");
-
-                            int startIdx = 0;
-                            if (!curLines[curLines.length - 1].isEmpty()) {
-                                outer:
-                                for (int i = Math.max(0, newLines.length - curLines.length - 1);
-                                     i < newLines.length; i++) {
-                                    for (int j = Math.max(0, curLines.length - newLines.length + i - 1);
-                                         j < curLines.length; j++) {
-                                        if (newLines[i].equals(curLines[j])) {
-                                            startIdx = i + 1;
-                                            break outer;
-                                        }
-                                    }
-                                }
-                            }
-
-                            for (int i = startIdx; i < newLines.length; i++) {
-                                delta.append(newLines[i]).append("\n");
-                            }
-
-                            if (delta.length() > 0) {
-                                // Insert new lines at the top (newest-first order)
-                                String[] deltaLines = delta.toString().split("\n");
-                                StringBuilder reversed = new StringBuilder();
-                                for (int i = deltaLines.length - 1; i >= 0; i--) {
-                                    if (!deltaLines[i].isEmpty()) {
-                                        reversed.append(deltaLines[i]).append("\n");
-                                    }
-                                }
-                                String oldText = mLogText.getText().toString();
-                                mLogText.setText(reversed.toString() + oldText);
-                                mLastLogTail = newTail;
-
-                                // Trim from the bottom (oldest lines) when exceeding limit
-                                String text = mLogText.getText().toString();
-                                String[] allLines = text.split("\n");
-                                if (allLines.length > MAX_LOG_LINES) {
-                                    int keepCount = MAX_LOG_LINES;
-                                    StringBuilder kept = new StringBuilder();
-                                    for (int i = 0; i < keepCount; i++) {
-                                        kept.append(allLines[i]).append("\n");
-                                    }
-                                    mLogText.setText(kept.toString());
-                                }
-
-                                // Always scroll to top to see newest
-                                mLogScrollView.post(() -> mLogScrollView.scrollTo(0, 0));
-                            }
-                        }
-                    });
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Log poll error: " + e.getMessage());
-            }
-
-            if (mLogPolling) {
-                mHandler.postDelayed(mLogPollRunnable, 5000);
+            if (!result.success()) {
+                OpLog.error(activeBot.getName() + " 停止失败: " + result.stderr());
+            } else {
+                OpLog.log(activeBot.getName() + " 已停止");
             }
         }).start();
     }
@@ -549,17 +495,15 @@ public class MainActivity extends AppCompatActivity {
             NOTIFICATION_CHANNEL_ID,
             "Rbot 服务状态",
             NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription("Rbot AstrBot 运行状态");
+        channel.setDescription("Rbot 运行状态");
         manager.createNotificationChannel(channel);
     }
 
 
 
     private void appendToLog(String message) {
-        // Insert at top (newest-first order)
-        String oldText = mLogText.getText().toString();
-        mLogText.setText(message + "\n" + oldText);
-        mLogScrollView.post(() -> mLogScrollView.scrollTo(0, 0));
+        // No log viewer on MainActivity — use Toast for important messages
+        android.widget.Toast.makeText(this, message, android.widget.Toast.LENGTH_SHORT).show();
     }
 
 
@@ -584,10 +528,13 @@ public class MainActivity extends AppCompatActivity {
     private void startSshService() {
         mSshStarting = true;
         mSshToggleButton.setEnabled(false);
-        appendToLog("\n🔌 正在启动 SSH 服务...");
+        OpLog.log("启动 SSH 服务...");
 
         new Thread(() -> {
-            ChrootManager.CommandResult result = ChrootManager.startSshService();
+            ChrootManager.CommandResult result = ChrootManager.startSshService(new ChrootManager.ProgressCallback() {
+                @Override public void onProgress(String msg) { OpLog.progress(msg); }
+                @Override public void onError(String err) { OpLog.error(err); }
+            });
             boolean success = result.success() && !result.stdout().contains("error");
 
             mHandler.post(() -> {
@@ -595,9 +542,9 @@ public class MainActivity extends AppCompatActivity {
                 updateSshPanel();
                 if (success) {
                     String sshInfo = ChrootManager.getSshInfo();
-                    appendToLog("✅ SSH 服务已启动: " + sshInfo);
+                    OpLog.log("SSH 服务已启动: " + sshInfo);
                 } else {
-                    appendToLog("❌ SSH 启动失败: " + result.stderr());
+                    OpLog.error("SSH 启动失败: " + result.stderr());
                 }
                 mSshToggleButton.setEnabled(true);
             });
@@ -607,7 +554,7 @@ public class MainActivity extends AppCompatActivity {
     private void stopSshService() {
         mSshStarting = true;
         mSshToggleButton.setEnabled(false);
-        appendToLog("\n🔌 正在停止 SSH 服务...");
+        OpLog.log("停止 SSH 服务...");
 
         new Thread(() -> {
             ChrootManager.CommandResult result = ChrootManager.stopSshService();
@@ -616,7 +563,7 @@ public class MainActivity extends AppCompatActivity {
             mHandler.post(() -> {
                 mSshStarting = false;
                 updateSshPanel();
-                appendToLog(stopped ? "✅ SSH 服务已停止" : "⚠️ SSH 停止可能失败");
+                OpLog.log(stopped ? "SSH 服务已停止" : "⚠️ SSH 停止可能失败");
                 mSshToggleButton.setEnabled(true);
             });
         }).start();
