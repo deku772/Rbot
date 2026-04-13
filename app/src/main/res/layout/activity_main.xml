@@ -13,7 +13,7 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="12dp">
 
         <ImageView
             android:layout_width="36dp"
@@ -38,6 +38,137 @@
             android:text="⏹ 已停止"
             android:textSize="14sp"
             android:textColor="@color/botdrop_secondary_text" />
+
+    </LinearLayout>
+
+    <!-- Component status dashboard — BotPocket style, always visible -->
+    <!-- Row 1: BINARIES + ROOTFS -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="6dp">
+
+        <androidx.cardview.widget.CardView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/card_status_bg">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="10dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🔧" android:textSize="16sp" />
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="BINARIES" android:textSize="10sp" android:textColor="@color/botdrop_secondary_text" />
+                    <TextView android:id="@+id/status_binaries" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/botdrop_on_background" />
+                </LinearLayout>
+                <View android:id="@+id/dot_binaries" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <androidx.cardview.widget.CardView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/card_status_bg">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="10dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="💿" android:textSize="16sp" />
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ROOTFS" android:textSize="10sp" android:textColor="@color/botdrop_secondary_text" />
+                    <TextView android:id="@+id/status_rootfs" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/botdrop_on_background" />
+                </LinearLayout>
+                <View android:id="@+id/dot_rootfs" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+    </LinearLayout>
+
+    <!-- Row 2: BOOTSTRAP + ASTRBOT -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="14dp">
+
+        <androidx.cardview.widget.CardView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/card_status_bg">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="10dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="⚙️" android:textSize="16sp" />
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="BOOTSTRAP" android:textSize="10sp" android:textColor="@color/botdrop_secondary_text" />
+                    <TextView android:id="@+id/status_bootstrap" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/botdrop_on_background" />
+                </LinearLayout>
+                <View android:id="@+id/dot_bootstrap" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
+
+        <androidx.cardview.widget.CardView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="0dp"
+            app:cardBackgroundColor="@color/card_status_bg">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:padding="10dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🤖" android:textSize="16sp" />
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ASTRBOT" android:textSize="10sp" android:textColor="@color/botdrop_secondary_text" />
+                    <TextView android:id="@+id/status_astrbot" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/botdrop_on_background" />
+                </LinearLayout>
+                <View android:id="@+id/dot_astrbot" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+            </LinearLayout>
+        </androidx.cardview.widget.CardView>
 
     </LinearLayout>
 
@@ -80,10 +211,10 @@
             android:layout_height="44dp"
             android:layout_weight="1"
             android:layout_marginStart="6dp"
-            android:text="安装"
+            android:text="📦 安装"
             android:textSize="14sp"
             android:textStyle="bold"
-            android:textColor="#1A1A1A"
+            android:textColor="#FFFFFF"
             android:background="@drawable/botdrop_button_bg"
             android:visibility="gone" />
 
@@ -280,192 +411,59 @@
 
     </androidx.cardview.widget.CardView>
 
-    <!-- Tab buttons -->
+    <!-- Bottom navigation buttons — BotPocket style -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
+        android:layout_marginTop="8dp">
 
         <Button
-            android:id="@+id/btn_tab_log"
+            android:id="@+id/btn_nav_home"
             android:layout_width="0dp"
-            android:layout_height="36dp"
+            android:layout_height="40dp"
             android:layout_weight="1"
             android:layout_marginEnd="4dp"
-            android:text="📋 日志"
+            android:text="🏠 首页"
             android:textSize="13sp"
             android:textColor="#FFFFFF"
             android:background="@drawable/botdrop_button_green_bg" />
 
         <Button
-            android:id="@+id/btn_tab_manage"
+            android:id="@+id/btn_nav_log"
             android:layout_width="0dp"
-            android:layout_height="36dp"
+            android:layout_height="40dp"
             android:layout_weight="1"
             android:layout_marginStart="4dp"
-            android:text="🔧 管理"
+            android:layout_marginEnd="4dp"
+            android:text="📋 日志"
+            android:textSize="13sp"
+            android:textColor="@color/botdrop_accent"
+            android:background="@drawable/botdrop_button_outline_bg" />
+
+        <Button
+            android:id="@+id/btn_nav_settings"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:layout_marginEnd="4dp"
+            android:text="⚙️ 设置"
+            android:textSize="13sp"
+            android:textColor="@color/botdrop_accent"
+            android:background="@drawable/botdrop_button_outline_bg" />
+
+        <Button
+            android:id="@+id/btn_nav_permissions"
+            android:layout_width="0dp"
+            android:layout_height="40dp"
+            android:layout_weight="1"
+            android:layout_marginStart="4dp"
+            android:text="🔐 权限"
             android:textSize="13sp"
             android:textColor="@color/botdrop_accent"
             android:background="@drawable/botdrop_button_outline_bg" />
 
     </LinearLayout>
-
-    <!-- Log panel -->
-    <LinearLayout
-        android:id="@+id/panel_log"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:orientation="vertical">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="end"
-            android:paddingEnd="4dp"
-            android:paddingBottom="4dp">
-
-            <Button
-                android:id="@+id/btn_clear_log"
-                android:layout_width="wrap_content"
-                android:layout_height="36dp"
-                android:text="🗑️ 清理日志"
-                android:textSize="13sp"
-                android:textColor="#888888"
-                android:background="@drawable/botdrop_button_outline_bg"
-                android:paddingStart="14dp"
-                android:paddingEnd="14dp" />
-
-        </LinearLayout>
-
-        <ScrollView
-            android:id="@+id/log_scroll"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="#1A1A1A"
-            android:padding="8dp"
-            android:scrollbars="vertical"
-            android:fadeScrollbars="false"
-            android:scrollbarStyle="insideOverlay">
-
-            <TextView
-                android:id="@+id/log_text"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textSize="12sp"
-                android:textColor="#B0B0B0"
-                android:fontFamily="monospace"
-                android:textIsSelectable="true"
-                android:text="等待日志..." />
-
-        </ScrollView>
-
-    </LinearLayout>
-
-    <!-- Manage panel -->
-    <ScrollView
-        android:id="@+id/panel_manage"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#1A1A1A"
-        android:padding="12dp"
-        android:visibility="gone">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="环境管理"
-                android:textSize="14sp"
-                android:textColor="@color/botdrop_on_background"
-                android:textStyle="bold"
-                android:layout_marginBottom="12dp" />
-
-            <Button
-                android:id="@+id/btn_reinstall_deps"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginBottom="8dp"
-                android:text="🔄 重装系统依赖"
-                android:textSize="13sp"
-                android:textColor="@color/botdrop_on_background"
-                android:background="@drawable/botdrop_button_outline_bg" />
-
-            <Button
-                android:id="@+id/btn_reinstall_astrbot"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginBottom="8dp"
-                android:text="🤖 重装 AstrBot"
-                android:textSize="13sp"
-                android:textColor="@color/botdrop_on_background"
-                android:background="@drawable/botdrop_button_outline_bg" />
-
-            <Button
-                android:id="@+id/btn_reinstall_rootfs"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginBottom="8dp"
-                android:text="💿 重装 rootfs（保留 AstrBot 数据）"
-                android:textSize="13sp"
-                android:textColor="@color/botdrop_on_background"
-                android:background="@drawable/botdrop_button_outline_bg" />
-
-            <Button
-                android:id="@+id/btn_reset_password"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginBottom="8dp"
-                android:text="🔐 重置 root 密码"
-                android:textSize="13sp"
-                android:textColor="@color/botdrop_on_background"
-                android:background="@drawable/botdrop_button_outline_bg" />
-
-            <Button
-                android:id="@+id/btn_repair_env"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginBottom="8dp"
-                android:text="🛠️ 修复环境"
-                android:textSize="13sp"
-                android:textColor="@color/botdrop_on_background"
-                android:background="@drawable/botdrop_button_outline_bg" />
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="#333333"
-                android:layout_marginTop="8dp"
-                android:layout_marginBottom="16dp" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="危险操作"
-                android:textSize="14sp"
-                android:textColor="#FF6B6B"
-                android:textStyle="bold"
-                android:layout_marginBottom="12dp" />
-
-            <Button
-                android:id="@+id/btn_clean_install"
-                android:layout_width="match_parent"
-                android:layout_height="44dp"
-                android:layout_marginBottom="8dp"
-                android:text="⚠️ 完全重装（清除所有数据）"
-                android:textSize="13sp"
-                android:textColor="#FF6B6B"
-                android:background="@drawable/botdrop_button_outline_bg" />
-
-        </LinearLayout>
-
-    </ScrollView>
 
 </LinearLayout>

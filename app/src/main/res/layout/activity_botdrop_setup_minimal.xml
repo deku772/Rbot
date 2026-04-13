@@ -49,6 +49,43 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="选择 Bot 引擎"
+            android:textSize="13sp"
+            android:textColor="@color/botdrop_secondary_text"
+            android:layout_marginBottom="8dp" />
+
+        <RadioGroup
+            android:id="@+id/rg_bot_engine"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="12dp">
+
+            <RadioButton
+                android:id="@+id/rb_astrbot"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="AstrBot"
+                android:textSize="13sp"
+                android:textColor="@color/botdrop_on_background"
+                android:buttonTint="@color/botdrop_accent" />
+
+            <RadioButton
+                android:id="@+id/rb_hermes"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Hermes Agent"
+                android:textSize="13sp"
+                android:textColor="@color/botdrop_on_background"
+                android:buttonTint="@color/botdrop_accent" />
+
+        </RadioGroup>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="选择要重装的步骤（未勾选则跳过）："
             android:textSize="13sp"
             android:textColor="@color/botdrop_secondary_text"
@@ -71,10 +108,10 @@
             android:textColor="@color/botdrop_on_background" />
 
         <CheckBox
-            android:id="@+id/cb_reinstall_astrbot"
+            android:id="@+id/cb_reinstall_bot"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="重装 AstrBot（重新克隆 + pip install）"
+            android:text="重装 Bot 引擎（重新克隆 + 安装依赖）"
             android:textSize="13sp"
             android:textColor="@color/botdrop_on_background" />
 

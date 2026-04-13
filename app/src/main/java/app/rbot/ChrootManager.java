@@ -23,6 +23,11 @@ public final class ChrootManager {
     /** Reentrant lock to prevent concurrent chroot device setup / AstrBot start */
     private static final Object sChrootLock = new Object();
 
+    /** Package-private accessor for the chroot lock — used by BotAdapter implementations */
+    static Object getChrootLock() {
+        return sChrootLock;
+    }
+
     private ChrootManager() {}
 
     // ─── Command result ───
@@ -1098,8 +1103,8 @@ public final class ChrootManager {
         }
     }
 
-    /** Execute a chroot command with real-time progress */
-    private static CommandResult execInChrootWithProgress(String command, int timeoutSec, ProgressCallback callback) {
+    /** Execute a chroot command with real-time progress (package-visible for HermesAdapter) */
+    static CommandResult execInChrootWithProgress(String command, int timeoutSec, ProgressCallback callback) {
         String chrootCmd = "chroot " + RbotConstants.CHROOT_DIR +
             " /bin/bash -c " +
             shellQuote(
@@ -1139,7 +1144,7 @@ public final class ChrootManager {
     /**
      * Build the appropriate tar extract command based on the tarball's
      * actual compression format (detected via `file` command).
-     * Uses --checkpoint to show periodic progress.
+     * Uses -v (verbose) for progress since Android toybox tar lacks --checkpoint.
      */
     private static String buildTarExtractCommand(String tarballPath, String stagingDir) {
         CommandResult detect = execRoot("file '" + tarballPath + "'", 10);
@@ -1156,7 +1161,7 @@ public final class ChrootManager {
             tarBase = "tar -xf '" + tarballPath + "'";
         }
 
-        // --checkpoint=500 triggers every 500 entries, --checkpoint-action outputs progress
-        return tarBase + " --checkpoint=500 --checkpoint-action=echo='[解压] 已处理 %(T)s 个文件' -C " + stagingDir;
+        // Android toybox tar does not support --checkpoint; use -v for progress instead
+        return tarBase + " -v -C " + stagingDir;
     }
 }

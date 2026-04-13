@@ -32,6 +32,8 @@
 
     <!-- Battery optimization bypass -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Exact alarm scheduling (Android 12+ requires explicit grant, falls back gracefully) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!-- Boot receiver -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
@@ -67,11 +69,47 @@
             android:name="app.rbot.SetupActivity"
             android:exported="false"
             android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
 
         <!-- Main screen: status + start/stop + logs -->
         <activity
             android:name="app.rbot.MainActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Settings page: environment management, backup/restore, danger zone -->
+        <activity
+            android:name="app.rbot.SettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Permissions page: battery optimization, storage, root, notification -->
+        <activity
+            android:name="app.rbot.PermissionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Log page: full-screen log viewer -->
+        <activity
+            android:name="app.rbot.LogActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Hermes Agent management panel -->
+        <activity
+            android:name="app.rbot.HermesManagementActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Interactive shell for chroot commands (hermes setup etc.) -->
+        <activity
+            android:name="app.rbot.ShellActivity"
             android:exported="false"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
@@ -99,6 +137,12 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
+
+        <!-- Monitor alarm receiver: handles periodic status checks via AlarmManager
+             Replaces the old Handler + WakeLock + WifiLock approach for battery efficiency. -->
+        <receiver
+            android:name="app.rbot.MonitorAlarmReceiver"
+            android:exported="false" />
 
         <!-- Clipboard receiver for rbot-u2 skill -->
         <receiver

@@ -38,7 +38,7 @@ android {
         // Auto-increment version code based on local build counter
         versionCode computedVersionCode
         // Version name: MAJOR.MINOR.BUILD_NUMBER
-        versionName computedVersionName
+        versionName "1.1.0"
 
         manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.rbot"
         manifestPlaceholders.TERMUX_APP_NAME = "Rbot"
@@ -65,6 +65,14 @@ android {
         }
         debug {
             signingConfig = signingConfigs.debug
+        }
+    }
+
+    // Explicitly disable APK splits to prevent Android Studio from
+    // misinterpreting ndk.abiFilters as a split configuration.
+    splits {
+        abi {
+            enable false
         }
     }
 
@@ -111,6 +119,9 @@ dependencies {
     implementation "io.noties.markwon:ext-strikethrough:$markwonVersion"
     implementation "io.noties.markwon:linkify:$markwonVersion"
     implementation "io.noties.markwon:recycler:$markwonVersion"
+
+    // Terminal emulator for in-app interactive shell (chroot PTY)
+    implementation project(":terminal-view")
 
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.robolectric:robolectric:4.10"

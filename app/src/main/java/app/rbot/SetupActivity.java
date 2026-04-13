@@ -9,6 +9,7 @@ import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.TextView;
@@ -21,8 +22,9 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Setup activity for chroot-based AstrBot installation.
+ * Setup activity for chroot-based bot installation.
  * Interactive step-by-step: each step pauses for user confirmation.
+ * Supports both AstrBot and Hermes Agent via BotManager.
  */
 public class SetupActivity extends AppCompatActivity {
 
@@ -44,12 +46,17 @@ public class SetupActivity extends AppCompatActivity {
     private ScrollView mLogScrollView;
     private Button mActionButton;
     private LinearLayout mReinstallOptions;
+    private RadioGroup mRgBotEngine;
     private CheckBox mCbReinstallRootfs;
     private CheckBox mCbReinstallDeps;
-    private CheckBox mCbReinstallAstrbot;
+    private CheckBox mCbReinstallBot;
     private android.widget.EditText mEtCustomProxy;
 
+    private BotAdapter mActiveBot;
+    private BotAdapter mPendingBot; // bot selected but not yet persisted
+
     private boolean mInstalling = false;
+    private volatile boolean mDestroyed = false;
 
     // Cached installation decisions (set by dialogs, consumed by install thread)
     private int mSelectedProxyIndex = 0;
@@ -62,6 +69,8 @@ public class SetupActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_botdrop_setup_minimal);
 
+        mActiveBot = BotManager.getInstance(this).getActiveBot();
+
         mTitleText = findViewById(R.id.setup_title);
         mStepText = findViewById(R.id.setup_step_text);
         mLogText = findViewById(R.id.setup_log_text);
@@ -71,8 +80,11 @@ public class SetupActivity extends AppCompatActivity {
         mReinstallOptions = findViewById(R.id.reinstall_options);
         mCbReinstallRootfs = findViewById(R.id.cb_reinstall_rootfs);
         mCbReinstallDeps = findViewById(R.id.cb_reinstall_deps);
-        mCbReinstallAstrbot = findViewById(R.id.cb_reinstall_astrbot);
+        mCbReinstallBot = findViewById(R.id.cb_reinstall_bot);
         mEtCustomProxy = findViewById(R.id.et_custom_proxy);
+
+        // Dynamic checkbox label based on active bot
+        mCbReinstallBot.setText("重装 " + mActiveBot.getName() + "（重新克隆 + 安装依赖）");
 
         // Show proxy section
         android.view.View proxySection = findViewById(R.id.proxy_section);
@@ -80,14 +92,39 @@ public class SetupActivity extends AppCompatActivity {
 
         mActionButton.setOnClickListener(v -> startInstallation());
 
+        // Bot engine selection
+        mRgBotEngine = findViewById(R.id.rg_bot_engine);
+        mPendingBot = mActiveBot; // default to current active bot
+
+        // Set initial RadioGroup selection
+        if (mActiveBot.getId().equals(BotAdapter.ID_HERMES)) {
+            mRgBotEngine.check(R.id.rb_hermes);
+        } else {
+            mRgBotEngine.check(R.id.rb_astrbot);
+        }
+
+        // Listen for engine changes
+        mRgBotEngine.setOnCheckedChangeListener((group, checkedId) -> {
+            BotManager bm = BotManager.getInstance(this);
+            if (checkedId == R.id.rb_hermes) {
+                mPendingBot = bm.getBot(BotAdapter.ID_HERMES);
+                mTitleText.setText("安装 Hermes Agent");
+                mCbReinstallBot.setText("重装 Hermes Agent（重新克隆 + 安装依赖）");
+            } else {
+                mPendingBot = bm.getBot(BotAdapter.ID_ASTRBOT);
+                mTitleText.setText("安装 AstrBot");
+                mCbReinstallBot.setText("重装 AstrBot（重新克隆 + 安装依赖）");
+            }
+        });
+
         updateStatusUI();
     }
 
     private void updateStatusUI() {
         boolean rootfsReady = ChrootManager.isRootfsReady();
-        boolean astrBotInstalled = ChrootManager.isAstrBotInstalled();
+        boolean botInstalled = mActiveBot.isInstalled();
 
-        if (!rootfsReady && !astrBotInstalled) {
+        if (!rootfsReady && !botInstalled) {
             mReinstallOptions.setVisibility(View.GONE);
             mActionButton.setText("开始安装");
             mStepText.setText("尚未安装");
@@ -95,10 +132,10 @@ public class SetupActivity extends AppCompatActivity {
             mReinstallOptions.setVisibility(View.VISIBLE);
             mStepText.setText(
                 "系统镜像: " + (rootfsReady ? "✅" : "❌") + "  " +
-                "AstrBot: " + (astrBotInstalled ? "✅" : "❌"));
+                mActiveBot.getName() + ": " + (botInstalled ? "✅" : "❌"));
 
             if (!rootfsReady) mCbReinstallRootfs.setChecked(true);
-            if (!astrBotInstalled) mCbReinstallAstrbot.setChecked(true);
+            if (!botInstalled) mCbReinstallBot.setChecked(true);
 
             mActionButton.setText("执行选中的步骤");
         }
@@ -112,8 +149,10 @@ public class SetupActivity extends AppCompatActivity {
         if (mInstalling) return;
         mInstalling = true;
 
-        mActionButton.setEnabled(false);
+        mActionButton.setEnabled(true);
         mActionButton.setText("安装中...");
+        mActionButton.setBackgroundResource(R.drawable.botdrop_button_installing_bg);
+        mActionButton.setTextColor(0xFFFFFFFF);
         mTitleText.setText("正在安装 Rbot");
         mProgressBar.setVisibility(View.VISIBLE);
         mReinstallOptions.setVisibility(View.GONE);
@@ -127,22 +166,29 @@ public class SetupActivity extends AppCompatActivity {
 
         boolean reinstallRootfs = mCbReinstallRootfs.isChecked();
         boolean reinstallDeps = mCbReinstallDeps.isChecked();
-        boolean reinstallAstrbot = mCbReinstallAstrbot.isChecked();
+        boolean reinstallBot = mCbReinstallBot.isChecked();
+
+        // Persist the user's bot engine selection
+        BotManager.getInstance(this).switchTo(mPendingBot.getId());
 
         // When reinstall is checked, remove markers so the steps actually execute
         if (reinstallRootfs) {
             ChrootManager.execRoot("rm -f " + RbotConstants.ROOTFS_MARKER);
         }
-        if (reinstallAstrbot) {
-            ChrootManager.execRoot("rm -f " + RbotConstants.ASTRBOT_MARKER);
-            ChrootManager.execInChroot("rm -rf /root/astrbot", 30);
+        if (reinstallBot) {
+            // Remove bot-specific marker
+            if (mPendingBot.getId().equals(BotAdapter.ID_ASTRBOT)) {
+                ChrootManager.execRoot("rm -f " + RbotConstants.ASTRBOT_MARKER);
+            }
+            ChrootManager.execInChroot("rm -rf " + mPendingBot.getHomePath() + " " +
+                (mPendingBot.getId().equals(BotAdapter.ID_HERMES) ? "/root/hermes /root/hermes-agent-src" : ""), 30);
         }
 
         boolean needRootfs = !ChrootManager.isRootfsReady() || reinstallRootfs;
-        boolean needDeps = reinstallDeps;  // Don't force deps reinstall on new rootfs (it already has them)
-        boolean needAstrbot = !ChrootManager.isAstrBotInstalled() || reinstallAstrbot;
+        boolean needDeps = reinstallDeps;
+        boolean needBot = !mPendingBot.isInstalled() || reinstallBot;
 
-        if (!needRootfs && !needDeps && !needAstrbot) {
+        if (!needRootfs && !needDeps && !needBot) {
             mInstalling = false;
             Toast.makeText(this, "所有组件已安装，正在跳转...", Toast.LENGTH_SHORT).show();
             Intent intent = new Intent(SetupActivity.this, MainActivity.class);
@@ -153,14 +199,14 @@ public class SetupActivity extends AppCompatActivity {
         }
 
         // Start the interactive flow on a background thread
-        new Thread(() -> runInteractiveInstall(needRootfs, needDeps, needAstrbot)).start();
+        new Thread(() -> runInteractiveInstall(needRootfs, needDeps, needBot)).start();
     }
 
     /**
      * Interactive install flow — pauses at key steps for user input.
      * Uses wait/notify to block the background thread until the user responds on UI thread.
      */
-    private void runInteractiveInstall(boolean needRootfs, boolean needDeps, boolean needAstrbot) {
+    private void runInteractiveInstall(boolean needRootfs, boolean needDeps, boolean needBot) {
         // ─── Step 0: Root check ───
         appendLog("🔍 检查 Root 权限...");
         if (!ChrootManager.isRootAvailable()) {
@@ -346,118 +392,185 @@ public class SetupActivity extends AppCompatActivity {
             }
         }
 
-        // ─── Step 4: Clone AstrBot (with version selection) ───
-        if (needAstrbot) {
-            // Fetch versions from GitHub API
-            appendLog("📡 获取 AstrBot 版本列表...");
-            List<String> releases = GitHubProxyManager.fetchAstrBotReleases(5);
+        // ─── Step 4: Install Bot (AstrBot or Hermes) ───
+        if (needBot) {
+            if (mPendingBot.getId().equals(BotAdapter.ID_ASTRBOT)) {
+                // AstrBot: version selection + clone + pip install
+                appendLog("📡 获取 AstrBot 版本列表...");
+                List<String> releases = GitHubProxyManager.fetchAstrBotReleases(5);
 
-            mAstrbotVersions.clear();
-            mAstrbotVersionArgs.clear();
-            mAstrbotVersions.add("最新版 (main)");
-            mAstrbotVersionArgs.add("");
+                mAstrbotVersions.clear();
+                mAstrbotVersionArgs.clear();
+                mAstrbotVersions.add("最新版 (main)");
+                mAstrbotVersionArgs.add("");
 
-            if (releases != null) {
-                for (String tag : releases) {
-                    mAstrbotVersions.add(tag);
-                    mAstrbotVersionArgs.add(tag);
+                if (releases != null) {
+                    for (String tag : releases) {
+                        mAstrbotVersions.add(tag);
+                        mAstrbotVersionArgs.add(tag);
+                    }
+                } else {
+                    mAstrbotVersions.add("v4.22.3");
+                    mAstrbotVersionArgs.add("v4.22.3");
+                    appendLog("  ⚠️ 无法获取版本列表，使用默认版本");
+                }
+
+                final Object versionLock = new Object();
+                final boolean[] versionConfirmed = {false};
+                runOnUiThread(() -> {
+                    Spinner versionSpinner = new Spinner(this);
+                    ArrayAdapter<String> versionAdapter = new ArrayAdapter<>(this,
+                        android.R.layout.simple_spinner_dropdown_item,
+                        mAstrbotVersions.toArray(new String[0]));
+                    versionSpinner.setAdapter(versionAdapter);
+                    versionSpinner.setPadding(48, 24, 48, 24);
+
+                    Spinner proxySpinner = new Spinner(this);
+                    String[] proxyDisplayNames = GitHubProxyManager.getAllProxyNamesWithLatency();
+                    ArrayAdapter<String> proxyAdapter = new ArrayAdapter<>(this,
+                        android.R.layout.simple_spinner_dropdown_item, proxyDisplayNames);
+                    proxySpinner.setAdapter(proxyAdapter);
+                    proxySpinner.setSelection(mSelectedProxyIndex);
+                    proxySpinner.setPadding(48, 24, 48, 24);
+
+                    LinearLayout layout = new LinearLayout(this);
+                    layout.setOrientation(LinearLayout.VERTICAL);
+                    layout.setPadding(48, 24, 48, 0);
+
+                    TextView versionLabel = new TextView(this);
+                    versionLabel.setText("选择版本：");
+                    versionLabel.setTextSize(15);
+                    versionLabel.setPadding(0, 0, 0, 8);
+                    layout.addView(versionLabel);
+                    layout.addView(versionSpinner);
+
+                    TextView proxyLabel = new TextView(this);
+                    proxyLabel.setText("\n下载线路：");
+                    proxyLabel.setTextSize(15);
+                    proxyLabel.setPadding(0, 8, 0, 8);
+                    layout.addView(proxyLabel);
+                    layout.addView(proxySpinner);
+
+                    new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("🤖 安装 " + mPendingBot.getName())
+                        .setMessage("确认后开始克隆安装：")
+                        .setView(layout)
+                        .setCancelable(false)
+                        .setPositiveButton("确认安装", (dialog, which) -> {
+                            mSelectedAstrbotVersion = mAstrbotVersionArgs.get(versionSpinner.getSelectedItemPosition());
+                            mSelectedProxyIndex = proxySpinner.getSelectedItemPosition();
+                            String versionDisplay = mSelectedAstrbotVersion.isEmpty() ? "最新版" : mSelectedAstrbotVersion;
+                            appendLog("  ✅ 用户选择: " + versionDisplay + " | 线路: " + GitHubProxyManager.getProxyName(mSelectedProxyIndex));
+                            synchronized (versionLock) {
+                                versionConfirmed[0] = true;
+                                versionLock.notify();
+                            }
+                        })
+                        .setNegativeButton("取消", (dialog, which) -> {
+                            appendLog("  ⏭️ 用户取消 " + mActiveBot.getName() + " 安装");
+                            synchronized (versionLock) { versionLock.notify(); }
+                        })
+                        .show();
+                });
+                synchronized (versionLock) {
+                    while (!versionConfirmed[0]) {
+                        try { versionLock.wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                    }
+                }
+
+                if (!versionConfirmed[0]) {
+                    appendLog("⏭️ 跳过 " + mPendingBot.getName() + " 安装");
+                } else {
+                    String versionDisplay = mSelectedAstrbotVersion.isEmpty() ? "最新版" : mSelectedAstrbotVersion;
+                    appendLog("🤖 克隆 " + mPendingBot.getName() + " (" + versionDisplay + ")...");
+                    runOnUiThread(() -> mStepText.setText("克隆 " + mPendingBot.getName() + "..."));
+
+                    if (ChrootManager.cloneAstrBotWithProxy(makeCallback(), mSelectedAstrbotVersion, mSelectedProxyIndex)) {
+                        runOnUiThread(() -> finishInstall(mPendingBot.getName() + " 克隆失败 — 可切换线路后重试", "重试"));
+                        return;
+                    }
+
+                    appendLog("🐍 安装 Python 依赖...");
+                    runOnUiThread(() -> mStepText.setText("安装 Python 依赖..."));
+                    if (ChrootManager.pipInstallDeps(makeCallback())) {
+                        runOnUiThread(() -> finishInstall("Python 依赖安装失败", "重试"));
+                        return;
+                    }
+                    appendLog("✅ " + mPendingBot.getName() + " 安装完成");
+                    runOnUiThread(() -> {
+                        mStepText.setText(mPendingBot.getName() + " 安装完成 ✅");
+                        mActionButton.setText("安装完成");
+                        mActionButton.setBackgroundResource(R.drawable.botdrop_button_bg);
+                        mActionButton.setTextColor(0xFF1A1A1A);
+                    });
                 }
             } else {
-                // Fallback
-                mAstrbotVersions.add("v4.22.3");
-                mAstrbotVersionArgs.add("v4.22.3");
-                appendLog("  ⚠️ 无法获取版本列表，使用默认版本");
-            }
+                // Hermes (or other bots): confirm + install via adapter
+                final Object confirmLock = new Object();
+                final boolean[] botConfirmed = {false};
+                runOnUiThread(() -> {
+                    Spinner proxySpinner = new Spinner(this);
+                    String[] proxyDisplayNames = GitHubProxyManager.getAllProxyNamesWithLatency();
+                    ArrayAdapter<String> proxyAdapter = new ArrayAdapter<>(this,
+                        android.R.layout.simple_spinner_dropdown_item, proxyDisplayNames);
+                    proxySpinner.setAdapter(proxyAdapter);
+                    proxySpinner.setSelection(mSelectedProxyIndex);
+                    proxySpinner.setPadding(48, 24, 48, 24);
 
-            // Show version selection dialog and wait for user
-            final Object versionLock = new Object();
-            final boolean[] versionConfirmed = {false};
-            runOnUiThread(() -> {
-                Spinner versionSpinner = new Spinner(this);
-                ArrayAdapter<String> versionAdapter = new ArrayAdapter<>(this,
-                    android.R.layout.simple_spinner_dropdown_item,
-                    mAstrbotVersions.toArray(new String[0]));
-                versionSpinner.setAdapter(versionAdapter);
-                versionSpinner.setPadding(48, 24, 48, 24);
+                    LinearLayout layout = new LinearLayout(this);
+                    layout.setOrientation(LinearLayout.VERTICAL);
+                    layout.setPadding(48, 24, 48, 0);
 
-                // Proxy spinner for this operation (with latency info)
-                Spinner proxySpinner = new Spinner(this);
-                String[] proxyDisplayNames = GitHubProxyManager.getAllProxyNamesWithLatency();
-                ArrayAdapter<String> proxyAdapter = new ArrayAdapter<>(this,
-                    android.R.layout.simple_spinner_dropdown_item, proxyDisplayNames);
-                proxySpinner.setAdapter(proxyAdapter);
-                proxySpinner.setSelection(mSelectedProxyIndex);
-                proxySpinner.setPadding(48, 24, 48, 24);
+                    TextView info = new TextView(this);
+                    info.setText(mPendingBot.getName() + " 将从 GitHub 克隆并安装到 chroot 环境。\n" +
+                        "支持平台: " + mPendingBot.getSupportedPlatforms() + "\n\n选择下载线路：");
+                    info.setTextSize(14);
+                    layout.addView(info);
+                    layout.addView(proxySpinner);
 
-                LinearLayout layout = new LinearLayout(this);
-                layout.setOrientation(LinearLayout.VERTICAL);
-                layout.setPadding(48, 24, 48, 0);
-
-                TextView versionLabel = new TextView(this);
-                versionLabel.setText("选择版本：");
-                versionLabel.setTextSize(15);
-                versionLabel.setPadding(0, 0, 0, 8);
-                layout.addView(versionLabel);
-                layout.addView(versionSpinner);
-
-                TextView proxyLabel = new TextView(this);
-                proxyLabel.setText("\n下载线路：");
-                proxyLabel.setTextSize(15);
-                proxyLabel.setPadding(0, 8, 0, 8);
-                layout.addView(proxyLabel);
-                layout.addView(proxySpinner);
-
-                new androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle("🤖 安装 AstrBot")
-                    .setMessage("确认后开始克隆安装：")
-                    .setView(layout)
-                    .setCancelable(false)
-                    .setPositiveButton("确认安装", (dialog, which) -> {
-                        mSelectedAstrbotVersion = mAstrbotVersionArgs.get(versionSpinner.getSelectedItemPosition());
-                        mSelectedProxyIndex = proxySpinner.getSelectedItemPosition();
-                        String versionDisplay = mSelectedAstrbotVersion.isEmpty() ? "最新版" : mSelectedAstrbotVersion;
-                        appendLog("  ✅ 用户选择: " + versionDisplay + " | 线路: " + GitHubProxyManager.getProxyName(mSelectedProxyIndex));
-                        synchronized (versionLock) {
-                            versionConfirmed[0] = true;
-                            versionLock.notify();
-                        }
-                    })
-                    .setNegativeButton("取消", (dialog, which) -> {
-                        appendLog("  ⏭️ 用户取消 AstrBot 安装");
-                        synchronized (versionLock) {
-                            versionLock.notify();
-                        }
-                    })
-                    .show();
-            });
-            synchronized (versionLock) {
-                while (!versionConfirmed[0]) {
-                    try { versionLock.wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-                }
-            }
-
-            if (!versionConfirmed[0]) {
-                appendLog("⏭️ 跳过 AstrBot 安装");
-            } else {
-                String versionDisplay = mSelectedAstrbotVersion.isEmpty() ? "最新版" : mSelectedAstrbotVersion;
-                appendLog("🤖 克隆 AstrBot (" + versionDisplay + ")...");
-                runOnUiThread(() -> mStepText.setText("克隆 AstrBot..."));
-
-                if (ChrootManager.cloneAstrBotWithProxy(makeCallback(), mSelectedAstrbotVersion, mSelectedProxyIndex)) {
-                    runOnUiThread(() -> finishInstall("AstrBot 克隆失败 — 可切换线路后重试", "重试"));
-                    return;
+                    new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("🤖 安装 " + mPendingBot.getName())
+                        .setView(layout)
+                        .setCancelable(false)
+                        .setPositiveButton("确认安装", (dialog, which) -> {
+                            mSelectedProxyIndex = proxySpinner.getSelectedItemPosition();
+                            appendLog("  ✅ 用户选择线路: " + GitHubProxyManager.getProxyName(mSelectedProxyIndex));
+                            synchronized (confirmLock) { botConfirmed[0] = true; confirmLock.notify(); }
+                        })
+                        .setNegativeButton("取消", (dialog, which) -> {
+                            appendLog("  ⏭️ 用户取消 " + mPendingBot.getName() + " 安装");
+                            synchronized (confirmLock) { confirmLock.notify(); }
+                        })
+                        .show();
+                });
+                synchronized (confirmLock) {
+                    while (!botConfirmed[0]) {
+                        try { confirmLock.wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
+                    }
                 }
 
-                appendLog("🐍 安装 Python 依赖...");
-                runOnUiThread(() -> mStepText.setText("安装 Python 依赖..."));
-                if (ChrootManager.pipInstallDeps(makeCallback())) {
-                    runOnUiThread(() -> finishInstall("Python 依赖安装失败", "重试"));
-                    return;
+                if (!botConfirmed[0]) {
+                    appendLog("⏭️ 跳过 " + mPendingBot.getName() + " 安装");
+                } else {
+                    appendLog("🤖 安装 " + mPendingBot.getName() + "...");
+                    runOnUiThread(() -> mStepText.setText("安装 " + mPendingBot.getName() + "..."));
+
+                    if (mPendingBot.install(makeCallback())) {
+                        runOnUiThread(() -> finishInstall(mPendingBot.getName() + " 安装失败 — 可切换线路后重试", "重试"));
+                        return;
+                    }
+                    appendLog("✅ " + mPendingBot.getName() + " 安装完成");
+                    // Update UI so user sees immediate feedback even before "All done" section
+                    runOnUiThread(() -> {
+                        mStepText.setText(mPendingBot.getName() + " 安装完成 ✅");
+                        mActionButton.setText("安装完成");
+                        mActionButton.setBackgroundResource(R.drawable.botdrop_button_bg);
+                        mActionButton.setTextColor(0xFF1A1A1A);
+                    });
                 }
-                appendLog("✅ AstrBot 安装完成");
             }
         } else {
-            appendLog("⏭️ AstrBot 已安装，跳过");
+            appendLog("⏭️ " + mPendingBot.getName() + " 已安装，跳过");
         }
 
         // ─── All done ───
@@ -466,6 +579,8 @@ public class SetupActivity extends AppCompatActivity {
             mProgressBar.setVisibility(View.GONE);
             mTitleText.setText("安装完成");
             mInstalling = false;
+            mActionButton.setBackgroundResource(R.drawable.botdrop_button_bg);
+            mActionButton.setTextColor(0xFF1A1A1A);
 
             appendLog("➡️ 正在跳转到主界面...");
             Intent intent = new Intent(SetupActivity.this, MainActivity.class);
@@ -535,15 +650,26 @@ public class SetupActivity extends AppCompatActivity {
     }
 
     private void finishInstall(String stepText, String buttonText) {
+        if (mDestroyed) return;
         mStepText.setText(stepText);
         mActionButton.setEnabled(true);
         mActionButton.setText(buttonText);
+        mActionButton.setBackgroundResource(R.drawable.botdrop_button_bg);
+        mActionButton.setTextColor(0xFF1A1A1A);
         mProgressBar.setVisibility(View.GONE);
         mInstalling = false;
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mDestroyed = true;
+    }
+
     private void appendLog(String message) {
+        if (mDestroyed) return;
         runOnUiThread(() -> {
+            if (mDestroyed) return;
             String oldText = mLogText.getText().toString();
             mLogText.setText(message + "\n" + oldText);
             mLogScrollView.post(() -> mLogScrollView.scrollTo(0, 0));
