@@ -9,8 +9,8 @@
 
 ```
 Error: Cannot find the native Koffi module; did you bundle it correctly?
-    at init (/data/data/app.botdrop/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js:502:15)
-    at Object.<anonymous> (/data/data/app.botdrop/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js:636:12)
+    at init (/data/data/app.rbot/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js:502:15)
+    at Object.<anonymous> (/data/data/app.rbot/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js:636:12)
 ```
 
 ## 根因分析
@@ -42,11 +42,11 @@ koffi 在 pi-tui 中仅用于在 **Windows** 上加载 `kernel32.dll`（处理 S
 
 ```bash
 # 备份原文件
-cp /data/data/app.botdrop/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js \
-   /data/data/app.botdrop/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js.orig
+cp /data/data/app.rbot/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js \
+   /data/data/app.rbot/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js.orig
 
 # 写入 mock 模块
-cat > /data/data/app.botdrop/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js << 'EOF'
+cat > /data/data/app.rbot/files/usr/lib/node_modules/openclaw/node_modules/koffi/index.js << 'EOF'
 // Mock koffi module for platforms where native module is unavailable (e.g. Android/Termux)
 module.exports = {
   load() {

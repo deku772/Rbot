@@ -50,7 +50,7 @@ node -e 'fetch("https://api.telegram.org").then(r => console.log("OK:", r.status
 
 ### Step 2: Test Undici in OpenClaw Environment
 
-Created test script in `/data/data/app.botdrop/files/usr/lib/node_modules/openclaw/`:
+Created test script in `/data/data/app.rbot/files/usr/lib/node_modules/openclaw/`:
 ```javascript
 import undici from "undici";
 const token = "<bot-token>";
@@ -173,19 +173,19 @@ Possible explanations:
 
 Since IPv6 support in Android/proot is unreliable, and `autoSelectFamily=false` prevents fallback to IPv4, any change that makes DNS return IPv6 first will break connectivity.
 
-### The Right Default for BotDrop
+### The Right Default for Rbot
 
-**Recommendation:** For BotDrop Android app, we should default `autoSelectFamily=true` or remove the override entirely, allowing Node.js to use its default Happy Eyeballs behavior. This is more resilient to DNS changes and network configurations.
+**Recommendation:** For Rbot Android app, we should default `autoSelectFamily=true` or remove the override entirely, allowing Node.js to use its default Happy Eyeballs behavior. This is more resilient to DNS changes and network configurations.
 
 ## Related Files
 
 - `~/.openclaw/openclaw.json` - OpenClaw configuration
 - `~/.openclaw/gateway.log` - Gateway logs
-- `/data/data/app.botdrop/files/usr/lib/node_modules/openclaw/dist/extensionAPI.js` - OpenClaw code with autoSelectFamily default
+- `/data/data/app.rbot/files/usr/lib/node_modules/openclaw/dist/extensionAPI.js` - OpenClaw code with autoSelectFamily default
 
 ## Prevention
 
-For future BotDrop releases, consider:
+For future Rbot releases, consider:
 
 1. **Document this configuration** in default setup/README
 2. **Pre-configure** `autoSelectFamily=true` during installation

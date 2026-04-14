@@ -33,10 +33,10 @@ From `gateway.log`:
 
 2. **CA certificate check:**
    ```bash
-   ls -la /data/data/app.botdrop/files/usr/etc/tls/
+   ls -la /data/data/app.rbot/files/usr/etc/tls/
    # Result: cert.pem (225KB) EXISTS
 
-   ls -la /data/data/app.botdrop/files/usr/etc/ssl/certs/
+   ls -la /data/data/app.rbot/files/usr/etc/ssl/certs/
    # Result: Directory does NOT exist
    ```
 
@@ -49,7 +49,7 @@ From `gateway.log`:
 
 4. **Hypothesis test:**
    ```bash
-   export SSL_CERT_FILE=/data/data/app.botdrop/files/usr/etc/tls/cert.pem
+   export SSL_CERT_FILE=/data/data/app.rbot/files/usr/etc/tls/cert.pem
    node -e "fetch('https://api.telegram.org').then(r => console.log('SUCCESS:', r.status))"
    # Result: SUCCESS: 200
    ```
@@ -62,7 +62,7 @@ From `gateway.log`:
 3. System defaults: `/etc/ssl/cert.pem` or `/etc/ssl/certs/`
 
 **What slim bootstrap broke:**
-- Removed the configuration that sets `SSL_CERT_FILE=/data/data/app.botdrop/files/usr/etc/tls/cert.pem`
+- Removed the configuration that sets `SSL_CERT_FILE=/data/data/app.rbot/files/usr/etc/tls/cert.pem`
 - The certificate file exists, but Node.js can't find it without the environment variable
 
 **Why it worked before:**
@@ -76,7 +76,7 @@ The full bootstrap (159MB) included proper environment variable configuration, l
 
 Set environment variable before running gateway:
 ```bash
-export SSL_CERT_FILE=/data/data/app.botdrop/files/usr/etc/tls/cert.pem
+export SSL_CERT_FILE=/data/data/app.rbot/files/usr/etc/tls/cert.pem
 ```
 
 ### Permanent Fix (for future slim bootstrap)
@@ -86,11 +86,11 @@ When creating slim bootstrap, ensure one of these:
 **Option A: Set environment variable in profile**
 ```bash
 # In /etc/profile.d/ssl-certs.sh or similar
-export SSL_CERT_FILE=/data/data/app.botdrop/files/usr/etc/tls/cert.pem
+export SSL_CERT_FILE=/data/data/app.rbot/files/usr/etc/tls/cert.pem
 ```
 
 **Option B: Add to gateway startup**
-Modify `BotDropService.java` executeCommandSync():
+Modify `RbotService.java` executeCommandSync():
 ```java
 pb.environment().put("PREFIX", TermuxConstants.TERMUX_PREFIX_DIR_PATH);
 pb.environment().put("HOME", TermuxConstants.TERMUX_HOME_DIR_PATH);
@@ -155,22 +155,22 @@ ln -s /usr/etc/tls/cert.pem /usr/etc/ssl/cert.pem
 - Can re-attempt slim optimization later with proper testing
 
 **Rollback details:**
-- Target version: `bootstrap-2026.02.07-r1+botdrop` (166MB)
-- Latest slim version: `bootstrap-2026.02.08-r1+botdrop` (99MB) ❌
+- Target version: `bootstrap-2026.02.07-r1+rbot` (166MB)
+- Latest slim version: `bootstrap-2026.02.08-r1+rbot` (99MB) ❌
 
 **Action items:**
-1. ✅ Identify last working bootstrap version: `bootstrap-2026.02.07-r1+botdrop`
+1. ✅ Identify last working bootstrap version: `bootstrap-2026.02.07-r1+rbot`
 2. ✅ Update CI to use fixed version (not `/latest/`)
-3. ⏳ Set `bootstrap-2026.02.07-r1+botdrop` as latest release in botdrop-packages repo
+3. ⏳ Set `bootstrap-2026.02.07-r1+rbot` as latest release in rbot-packages repo
 4. ⏳ Test end-to-end before releasing
 5. ✅ Document this issue for future reference
 
 **How to set correct latest release:**
 ```bash
-# In GitHub botdrop-packages repository:
-# https://github.com/zhixianio/botdrop-packages/releases
+# In GitHub rbot-packages repository:
+# https://github.com/zhixianio/rbot-packages/releases
 #
-# 1. Find "bootstrap-2026.02.07-r1+botdrop" release
+# 1. Find "bootstrap-2026.02.07-r1+rbot" release
 # 2. Click "..." menu → "Set as latest release"
 # 3. This ensures /releases/latest/ points to stable version
 ```

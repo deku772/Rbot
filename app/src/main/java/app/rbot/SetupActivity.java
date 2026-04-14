@@ -67,7 +67,7 @@ public class SetupActivity extends AppCompatActivity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_botdrop_setup_minimal);
+        setContentView(R.layout.activity_rbot_setup_minimal);
 
         mActiveBot = BotManager.getInstance(this).getActiveBot();
 
@@ -92,7 +92,9 @@ public class SetupActivity extends AppCompatActivity {
 
         mActionButton.setOnClickListener(v -> startInstallation());
 
-        // Bot engine selection
+        // Bot engine selection — always visible (radio group moved out of reinstall_options)
+        android.view.View botEngineSection = findViewById(R.id.bot_engine_section);
+        botEngineSection.setVisibility(View.VISIBLE);
         mRgBotEngine = findViewById(R.id.rg_bot_engine);
         mPendingBot = mActiveBot; // default to current active bot
 
@@ -151,7 +153,7 @@ public class SetupActivity extends AppCompatActivity {
 
         mActionButton.setEnabled(true);
         mActionButton.setText("安装中...");
-        mActionButton.setBackgroundResource(R.drawable.botdrop_button_installing_bg);
+        mActionButton.setBackgroundResource(R.drawable.rbot_button_installing_bg);
         mActionButton.setTextColor(0xFFFFFFFF);
         mTitleText.setText("正在安装 Rbot");
         mProgressBar.setVisibility(View.VISIBLE);
@@ -500,7 +502,7 @@ public class SetupActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         mStepText.setText(mPendingBot.getName() + " 安装完成 ✅");
                         mActionButton.setText("安装完成");
-                        mActionButton.setBackgroundResource(R.drawable.botdrop_button_bg);
+                        mActionButton.setBackgroundResource(R.drawable.rbot_button_bg);
                         mActionButton.setTextColor(0xFF1A1A1A);
                     });
                 }
@@ -564,7 +566,7 @@ public class SetupActivity extends AppCompatActivity {
                     runOnUiThread(() -> {
                         mStepText.setText(mPendingBot.getName() + " 安装完成 ✅");
                         mActionButton.setText("安装完成");
-                        mActionButton.setBackgroundResource(R.drawable.botdrop_button_bg);
+                        mActionButton.setBackgroundResource(R.drawable.rbot_button_bg);
                         mActionButton.setTextColor(0xFF1A1A1A);
                     });
                 }
@@ -579,11 +581,17 @@ public class SetupActivity extends AppCompatActivity {
             mProgressBar.setVisibility(View.GONE);
             mTitleText.setText("安装完成");
             mInstalling = false;
-            mActionButton.setBackgroundResource(R.drawable.botdrop_button_bg);
+            mActionButton.setBackgroundResource(R.drawable.rbot_button_bg);
             mActionButton.setTextColor(0xFF1A1A1A);
 
             appendLog("➡️ 正在跳转到主界面...");
-            Intent intent = new Intent(SetupActivity.this, MainActivity.class);
+            Class<?> targetActivity;
+            if (mPendingBot.getId().equals(BotAdapter.ID_HERMES)) {
+                targetActivity = HermesManagementActivity.class;
+            } else {
+                targetActivity = MainActivity.class;
+            }
+            Intent intent = new Intent(SetupActivity.this, targetActivity);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);
             finish();
@@ -654,7 +662,7 @@ public class SetupActivity extends AppCompatActivity {
         mStepText.setText(stepText);
         mActionButton.setEnabled(true);
         mActionButton.setText(buttonText);
-        mActionButton.setBackgroundResource(R.drawable.botdrop_button_bg);
+        mActionButton.setBackgroundResource(R.drawable.rbot_button_bg);
         mActionButton.setTextColor(0xFF1A1A1A);
         mProgressBar.setVisibility(View.GONE);
         mInstalling = false;

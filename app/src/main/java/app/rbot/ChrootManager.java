@@ -137,8 +137,9 @@ public final class ChrootManager {
         // Clean staging AND chroot dir (chroot may have partial files from a previous failed run)
         execRoot("rm -rf " + stagingDir + " && rm -rf " + RbotConstants.CHROOT_DIR + " && mkdir -p " + RbotConstants.CHROOT_DIR + " " + stagingDir);
 
-        // Step 1: extract to staging with real-time progress
-        CommandResult result = execRootWithProgress(tarCmd, 600, callback);
+        // Step 1: extract to staging — run silently via execRoot, no read thread overhead.
+        // The user doesn't need tar verbose output; they care about pip/git logs later.
+        CommandResult result = execRoot(tarCmd);
         if (!result.success) {
             if (callback != null) callback.onError("解压失败: " + result.stderr);
             execRoot("rm -rf " + stagingDir);
@@ -840,12 +841,69 @@ public final class ChrootManager {
 
     /** Start SSH service in chroot */
     public static CommandResult startSshService() {
-        // Ensure ssh directory exists with proper permissions
-        execInChroot("mkdir -p /var/run/sshd && chmod 755 /var/run/sshd", 5);
-        
-        // Start sshd
-        String startCmd = "/usr/sbin/sshd -D &";
-        return execInChroot(startCmd, 10);
+        // SSH config lines we need — appended only if absent (idempotent)
+        String[] neededLines = {
+            "Port 8022",
+            "ListenAddress 0.0.0.0",
+            "PermitRootLogin yes",
+            "PasswordAuthentication yes",
+            "PubkeyAuthentication no"
+        };
+        StringBuilder ensureConfig = new StringBuilder();
+        for (String line : neededLines) {
+            String key = line.split(" ")[0];
+            ensureConfig.append(
+                "grep -q '^" + key + " ' /etc/ssh/sshd_config && " +
+                "  sed -i 's/^" + key + " .*/" + line + "/' /etc/ssh/sshd_config || " +
+                "  echo '" + line + "' >> /etc/ssh/sshd_config && ");
+        }
+
+        String setupCmd =
+            // Generate host keys if missing — sshd fails without them
+            "[ -f /etc/ssh/ssh_host_rsa_key ] || ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N '' 2>/dev/null; " +
+            "[ -f /etc/ssh/ssh_host_ecdsa_key ] || ssh-keygen -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N '' 2>/dev/null; " +
+            "[ -f /etc/ssh/ssh_host_ed25519_key ] || ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N '' 2>/dev/null; " +
+            "chmod 600 /etc/ssh/ssh_host_*_key 2>/dev/null; " +
+            "mkdir -p /var/run/sshd && " +
+            ensureConfig.toString() +
+            "pkill -x sshd 2>/dev/null; sleep 1; " +
+            "/usr/sbin/sshd && echo sshd_started; " +
+            "netstat -tlnp 2>/dev/null | grep 8022 || ss -tlnp 2>/dev/null | grep 8022";
+
+        return execInChroot(setupCmd, 20);
+    }
+
+    /** Set root password by writing a Python script file then executing it — avoids all shell quoting issues */
+    public static CommandResult setSshPassword(String password) {
+        // Escape backslashes and quotes for Python string literal
+        String pwd = password.replace("\\", "\\\\").replace("'", "\\'");
+        String script =
+            "import hashlib, os, binascii, stat\n" +
+            "passwd = '" + pwd + "'\n" +
+            "salt = os.urandom(16)\n" +
+            "h = hashlib.pbkdf2_hmac('sha512', passwd.encode('utf-8'), salt, 100000)\n" +
+            "salt_b64 = binascii.b2a_base64(salt).decode().rstrip()\n" +
+            "h_b64 = binascii.b2a_base64(h).decode().rstrip()\n" +
+            "shadow_line = 'root:$6$' + salt_b64 + '$' + h_b64 + ':19700:0:99999:7:::\n'\n" +
+            "try:\n" +
+            "    with open('/etc/shadow', 'r') as f:\n" +
+            "        lines = f.readlines()\n" +
+            "    new_lines = [l for l in lines if not l.startswith('root:')]\n" +
+            "    new_lines.append(shadow_line)\n" +
+            "    with open('/etc/shadow', 'w') as f:\n" +
+            "        f.writelines(new_lines)\n" +
+            "    os.chmod('/etc/shadow', stat.S_IRUSR | stat.S_IWUSR)\n" +
+            "    print('PASSWORD_SET_OK')\n" +
+            "except Exception as e:\n" +
+            "    print('PASSWORD_SET_ERR:' + str(e))\n";
+
+        String scriptPath = "/tmp/setpass.py";
+        String scriptLines = script.replace("'", "'\"'\"'");
+        String writeCmd =
+            "python3 -c \"import os; f=open('" + scriptPath + "','w'); f.write('" + scriptLines + "'); f.close(); os.chmod('" + scriptPath + "', 0o700)\" && " +
+            "python3 " + scriptPath + " && rm -f " + scriptPath;
+
+        return execInChroot(writeCmd, 20);
     }
 
     /** Stop SSH service */
@@ -898,6 +956,164 @@ public final class ChrootManager {
         CommandResult passResult = execInChroot(
             "echo 'root:" + password.replace("'", "'\"'\"'") + "' | chpasswd", 5);
         return saveResult.success() && passResult.success();
+    }
+
+    // ─── Hermes Agent ───────────────────────────────────────────────────────────
+
+    private static final String HERMES_VENV_BIN = RbotConstants.HERMES_HOME + "/venv/bin";
+
+    /** Find the actual hermes binary wherever the official script placed it */
+    private static String findHermesBinary() {
+        String[] candidates = {
+            HERMES_VENV_BIN + "/hermes",
+            "/root/.local/bin/hermes",
+            "/data/data/com.termux/files/usr/bin/hermes",
+            "/usr/local/bin/hermes",
+        };
+        for (String c : candidates) {
+            if (new File(c).exists()) return c;
+        }
+        return HERMES_VENV_BIN + "/hermes";
+    }
+
+    /** Check if Hermes is installed (looks in all possible locations) */
+    public static boolean isHermesInstalled() {
+        if (new File(RbotConstants.HERMES_MARKER).exists()) return true;
+        return !findHermesBinary().equals(HERMES_VENV_BIN + "/hermes") || new File(HERMES_VENV_BIN + "/hermes").exists();
+    }
+
+    /** Check if Hermes gateway is running */
+    public static boolean isHermesRunning() {
+        // Always verify with pgrep - the PID file may be stale after process crash
+        CommandResult pgResult = execInChroot(
+            "pgrep -f 'hermes gateway' >/dev/null 2>&1 && echo running || echo stopped", 5);
+        boolean pgrepRunning = pgResult.success() && "running".equals(pgResult.stdout().trim());
+
+        // Also check PID file as secondary (but only trust if pgrep agrees)
+        CommandResult pidResult = execRoot(
+            "cat " + RbotConstants.HERMES_PID_FILE + " 2>/dev/null || echo ''", 5);
+        String pid = pidResult.success() ? pidResult.stdout().trim() : "";
+        if (!pid.isEmpty()) {
+            CommandResult check = execRoot(
+                "kill -0 " + pid + " 2>/dev/null && echo running || echo dead", 5);
+            boolean pidRunning = check.success() && "running".equals(check.stdout().trim());
+            // Only trust PID file if pgrep also agrees
+            if (pidRunning && pgrepRunning) return true;
+        }
+
+        return pgrepRunning;
+    }
+
+    /** Install Hermes Agent via official install script */
+    public static boolean installHermes(ProgressCallback callback) {
+        if (isHermesInstalled()) {
+            if (callback != null) callback.onProgress("Hermes 已安装，跳过");
+            return false;
+        }
+
+        if (callback != null) callback.onProgress("下载 Hermes Agent...");
+        String installCmd =
+            "ANDROID_API_LEVEL=$(getprop ro.build.version.sdk 2>/dev/null || echo 29) && " +
+            "mkdir -p " + RbotConstants.HERMES_HOME + " && " +
+            "cd /tmp && " +
+            "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh " +
+            "  -o install_hermes.sh && " +
+            "chmod +x install_hermes.sh && " +
+            "cd " + RbotConstants.HERMES_HOME + " && " +
+            "bash /tmp/install_hermes.sh 2>&1 | tee " + RbotConstants.HERMES_HOME + "/install.log";
+
+        CommandResult r = execInChrootWithProgress(installCmd, 600, callback);
+        if (r == null || !r.success()) {
+            if (callback != null) callback.onError("Hermes 安装失败: " + (r != null ? r.stderr() : ""));
+            return true;
+        }
+
+        // Probe for hermes binary in all possible locations
+        String hermesBin = findHermesBinary();
+        if (!hermesBin.equals(HERMES_VENV_BIN + "/hermes") || new File(HERMES_VENV_BIN + "/hermes").exists()) {
+            // Mark installed
+            execRoot("touch " + RbotConstants.HERMES_MARKER);
+            if (callback != null) callback.onProgress("Hermes 安装完成: " + hermesBin);
+        } else {
+            if (callback != null) callback.onError("Hermes 未找到，安装可能被中断: " + hermesBin);
+            return true;
+        }
+
+        // Mark installed
+        execRoot("touch " + RbotConstants.HERMES_MARKER);
+        if (callback != null) callback.onProgress("Hermes 安装完成");
+        return false;
+    }
+
+    /** Start Hermes gateway */
+    public static CommandResult startHermes() {
+        synchronized (sChrootLock) {
+            setupChrootDevices(null);
+            if (isHermesRunning()) {
+                return new CommandResult(true, "already running", "", 0);
+            }
+
+            // Find actual hermes binary location
+            String hermesBin = findHermesBinary();
+            boolean isVenv = hermesBin.contains("/venv/");
+            // Derive venv/bin path from binary location (normalize to /data/rbot/hermes/.hermes path)
+            String venvBin;
+            if (isVenv) {
+                int idx = hermesBin.indexOf("/venv/");
+                venvBin = hermesBin.substring(0, idx) + "/venv/bin";
+            } else {
+                venvBin = hermesBin.substring(0, hermesBin.lastIndexOf("/"));
+            }
+            String execLine = venvBin + "/python -m hermes gateway start";
+
+            // Always use fixed paths for PID/log, create .hermes dir there
+            String startCmd =
+                "source /etc/profile 2>/dev/null; " +
+                "rm -f " + RbotConstants.HERMES_PID_FILE + "; " +
+                "mkdir -p " + RbotConstants.HERMES_HOME + "/.hermes; " +
+                "cd /root; " +
+                "env -i " +
+                  "HOME=/root " +
+                  "USER=root " +
+                  "LANG=C.UTF-8 " +
+                  "TERM=xterm-256color " +
+                  "TMPDIR=/tmp " +
+                  "ANDROID_API_LEVEL=$(getprop ro.build.version.sdk 2>/dev/null || echo 29) " +
+                  "VIRTUAL_ENV=" + venvBin.substring(0, venvBin.lastIndexOf("/bin")) + " " +
+                  "PATH=" + venvBin + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin " +
+                  "HERMES_HOME=" + RbotConstants.HERMES_HOME + " " +
+                  execLine + " >> " + RbotConstants.HERMES_LOG_FILE + " 2>&1 & " +
+                "echo $! > " + RbotConstants.HERMES_PID_FILE + "; " +
+                "sleep 5; " +
+                "PID=$(cat " + RbotConstants.HERMES_PID_FILE + " 2>/dev/null) && " +
+                "[ -n \"$PID\" ] && kill -0 $PID 2>/dev/null && echo OK || " +
+                "{ echo FAIL; cat " + RbotConstants.HERMES_LOG_FILE + " | tail -20; }";
+
+            return execInChroot(startCmd, 30);
+        }
+    }
+
+    /** Stop Hermes gateway */
+    public static CommandResult stopHermes() {
+        // First: kill from outside chroot using PID file
+        CommandResult r1 = execRoot(
+            "PIDFILE=" + RbotConstants.HERMES_PID_FILE + "; " +
+            "if [ -f \"$PIDFILE\" ]; then " +
+            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
+            "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
+            "fi; " +
+            "rm -f $PIDFILE; " +
+            "echo host_done", 10);
+
+        // Then: pkill from inside chroot (catches any stray processes)
+        String stopCmd =
+            "source /etc/profile 2>/dev/null; " +
+            "pkill -9 -f 'hermes gateway' 2>/dev/null; " +
+            "pkill -9 -f 'hermes-agent' 2>/dev/null; " +
+            "pkill -9 -f 'python.*hermes' 2>/dev/null; " +
+            "rm -f " + RbotConstants.HERMES_PID_FILE + "; " +
+            "echo stopped";
+        return execInChroot(stopCmd, 15);
     }
 
     // ─── Progress callback ───
@@ -1005,6 +1221,8 @@ public final class ChrootManager {
      * {@link ProgressCallback#onProgress}, and resets idle timer on any output.
      */
     @SuppressLint("NewApi")
+    private static final long PROGRESS_DEBOUNCE_MS = 10_000; // 10s — flush buffered lines at most this often
+
     private static CommandResult execRootWithProgress(String command, int timeoutSec, ProgressCallback callback) {
         StringBuilder stdout = new StringBuilder();
         StringBuilder stderr = new StringBuilder();
@@ -1024,6 +1242,18 @@ public final class ChrootManager {
             // Idle timeout: timeoutSec (no output for this long = truly stuck)
             final long idleTimeout = timeoutSec * 1000L;
 
+            // Debounce state — buffer progress lines and flush at most every PROGRESS_DEBOUNCE_MS
+            final StringBuilder progressBuf = new StringBuilder();
+            final long[] lastFlush = {System.currentTimeMillis()};
+
+            Runnable flushBuffer = () -> {
+                if (callback != null && progressBuf.length() > 0) {
+                    callback.onProgress(progressBuf.toString());
+                    progressBuf.setLength(0);
+                    lastFlush[0] = System.currentTimeMillis();
+                }
+            };
+
             // Read stdout in background — also push progress lines to callback
             Thread stdoutThread = new Thread(() -> {
                 try (BufferedReader reader = new BufferedReader(
@@ -1032,9 +1262,14 @@ public final class ChrootManager {
                     while ((line = reader.readLine()) != null) {
                         stdout.append(line).append("\n");
                         lastActivity[0] = System.currentTimeMillis();
-                        // Push progress lines from stdout too (pip, cp -v, etc.)
+                        // Push progress lines from stdout too (pip, cp -v, tar -v, etc.)
                         if (callback != null && isProgressLine(line)) {
-                            callback.onProgress(line.trim());
+                            if (progressBuf.length() > 0) progressBuf.append("\n");
+                            progressBuf.append(line.trim());
+                            long now = System.currentTimeMillis();
+                            if (now - lastFlush[0] >= PROGRESS_DEBOUNCE_MS) {
+                                flushBuffer.run();
+                            }
                         }
                     }
                 } catch (Exception e) {
@@ -1052,7 +1287,12 @@ public final class ChrootManager {
                         lastActivity[0] = System.currentTimeMillis();
                         // Push meaningful progress lines to callback
                         if (callback != null && isProgressLine(line)) {
-                            callback.onProgress(line.trim());
+                            if (progressBuf.length() > 0) progressBuf.append("\n");
+                            progressBuf.append(line.trim());
+                            long now = System.currentTimeMillis();
+                            if (now - lastFlush[0] >= PROGRESS_DEBOUNCE_MS) {
+                                flushBuffer.run();
+                            }
                         }
                     }
                 } catch (Exception e) {
@@ -1073,6 +1313,7 @@ public final class ChrootManager {
 
                 if (elapsed > maxWallTime) {
                     // Total wall time exceeded — hard kill
+                    flushBuffer.run();
                     Log.w(TAG, "Process exceeded max wall time (" + (maxWallTime/1000) + "s), killing");
                     process.destroyForcibly();
                     return new CommandResult(false, stdout.toString(),
@@ -1081,6 +1322,7 @@ public final class ChrootManager {
 
                 if (idle > idleTimeout) {
                     // No output for idleTimeout — process is stuck
+                    flushBuffer.run();
                     Log.w(TAG, "Process idle for " + (idle/1000) + "s, killing");
                     process.destroyForcibly();
                     return new CommandResult(false, stdout.toString(),
@@ -1092,6 +1334,9 @@ public final class ChrootManager {
 
             stdoutThread.join(2000);
             stderrThread.join(2000);
+
+            // Flush any remaining buffered progress lines before returning
+            flushBuffer.run();
 
             int exitCode = process.exitValue();
             return new CommandResult(exitCode == 0, stdout.toString(),
@@ -1161,7 +1406,9 @@ public final class ChrootManager {
             tarBase = "tar -xf '" + tarballPath + "'";
         }
 
-        // Android toybox tar does not support --checkpoint; use -v for progress instead
+        // -v: verbose file listing. Lines are debounced in execRootWithProgress
+        // (flushed at most every 10s), so no UI flooding — user still sees the
+        // file list for debug, at a readable pace.
         return tarBase + " -v -C " + stagingDir;
     }
 }

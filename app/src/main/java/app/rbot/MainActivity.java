@@ -6,18 +6,19 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
-import android.net.Uri;
+
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.net.Uri;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
-import android.widget.ScrollView;
-import android.widget.TextView;
+import android.widget.Toast;
 
+import android.widget.TextView;
 
 
 import androidx.cardview.widget.CardView;
@@ -41,7 +42,7 @@ public class MainActivity extends AppCompatActivity {
     public static final String NOTIFICATION_CHANNEL_ID = "rbot_gateway";
 
     private TextView mStatusText;
-    private TextView mLogText;
+
     private Button mStartButton;
     private Button mStopButton;
     private Button mSetupButton;
@@ -51,8 +52,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView mSshPassword;
     private Button mSshToggleButton;
     private boolean mSshStarting = false;
-    private ScrollView mLogScrollView;
-    private Button mClearLogButton;
+
     private CardView mWebuiPanel;
     private TextView mWebuiUrl;
     private Button mOpenWebuiButton;
@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity {
     private Button mNavHomeButton;
     private Button mNavLogButton;
     private Button mNavSettingsButton;
+    private Button mNavManageButton;
     private Button mNavPermissionsButton;
 
     // Component status dashboard (2x2 grid)
@@ -76,13 +77,6 @@ public class MainActivity extends AppCompatActivity {
     private Handler mHandler = new Handler(Looper.getMainLooper());
     private RbotService mService;
     private boolean mBound = false;
-    private boolean mLogPolling = false;
-    /** Last tail output — used to detect new content */
-    private String mLastLogTail = "";
-    /** Lock to prevent concurrent poll runs from interleaving */
-    private final Object mLogLock = new Object();
-    /** Max log buffer lines (to prevent unbounded growth) */
-    private static final int MAX_LOG_LINES = 200;
 
     private final ServiceConnection mConnection = new ServiceConnection() {
         @Override
@@ -106,9 +100,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         mStatusText = findViewById(R.id.status_text);
-        mLogText = findViewById(R.id.log_text);
-        mLogScrollView = findViewById(R.id.log_scroll);
-        mClearLogButton = findViewById(R.id.btn_clear_log);
+
         mStartButton = findViewById(R.id.btn_start);
         mStopButton = findViewById(R.id.btn_stop);
         mSetupButton = findViewById(R.id.btn_setup);
@@ -125,6 +117,7 @@ public class MainActivity extends AppCompatActivity {
         mNavHomeButton = findViewById(R.id.btn_nav_home);
         mNavLogButton = findViewById(R.id.btn_nav_log);
         mNavSettingsButton = findViewById(R.id.btn_nav_settings);
+        mNavManageButton = findViewById(R.id.btn_nav_manage);
         mNavPermissionsButton = findViewById(R.id.btn_nav_permissions);
 
         // Component status dashboard — IDs are in the main screen layout
@@ -152,10 +145,7 @@ public class MainActivity extends AppCompatActivity {
             startActivity(browserIntent);
         });
         mSshToggleButton.setOnClickListener(v -> toggleSshService());
-        mClearLogButton.setOnClickListener(v -> {
-            mLogText.setText("");
-            mLastLogTail = "";
-        });
+
 
         // Navigation buttons
         mNavHomeButton.setOnClickListener(v -> {
@@ -169,6 +159,16 @@ public class MainActivity extends AppCompatActivity {
             Intent intent = new Intent(this, SettingsActivity.class);
             startActivity(intent);
         });
+        mNavManageButton.setOnClickListener(v -> {
+            // Navigate to active bot's management panel
+            BotAdapter bot = BotManager.getInstance(this).getActiveBot();
+            if ("hermes".equals(bot.getId())) {
+                startActivity(new Intent(this, HermesManagementActivity.class));
+            } else {
+                // AstrBot managed from main panel — show toast with status
+                Toast.makeText(this, bot.getName() + ": " + (bot.isRunning() ? "运行中" : bot.isInstalled() ? "已停止" : "未安装"), Toast.LENGTH_SHORT).show();
+            }
+        });
         mNavPermissionsButton.setOnClickListener(v -> {
             Intent intent = new Intent(this, PermissionsActivity.class);
             startActivity(intent);
@@ -176,26 +176,20 @@ public class MainActivity extends AppCompatActivity {
     }
 
 
-
     @Override
     protected void onResume() {
         super.onResume();
-        // Add a clear separator when returning to the activity
-        String timestamp = new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(new java.util.Date());
-        appendToLog("\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        appendToLog("  📱 Rbot 返回前台 — " + timestamp);
-        appendToLog("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n");
         // Bind to RbotService
         Intent intent = new Intent(this, RbotService.class);
         bindService(intent, mConnection, Context.BIND_AUTO_CREATE);
         new Thread(this::refreshStatusOffThread).start();
-        startLogPolling();
+
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        stopLogPolling();
+
         if (mBound) {
             unbindService(mConnection);
             mBound = false;
@@ -379,7 +373,7 @@ public class MainActivity extends AppCompatActivity {
             refreshStatusOffThread();
             mHandler.post(() -> {
                 if (!result.success()) {
-                    appendToLog("启动失败: " + result.stderr());
+                    android.widget.Toast.makeText(this, "启动失败: " + result.stderr(), android.widget.Toast.LENGTH_LONG).show();
                 }
             });
         }).start();
@@ -412,99 +406,6 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
 
-    // ─── Log polling ───
-
-    private void startLogPolling() {
-        if (mLogPolling) return;
-        mLogPolling = true;
-        pollLog();
-    }
-
-    private void stopLogPolling() {
-        mLogPolling = false;
-        mHandler.removeCallbacks(mLogPollRunnable);
-    }
-
-    private final Runnable mLogPollRunnable = this::pollLog;
-
-    private void pollLog() {
-        if (!mLogPolling) return;
-
-        new Thread(() -> {
-            try {
-                ChrootManager.CommandResult result = ChrootManager.execRoot(
-                    "tail -n 50 '" + RbotConstants.ASTRBOT_LOG_FILE + "' 2>/dev/null", 5);
-
-                if (result.success() && !result.stdout().trim().isEmpty()) {
-                    String newTail = result.stdout();
-                    mHandler.post(() -> {
-                        synchronized (mLogLock) {
-                            if (newTail.equals(mLastLogTail)) return;
-
-                            String current = mLogText.getText().toString();
-                            StringBuilder delta = new StringBuilder();
-                            String[] newLines = newTail.split("\n");
-                            String[] curLines = current.split("\n");
-
-                            int startIdx = 0;
-                            if (!curLines[curLines.length - 1].isEmpty()) {
-                                outer:
-                                for (int i = Math.max(0, newLines.length - curLines.length - 1);
-                                     i < newLines.length; i++) {
-                                    for (int j = Math.max(0, curLines.length - newLines.length + i - 1);
-                                         j < curLines.length; j++) {
-                                        if (newLines[i].equals(curLines[j])) {
-                                            startIdx = i + 1;
-                                            break outer;
-                                        }
-                                    }
-                                }
-                            }
-
-                            for (int i = startIdx; i < newLines.length; i++) {
-                                delta.append(newLines[i]).append("\n");
-                            }
-
-                            if (delta.length() > 0) {
-                                // Insert new lines at the top (newest-first order)
-                                String[] deltaLines = delta.toString().split("\n");
-                                StringBuilder reversed = new StringBuilder();
-                                for (int i = deltaLines.length - 1; i >= 0; i--) {
-                                    if (!deltaLines[i].isEmpty()) {
-                                        reversed.append(deltaLines[i]).append("\n");
-                                    }
-                                }
-                                String oldText = mLogText.getText().toString();
-                                mLogText.setText(reversed.toString() + oldText);
-                                mLastLogTail = newTail;
-
-                                // Trim from the bottom (oldest lines) when exceeding limit
-                                String text = mLogText.getText().toString();
-                                String[] allLines = text.split("\n");
-                                if (allLines.length > MAX_LOG_LINES) {
-                                    int keepCount = MAX_LOG_LINES;
-                                    StringBuilder kept = new StringBuilder();
-                                    for (int i = 0; i < keepCount; i++) {
-                                        kept.append(allLines[i]).append("\n");
-                                    }
-                                    mLogText.setText(kept.toString());
-                                }
-
-                                // Always scroll to top to see newest
-                                mLogScrollView.post(() -> mLogScrollView.scrollTo(0, 0));
-                            }
-                        }
-                    });
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Log poll error: " + e.getMessage());
-            }
-
-            if (mLogPolling) {
-                mHandler.postDelayed(mLogPollRunnable, 5000);
-            }
-        }).start();
-    }
 
     // ─── WebUI URL detection ───
 
@@ -553,17 +454,6 @@ public class MainActivity extends AppCompatActivity {
         manager.createNotificationChannel(channel);
     }
 
-
-
-    private void appendToLog(String message) {
-        // Insert at top (newest-first order)
-        String oldText = mLogText.getText().toString();
-        mLogText.setText(message + "\n" + oldText);
-        mLogScrollView.post(() -> mLogScrollView.scrollTo(0, 0));
-    }
-
-
-
     // ─── SSH Service ───
 
     private void toggleSshService() {
@@ -584,7 +474,8 @@ public class MainActivity extends AppCompatActivity {
     private void startSshService() {
         mSshStarting = true;
         mSshToggleButton.setEnabled(false);
-        appendToLog("\n🔌 正在启动 SSH 服务...");
+        
+            android.widget.Toast.makeText(this, "🔌 正在启动 SSH 服务..", android.widget.Toast.LENGTH_SHORT).show();
 
         new Thread(() -> {
             ChrootManager.CommandResult result = ChrootManager.startSshService();
@@ -595,9 +486,9 @@ public class MainActivity extends AppCompatActivity {
                 updateSshPanel();
                 if (success) {
                     String sshInfo = ChrootManager.getSshInfo();
-                    appendToLog("✅ SSH 服务已启动: " + sshInfo);
+                    android.widget.Toast.makeText(this, "✅ SSH 服务已启动: " + sshInfo, android.widget.Toast.LENGTH_SHORT).show();
                 } else {
-                    appendToLog("❌ SSH 启动失败: " + result.stderr());
+                    android.widget.Toast.makeText(this, "❌ SSH 启动失败: " + result.stderr(), android.widget.Toast.LENGTH_LONG).show();
                 }
                 mSshToggleButton.setEnabled(true);
             });
@@ -607,7 +498,8 @@ public class MainActivity extends AppCompatActivity {
     private void stopSshService() {
         mSshStarting = true;
         mSshToggleButton.setEnabled(false);
-        appendToLog("\n🔌 正在停止 SSH 服务...");
+        
+            android.widget.Toast.makeText(this, "🔌 正在停止 SSH 服务..", android.widget.Toast.LENGTH_SHORT).show();
 
         new Thread(() -> {
             ChrootManager.CommandResult result = ChrootManager.stopSshService();
@@ -616,7 +508,7 @@ public class MainActivity extends AppCompatActivity {
             mHandler.post(() -> {
                 mSshStarting = false;
                 updateSshPanel();
-                appendToLog(stopped ? "✅ SSH 服务已停止" : "⚠️ SSH 停止可能失败");
+                android.widget.Toast.makeText(this, stopped ? "✅ SSH 服务已停止" : "⚠️ SSH 停止可能失败", android.widget.Toast.LENGTH_SHORT).show();
                 mSshToggleButton.setEnabled(true);
             });
         }).start();

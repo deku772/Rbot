@@ -3,8 +3,8 @@
 > AI Agent 跨会话记忆文件，随项目同步到 Gitee。
 
 ## 项目概况
-- Rbot Android：基于 chroot（root 方案）的 Android 一键终端部署壳子（原名 BotDrop/ANDBOTT）
-- fork 自 github.com/zhixianio/botdrop-android，用户 fork 在 github.com/deku772/botdrop-android
+- Rbot Android：基于 chroot（root 方案）的 Android 一键终端部署壳子（原名 Rbot/ANDBOTT）
+- fork 自 github.com/zhixianio/rbot-android，用户 fork 在 github.com/deku772/rbot-android
 - git remote origin: `https://gitee.com/deku772/Rbot.git`
 - 分支策略：`root`（唯一分支，chroot 方案）
 - **定位**：一键终端部署壳子，只做：chroot 部署 rootfs → 安装 AstrBot → 启停 → 看日志
@@ -12,7 +12,7 @@
 - 包名：`app.rbot`
 
 ## 核心路径架构（chroot 方案）
-- chroot 目录：`/data/rbot` — rootfs 运行时（旧 BotDrop 用 `/data/botdrop`）
+- chroot 目录：`/data/rbot` — rootfs 运行时（旧 Rbot 用 `/data/rbot`）
 - sdcard 缓存：`/storage/emulated/0/rbot/cache/` — rootfs tarball 缓存
 - 备份目录：`/storage/emulated/0/rbot/backups/` — 统一备份目录
 - AstrBot 安装：chroot 内 `/root/astrbot`
@@ -20,7 +20,7 @@
 
 ## 关键文件
 - `ChrootManager.java` — chroot 核心（su -c chroot）
-- `BotDropService.java` — 前台服务 + AstrBot 生命周期
+- `RbotService.java` — 前台服务 + AstrBot 生命周期
 - `RbotConstants.java` — 常量
 - `MainActivity.java` — 主界面（双Tab：日志+管理）
 - `GatewayMonitorService.java` — 状态监控服务（只报告，不自动重启）

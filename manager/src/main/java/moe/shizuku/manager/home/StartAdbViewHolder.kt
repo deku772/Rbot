@@ -13,7 +13,7 @@ import moe.shizuku.manager.databinding.HomeItemContainerBinding
 import moe.shizuku.manager.databinding.HomeStartAdbBinding
 import moe.shizuku.manager.ktx.toHtml
 import moe.shizuku.manager.starter.Starter
-import moe.shizuku.manager.utils.BotDropAnalytics
+import moe.shizuku.manager.utils.RbotAnalytics
 import rikka.core.util.ClipboardUtils
 import rikka.html.text.HtmlCompat
 import rikka.recyclerview.BaseViewHolder
@@ -32,7 +32,7 @@ class StartAdbViewHolder(binding: HomeStartAdbBinding, root: View) : BaseViewHol
     init {
         binding.button1.setOnClickListener { v: View ->
             val context = v.context
-            BotDropAnalytics.logEvent(context, "automation_shizuku_computer_start_tap")
+            RbotAnalytics.logEvent(context, "automation_shizuku_computer_start_tap")
             MaterialAlertDialogBuilder(context)
                 .setTitle(R.string.home_adb_button_view_command)
                 .setMessage(
@@ -44,7 +44,7 @@ class StartAdbViewHolder(binding: HomeStartAdbBinding, root: View) : BaseViewHol
                     )
                 )
                 .setPositiveButton(R.string.home_adb_dialog_view_command_copy_button) { _, _ ->
-                    BotDropAnalytics.logEvent(context, "automation_shizuku_computer_start_copy_tap")
+                    RbotAnalytics.logEvent(context, "automation_shizuku_computer_start_copy_tap")
                     val adbCommand = Starter.adbCommand(context)
                     if (ClipboardUtils.put(context, adbCommand)) {
                         Toast.makeText(
@@ -56,7 +56,7 @@ class StartAdbViewHolder(binding: HomeStartAdbBinding, root: View) : BaseViewHol
                 }
                 .setNegativeButton(android.R.string.cancel, null)
                 .setNeutralButton(R.string.home_adb_dialog_view_command_button_send) { _, _ ->
-                    BotDropAnalytics.logEvent(context, "automation_shizuku_computer_start_send_tap")
+                    RbotAnalytics.logEvent(context, "automation_shizuku_computer_start_send_tap")
                     var intent = Intent(Intent.ACTION_SEND)
                     intent.type = "text/plain"
                     intent.putExtra(Intent.EXTRA_TEXT, Starter.adbCommand(context))
@@ -67,7 +67,7 @@ class StartAdbViewHolder(binding: HomeStartAdbBinding, root: View) : BaseViewHol
                     context.startActivity(intent)
                 }
                 .show()
-            BotDropAnalytics.logEvent(context, "automation_shizuku_computer_start_dialog_shown")
+            RbotAnalytics.logEvent(context, "automation_shizuku_computer_start_dialog_shown")
         }
         binding.text1.movementMethod = LinkMovementMethod.getInstance()
         binding.text1.text = context.getString(R.string.home_adb_description, Helps.ADB.get())

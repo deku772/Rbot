@@ -29,6 +29,20 @@ public final class RbotConstants {
     /** Marker file indicating AstrBot is installed (at chroot root so app process can read it) */
     public static final String ASTRBOT_MARKER = CHROOT_DIR + "/.rbot-astrbot-ready";
 
+    // ─── Hermes Agent ───────────────────────────────────────────────────────────
+
+    /** Hermes home inside chroot */
+    public static final String HERMES_HOME = CHROOT_DIR + "/hermes";
+
+    /** Hermes gateway PID file */
+    public static final String HERMES_PID_FILE = HERMES_HOME + "/.hermes/gateway.pid";
+
+    /** Hermes gateway log */
+    public static final String HERMES_LOG_FILE = HERMES_HOME + "/gateway.log";
+
+    /** Marker file indicating Hermes is installed */
+    public static final String HERMES_MARKER = CHROOT_DIR + "/.rbot-hermes-ready";
+
     /** sdcard data directory */
     public static final String SDCARD_DIR = "/storage/emulated/0/rbot";
 

@@ -1,469 +1,950 @@
 <?xml version="1.0" encoding="utf-8"?>
+
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+
     xmlns:app="http://schemas.android.com/apk/res-auto"
+
     android:layout_width="match_parent"
+
     android:layout_height="match_parent"
+
     android:orientation="vertical"
-    android:background="@color/botdrop_background"
+
+    android:background="@color/rbot_background"
+
     android:padding="16dp">
 
+
+
     <!-- Header -->
+
     <LinearLayout
+
         android:layout_width="match_parent"
+
         android:layout_height="wrap_content"
+
         android:orientation="horizontal"
+
         android:gravity="center_vertical"
+
         android:layout_marginBottom="12dp">
+
+
 
         <ImageView
+
             android:layout_width="36dp"
+
             android:layout_height="36dp"
-            android:src="@drawable/botdrop_logo"
+
+            android:src="@drawable/rbot_logo"
+
             android:contentDescription="@string/application_name"
+
             android:layout_marginEnd="12dp" />
 
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/application_name"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:textColor="@color/botdrop_on_background" />
+
 
         <TextView
-            android:id="@+id/status_text"
-            android:layout_width="wrap_content"
+
+            android:layout_width="0dp"
+
             android:layout_height="wrap_content"
+
+            android:layout_weight="1"
+
+            android:text="@string/application_name"
+
+            android:textSize="20sp"
+
+            android:textStyle="bold"
+
+            android:textColor="@color/rbot_on_background" />
+
+
+
+        <TextView
+
+            android:id="@+id/status_text"
+
+            android:layout_width="wrap_content"
+
+            android:layout_height="wrap_content"
+
             android:text="⏹ 已停止"
+
             android:textSize="14sp"
-            android:textColor="@color/botdrop_secondary_text" />
+
+            android:textColor="@color/rbot_secondary_text" />
+
+
 
     </LinearLayout>
+
+
 
     <!-- Component status dashboard — BotPocket style, always visible -->
+
     <!-- Row 1: BINARIES + ROOTFS -->
+
     <LinearLayout
+
         android:layout_width="match_parent"
+
         android:layout_height="wrap_content"
+
         android:orientation="horizontal"
+
         android:layout_marginBottom="6dp">
 
-        <androidx.cardview.widget.CardView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="0dp"
-            app:cardBackgroundColor="@color/card_status_bg">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:padding="10dp">
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🔧" android:textSize="16sp" />
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="BINARIES" android:textSize="10sp" android:textColor="@color/botdrop_secondary_text" />
-                    <TextView android:id="@+id/status_binaries" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/botdrop_on_background" />
-                </LinearLayout>
-                <View android:id="@+id/dot_binaries" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
-            </LinearLayout>
-        </androidx.cardview.widget.CardView>
+
 
         <androidx.cardview.widget.CardView
+
             android:layout_width="0dp"
+
             android:layout_height="wrap_content"
+
             android:layout_weight="1"
-            android:layout_marginStart="6dp"
+
+            android:layout_marginEnd="6dp"
+
             app:cardCornerRadius="8dp"
+
             app:cardElevation="0dp"
+
             app:cardBackgroundColor="@color/card_status_bg">
+
             <LinearLayout
+
                 android:layout_width="match_parent"
+
                 android:layout_height="wrap_content"
+
                 android:orientation="horizontal"
+
                 android:gravity="center_vertical"
+
                 android:padding="10dp">
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="💿" android:textSize="16sp" />
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🔧" android:textSize="16sp" />
+
                 <LinearLayout
+
                     android:layout_width="0dp"
+
                     android:layout_height="wrap_content"
+
                     android:layout_weight="1"
+
                     android:layout_marginStart="8dp"
+
                     android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ROOTFS" android:textSize="10sp" android:textColor="@color/botdrop_secondary_text" />
-                    <TextView android:id="@+id/status_rootfs" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/botdrop_on_background" />
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="BINARIES" android:textSize="10sp" android:textColor="@color/rbot_secondary_text" />
+
+                    <TextView android:id="@+id/status_binaries" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/rbot_on_background" />
+
                 </LinearLayout>
-                <View android:id="@+id/dot_rootfs" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+
+                <View android:id="@+id/dot_binaries" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+
             </LinearLayout>
+
         </androidx.cardview.widget.CardView>
+
+
+
+        <androidx.cardview.widget.CardView
+
+            android:layout_width="0dp"
+
+            android:layout_height="wrap_content"
+
+            android:layout_weight="1"
+
+            android:layout_marginStart="6dp"
+
+            app:cardCornerRadius="8dp"
+
+            app:cardElevation="0dp"
+
+            app:cardBackgroundColor="@color/card_status_bg">
+
+            <LinearLayout
+
+                android:layout_width="match_parent"
+
+                android:layout_height="wrap_content"
+
+                android:orientation="horizontal"
+
+                android:gravity="center_vertical"
+
+                android:padding="10dp">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="💿" android:textSize="16sp" />
+
+                <LinearLayout
+
+                    android:layout_width="0dp"
+
+                    android:layout_height="wrap_content"
+
+                    android:layout_weight="1"
+
+                    android:layout_marginStart="8dp"
+
+                    android:orientation="vertical">
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ROOTFS" android:textSize="10sp" android:textColor="@color/rbot_secondary_text" />
+
+                    <TextView android:id="@+id/status_rootfs" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/rbot_on_background" />
+
+                </LinearLayout>
+
+                <View android:id="@+id/dot_rootfs" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+
+            </LinearLayout>
+
+        </androidx.cardview.widget.CardView>
+
+
 
     </LinearLayout>
+
+
 
     <!-- Row 2: BOOTSTRAP + ASTRBOT -->
+
     <LinearLayout
+
         android:layout_width="match_parent"
+
         android:layout_height="wrap_content"
+
         android:orientation="horizontal"
+
         android:layout_marginBottom="14dp">
 
-        <androidx.cardview.widget.CardView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            app:cardCornerRadius="8dp"
-            app:cardElevation="0dp"
-            app:cardBackgroundColor="@color/card_status_bg">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical"
-                android:padding="10dp">
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="⚙️" android:textSize="16sp" />
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="8dp"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="BOOTSTRAP" android:textSize="10sp" android:textColor="@color/botdrop_secondary_text" />
-                    <TextView android:id="@+id/status_bootstrap" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/botdrop_on_background" />
-                </LinearLayout>
-                <View android:id="@+id/dot_bootstrap" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
-            </LinearLayout>
-        </androidx.cardview.widget.CardView>
+
 
         <androidx.cardview.widget.CardView
+
             android:layout_width="0dp"
+
             android:layout_height="wrap_content"
+
             android:layout_weight="1"
-            android:layout_marginStart="6dp"
+
+            android:layout_marginEnd="6dp"
+
             app:cardCornerRadius="8dp"
+
             app:cardElevation="0dp"
+
             app:cardBackgroundColor="@color/card_status_bg">
+
             <LinearLayout
+
                 android:layout_width="match_parent"
+
                 android:layout_height="wrap_content"
+
                 android:orientation="horizontal"
+
                 android:gravity="center_vertical"
+
                 android:padding="10dp">
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🤖" android:textSize="16sp" />
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="⚙️" android:textSize="16sp" />
+
                 <LinearLayout
+
                     android:layout_width="0dp"
+
                     android:layout_height="wrap_content"
+
                     android:layout_weight="1"
+
                     android:layout_marginStart="8dp"
+
                     android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ASTRBOT" android:textSize="10sp" android:textColor="@color/botdrop_secondary_text" />
-                    <TextView android:id="@+id/status_astrbot" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/botdrop_on_background" />
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="BOOTSTRAP" android:textSize="10sp" android:textColor="@color/rbot_secondary_text" />
+
+                    <TextView android:id="@+id/status_bootstrap" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/rbot_on_background" />
+
                 </LinearLayout>
-                <View android:id="@+id/dot_astrbot" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+
+                <View android:id="@+id/dot_bootstrap" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+
             </LinearLayout>
+
         </androidx.cardview.widget.CardView>
+
+
+
+        <androidx.cardview.widget.CardView
+
+            android:layout_width="0dp"
+
+            android:layout_height="wrap_content"
+
+            android:layout_weight="1"
+
+            android:layout_marginStart="6dp"
+
+            app:cardCornerRadius="8dp"
+
+            app:cardElevation="0dp"
+
+            app:cardBackgroundColor="@color/card_status_bg">
+
+            <LinearLayout
+
+                android:layout_width="match_parent"
+
+                android:layout_height="wrap_content"
+
+                android:orientation="horizontal"
+
+                android:gravity="center_vertical"
+
+                android:padding="10dp">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="🤖" android:textSize="16sp" />
+
+                <LinearLayout
+
+                    android:layout_width="0dp"
+
+                    android:layout_height="wrap_content"
+
+                    android:layout_weight="1"
+
+                    android:layout_marginStart="8dp"
+
+                    android:orientation="vertical">
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ASTRBOT" android:textSize="10sp" android:textColor="@color/rbot_secondary_text" />
+
+                    <TextView android:id="@+id/status_astrbot" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/rbot_on_background" />
+
+                </LinearLayout>
+
+                <View android:id="@+id/dot_astrbot" android:layout_width="8dp" android:layout_height="8dp" android:background="@drawable/ic_status_not_ready" />
+
+            </LinearLayout>
+
+        </androidx.cardview.widget.CardView>
+
+
 
     </LinearLayout>
+
+
 
     <!-- Control buttons -->
+
     <LinearLayout
+
         android:layout_width="match_parent"
+
         android:layout_height="wrap_content"
+
         android:orientation="horizontal"
+
         android:layout_marginBottom="12dp">
 
-        <Button
-            android:id="@+id/btn_start"
-            android:layout_width="0dp"
-            android:layout_height="44dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            android:text="启动"
-            android:textSize="14sp"
-            android:textStyle="bold"
-            android:textColor="@color/botdrop_accent"
-            android:background="@drawable/botdrop_button_outline_bg" />
+
 
         <Button
-            android:id="@+id/btn_stop"
+
+            android:id="@+id/btn_start"
+
             android:layout_width="0dp"
+
             android:layout_height="44dp"
+
             android:layout_weight="1"
-            android:layout_marginStart="6dp"
+
             android:layout_marginEnd="6dp"
-            android:text="停止"
+
+            android:text="启动"
+
             android:textSize="14sp"
+
             android:textStyle="bold"
-            android:textColor="@color/botdrop_accent"
-            android:background="@drawable/botdrop_button_outline_bg"
+
+            android:textColor="@color/rbot_accent"
+
+            android:background="@drawable/rbot_button_outline_bg" />
+
+
+
+        <Button
+
+            android:id="@+id/btn_stop"
+
+            android:layout_width="0dp"
+
+            android:layout_height="44dp"
+
+            android:layout_weight="1"
+
+            android:layout_marginStart="6dp"
+
+            android:layout_marginEnd="6dp"
+
+            android:text="停止"
+
+            android:textSize="14sp"
+
+            android:textStyle="bold"
+
+            android:textColor="@color/rbot_accent"
+
+            android:background="@drawable/rbot_button_outline_bg"
+
             android:enabled="false" />
 
+
+
         <Button
+
             android:id="@+id/btn_setup"
+
             android:layout_width="0dp"
+
             android:layout_height="44dp"
+
             android:layout_weight="1"
+
             android:layout_marginStart="6dp"
+
             android:text="📦 安装"
+
             android:textSize="14sp"
+
             android:textStyle="bold"
+
             android:textColor="#FFFFFF"
-            android:background="@drawable/botdrop_button_bg"
+
+            android:background="@drawable/rbot_button_bg"
+
             android:visibility="gone" />
 
+
+
     </LinearLayout>
+
+
 
     <!-- Backup/Restore buttons -->
+
     <LinearLayout
+
         android:layout_width="match_parent"
+
         android:layout_height="wrap_content"
+
         android:orientation="horizontal"
+
         android:layout_marginBottom="12dp">
 
-        <Button
-            android:id="@+id/btn_backup"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginEnd="6dp"
-            android:text="📦 备份数据"
-            android:textSize="13sp"
-            android:textColor="@color/botdrop_on_background"
-            android:background="@drawable/botdrop_button_outline_bg"
-            android:visibility="gone" />
+
 
         <Button
-            android:id="@+id/btn_restore"
+
+            android:id="@+id/btn_backup"
+
             android:layout_width="0dp"
+
             android:layout_height="40dp"
+
             android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:text="📂 导入备份"
+
+            android:layout_marginEnd="6dp"
+
+            android:text="📦 备份数据"
+
             android:textSize="13sp"
-            android:textColor="@color/botdrop_on_background"
-            android:background="@drawable/botdrop_button_outline_bg"
+
+            android:textColor="@color/rbot_on_background"
+
+            android:background="@drawable/rbot_button_outline_bg"
+
             android:visibility="gone" />
+
+
+
+        <Button
+
+            android:id="@+id/btn_restore"
+
+            android:layout_width="0dp"
+
+            android:layout_height="40dp"
+
+            android:layout_weight="1"
+
+            android:layout_marginStart="6dp"
+
+            android:text="📂 导入备份"
+
+            android:textSize="13sp"
+
+            android:textColor="@color/rbot_on_background"
+
+            android:background="@drawable/rbot_button_outline_bg"
+
+            android:visibility="gone" />
+
+
 
     </LinearLayout>
+
+
 
     <!-- WebUI panel — only visible when AstrBot is running -->
+
     <androidx.cardview.widget.CardView
+
         android:id="@+id/webui_panel"
+
         android:layout_width="match_parent"
+
         android:layout_height="wrap_content"
+
         android:layout_marginBottom="12dp"
+
         app:cardCornerRadius="8dp"
+
         app:cardElevation="2dp"
+
         app:cardBackgroundColor="#1E1E1E">
 
+
+
         <LinearLayout
+
             android:layout_width="match_parent"
+
             android:layout_height="wrap_content"
+
             android:orientation="horizontal"
+
             android:padding="12dp"
+
             android:gravity="center_vertical">
 
+
+
             <LinearLayout
+
                 android:layout_width="0dp"
+
                 android:layout_height="wrap_content"
+
                 android:layout_weight="1"
+
                 android:orientation="vertical">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="WebUI 管理面板"
-                    android:textSize="12sp"
-                    android:textColor="@color/botdrop_secondary_text" />
+
 
                 <TextView
-                    android:id="@+id/webui_url"
+
                     android:layout_width="wrap_content"
+
                     android:layout_height="wrap_content"
+
+                    android:text="WebUI 管理面板"
+
+                    android:textSize="12sp"
+
+                    android:textColor="@color/rbot_secondary_text" />
+
+
+
+                <TextView
+
+                    android:id="@+id/webui_url"
+
+                    android:layout_width="wrap_content"
+
+                    android:layout_height="wrap_content"
+
                     android:text="http://127.0.0.1:6185"
+
                     android:textSize="15sp"
-                    android:textColor="@color/botdrop_accent"
+
+                    android:textColor="@color/rbot_accent"
+
                     android:textStyle="bold"
+
                     android:layout_marginTop="2dp" />
 
+
+
             </LinearLayout>
+
+
 
             <Button
+
                 android:id="@+id/btn_open_webui"
+
                 android:layout_width="wrap_content"
+
                 android:layout_height="36dp"
+
                 android:text="打开"
+
                 android:textSize="13sp"
+
                 android:textColor="#FFFFFF"
-                android:background="@drawable/botdrop_button_green_bg"
+
+                android:background="@drawable/rbot_button_green_bg"
+
                 android:paddingStart="16dp"
+
                 android:paddingEnd="16dp" />
 
+
+
         </LinearLayout>
 
+
+
     </androidx.cardview.widget.CardView>
+
+
 
     <!-- SSH Info Panel — always visible after installation -->
+
     <androidx.cardview.widget.CardView
+
         android:id="@+id/ssh_info_panel"
+
         android:layout_width="match_parent"
+
         android:layout_height="wrap_content"
+
         android:layout_marginBottom="12dp"
+
         app:cardCornerRadius="8dp"
+
         app:cardElevation="2dp"
+
         app:cardBackgroundColor="#1E1E1E"
+
         android:visibility="gone">
 
+
+
         <LinearLayout
+
             android:layout_width="match_parent"
+
             android:layout_height="wrap_content"
+
             android:orientation="vertical"
+
             android:padding="12dp">
 
+
+
             <LinearLayout
+
                 android:layout_width="match_parent"
+
                 android:layout_height="wrap_content"
+
                 android:orientation="horizontal"
+
                 android:gravity="center_vertical">
 
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="SSH 终端访问"
-                    android:textSize="12sp"
-                    android:textColor="@color/botdrop_secondary_text" />
+
 
                 <TextView
-                    android:id="@+id/ssh_status"
-                    android:layout_width="wrap_content"
+
+                    android:layout_width="0dp"
+
                     android:layout_height="wrap_content"
-                    android:text="已停止"
+
+                    android:layout_weight="1"
+
+                    android:text="SSH 终端访问"
+
                     android:textSize="12sp"
+
+                    android:textColor="@color/rbot_secondary_text" />
+
+
+
+                <TextView
+
+                    android:id="@+id/ssh_status"
+
+                    android:layout_width="wrap_content"
+
+                    android:layout_height="wrap_content"
+
+                    android:text="已停止"
+
+                    android:textSize="12sp"
+
                     android:textColor="#FF6B6B" />
 
+
+
             </LinearLayout>
 
+
+
             <LinearLayout
+
                 android:layout_width="match_parent"
+
                 android:layout_height="wrap_content"
+
                 android:orientation="horizontal"
+
                 android:layout_marginTop="8dp">
 
+
+
                 <TextView
+
                     android:id="@+id/ssh_info"
+
                     android:layout_width="0dp"
+
                     android:layout_height="wrap_content"
+
                     android:layout_weight="1"
+
                     android:text="192.168.1.100:22"
+
                     android:textSize="15sp"
-                    android:textColor="@color/botdrop_accent"
+
+                    android:textColor="@color/rbot_accent"
+
                     android:textStyle="bold" />
 
+
+
                 <Button
+
                     android:id="@+id/btn_ssh_toggle"
+
                     android:layout_width="wrap_content"
+
                     android:layout_height="32dp"
+
                     android:text="启动 SSH"
+
                     android:textSize="12sp"
+
                     android:textColor="#FFFFFF"
-                    android:background="@drawable/botdrop_button_green_bg"
+
+                    android:background="@drawable/rbot_button_green_bg"
+
                     android:paddingStart="12dp"
+
                     android:paddingEnd="12dp" />
 
+
+
             </LinearLayout>
+
+
 
             <LinearLayout
+
                 android:layout_width="match_parent"
+
                 android:layout_height="wrap_content"
+
                 android:orientation="horizontal"
+
                 android:layout_marginTop="6dp">
 
+
+
                 <TextView
+
                     android:layout_width="wrap_content"
+
                     android:layout_height="wrap_content"
+
                     android:text="用户名: root"
+
                     android:textSize="12sp"
+
                     android:textColor="#909090" />
+
+
 
                 <View
+
                     android:layout_width="16dp"
+
                     android:layout_height="0dp" />
 
+
+
                 <TextView
+
                     android:id="@+id/ssh_password"
+
                     android:layout_width="wrap_content"
+
                     android:layout_height="wrap_content"
+
                     android:text="密码: (未设置)"
+
                     android:textSize="12sp"
+
                     android:textColor="#909090" />
 
+
+
             </LinearLayout>
+
+
 
         </LinearLayout>
 
+
+
     </androidx.cardview.widget.CardView>
 
+
+
     <!-- Bottom navigation buttons — BotPocket style -->
+
     <LinearLayout
+
         android:layout_width="match_parent"
+
         android:layout_height="wrap_content"
+
         android:orientation="horizontal"
+
         android:layout_marginTop="8dp">
 
+
+
         <Button
+
             android:id="@+id/btn_nav_home"
+
             android:layout_width="0dp"
+
             android:layout_height="40dp"
+
             android:layout_weight="1"
+
             android:layout_marginEnd="4dp"
+
             android:text="🏠 首页"
+
             android:textSize="13sp"
+
             android:textColor="#FFFFFF"
-            android:background="@drawable/botdrop_button_green_bg" />
+
+            android:background="@drawable/rbot_button_green_bg" />
+
+
 
         <Button
+
             android:id="@+id/btn_nav_log"
+
             android:layout_width="0dp"
+
             android:layout_height="40dp"
+
             android:layout_weight="1"
+
             android:layout_marginStart="4dp"
+
             android:layout_marginEnd="4dp"
+
             android:text="📋 日志"
+
             android:textSize="13sp"
-            android:textColor="@color/botdrop_accent"
-            android:background="@drawable/botdrop_button_outline_bg" />
+
+            android:textColor="@color/rbot_accent"
+
+            android:background="@drawable/rbot_button_outline_bg" />
+
+
 
         <Button
+
             android:id="@+id/btn_nav_settings"
+
+            android:layout_width="0dp"
+
+            android:layout_height="40dp"
+
+            android:layout_weight="1"
+
+            android:layout_marginStart="4dp"
+
+            android:layout_marginEnd="4dp"
+
+            android:text="⚙️ 设置"
+
+            android:textSize="13sp"
+
+            android:textColor="@color/rbot_accent"
+
+            android:background="@drawable/rbot_button_outline_bg" />
+
+
+
+        <Button
+            android:id="@+id/btn_nav_manage"
             android:layout_width="0dp"
             android:layout_height="40dp"
             android:layout_weight="1"
             android:layout_marginStart="4dp"
             android:layout_marginEnd="4dp"
-            android:text="⚙️ 设置"
+            android:text="🤖 管理"
             android:textSize="13sp"
-            android:textColor="@color/botdrop_accent"
-            android:background="@drawable/botdrop_button_outline_bg" />
+            android:textColor="@color/rbot_accent"
+            android:background="@drawable/rbot_button_outline_bg" />
 
         <Button
+
             android:id="@+id/btn_nav_permissions"
+
             android:layout_width="0dp"
+
             android:layout_height="40dp"
+
             android:layout_weight="1"
+
             android:layout_marginStart="4dp"
+
             android:text="🔐 权限"
+
             android:textSize="13sp"
-            android:textColor="@color/botdrop_accent"
-            android:background="@drawable/botdrop_button_outline_bg" />
+
+            android:textColor="@color/rbot_accent"
+
+            android:background="@drawable/rbot_button_outline_bg" />
+
+
 
     </LinearLayout>
 
+
+
 </LinearLayout>
+

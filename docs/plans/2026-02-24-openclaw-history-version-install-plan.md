@@ -3,14 +3,14 @@
 **Goal:** 在设置页的 OpenClaw 卡片中支持历史版本安装与切换，避免每次点击都请求网络，满足“安装历史版本、优先打开已安装版本”的需求。
 
 **Architecture:**
-- 采用 `AgentSelectionFragment` + `AlertDialog` 列表弹窗 + `BotDropService` 既有更新链路。
-- 安装/更新动作统一走 `BotDropService.updateOpenclaw(targetVersion)`。
+- 采用 `AgentSelectionFragment` + `AlertDialog` 列表弹窗 + `RbotService` 既有更新链路。
+- 安装/更新动作统一走 `RbotService.updateOpenclaw(targetVersion)`。
 - 版本来源通过 shell 调用 `npm view openclaw versions --json`，优先读取本地缓存（TTL 1小时），缓存过期才重新请求。
 - 列表按稳定版过滤（排除 `latest`/含 `-` `/`+`）并取最近 20 条。
 
 **Tech Stack:**
 - Java (Android)
-- `AgentSelectionFragment`、`BotDropService`
+- `AgentSelectionFragment`、`RbotService`
 - SharedPreferences（仅用于保存最近一次手动选择结果，可选）
 - 缓存：SharedPreferences（版本列表与时间戳）
 
@@ -39,8 +39,8 @@
 ### Task 1：入口与交互（AgentSelection）
 
 **Files:**
-- `app/src/main/res/layout/fragment_botdrop_agent_select.xml`
-- `app/src/main/java/app/botdrop/AgentSelectionFragment.java`
+- `app/src/main/res/layout/fragment_rbot_agent_select.xml`
+- `app/src/main/java/app/rbot/AgentSelectionFragment.java`
 
 - [x] 将“版本管理”入口从正文按钮区下沉为卡片右上角次要入口（更不抢眼）。
 - [x] 版本按钮缩小（非主操作尺寸）。
@@ -52,7 +52,7 @@
 ### Task 2：版本列表能力
 
 **Files:**
-- `app/src/main/java/app/botdrop/AgentSelectionFragment.java`
+- `app/src/main/java/app/rbot/AgentSelectionFragment.java`
 
 - [x] `fetchOpenclawVersions()` 调用 `npm view openclaw versions --json`。
 - [x] 支持 JSON 数组和文本兜底解析，过滤非稳定版（`-`/`+`）并去重。
@@ -61,7 +61,7 @@
 ### Task 3：版本列表缓存（加速）
 
 **Files:**
-- `app/src/main/java/app/botdrop/AgentSelectionFragment.java`
+- `app/src/main/java/app/rbot/AgentSelectionFragment.java`
 
 - [x] 新增 SharedPreferences 版本缓存：
   - `KEY_OPENCLAW_VERSION_CACHE`
@@ -77,9 +77,9 @@
 
 ## 变更清单（本轮）
 
-- [x] `app/src/main/res/layout/fragment_botdrop_agent_select.xml`
+- [x] `app/src/main/res/layout/fragment_rbot_agent_select.xml`
   - 入口位置从同行按钮改为卡片右上角。
   - 版本按钮尺寸缩小。
-- [x] `app/src/main/java/app/botdrop/AgentSelectionFragment.java`
+- [x] `app/src/main/java/app/rbot/AgentSelectionFragment.java`
   - 版本列表逻辑迁移并完成缓存、排序、过滤。
   - 点击后分流到打开/安装/更新。

@@ -54,7 +54,7 @@ public class ShizukuShellLoader {
         data.putBinder("binder", receiverBinder);
 
         Intent intent = new Intent("rikka.shizuku.intent.action.REQUEST_BINDER")
-                .setPackage("app.botdrop")
+                .setPackage("app.rbot")
                 .addFlags(Intent.FLAG_INCLUDE_STOPPED_PACKAGES)
                 .putExtra("data", data);
 

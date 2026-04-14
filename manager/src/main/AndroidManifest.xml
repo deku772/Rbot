@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -24,19 +24,19 @@
         android:label="@string/permission_group_label" />
 
     <permission
-        android:name="app.botdrop.permission.MANAGER"
+        android:name="app.Rbot.permission.MANAGER"
         android:protectionLevel="signature" />
-    <uses-permission android:name="app.botdrop.permission.MANAGER" />
+    <uses-permission android:name="app.Rbot.permission.MANAGER" />
 
     <permission
-        android:name="app.botdrop.permission.API_V23"
+        android:name="app.Rbot.permission.API_V23"
         android:description="@string/permission_description"
         android:icon="@drawable/ic_system_icon"
         android:label="@string/permission_label"
         android:permissionGroup="moe.shizuku.manager.permission-group.API"
         android:protectionLevel="dangerous" />
     <uses-permission
-        android:name="app.botdrop.permission.API_V23"
+        android:name="app.Rbot.permission.API_V23"
         tools:node="remove" />
 
     <application
@@ -64,7 +64,7 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 
-                <!-- Launcher entry disabled: BotDrop uses a single launcher icon (BotDropLauncherActivity) -->
+                <!-- Launcher entry disabled: Rbot uses a single launcher icon (RbotLauncherActivity) -->
                 <!-- <category android:name="android.intent.category.LAUNCHER" /> -->
 
                 <!-- 2023.08.03: Google play enforces that apps with LEANBACK_LAUNCHER Activity must be uploaded with App Bundle format, -->
@@ -106,7 +106,7 @@
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL"
             android:theme="@style/GrantPermissions">
             <intent-filter>
-                <action android:name="app.botdrop.intent.action.REQUEST_PERMISSION" />
+                <action android:name="app.Rbot.intent.action.REQUEST_PERMISSION" />
 
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
@@ -127,10 +127,10 @@
             android:name=".legacy.LegacyIsNotSupportedActivity"
             android:excludeFromRecents="true"
             android:exported="true"
-            android:permission="app.botdrop.permission.API_V23"
+            android:permission="app.Rbot.permission.API_V23"
             android:theme="@style/GrantPermissions">
             <intent-filter>
-                <action android:name="app.botdrop.intent.action.REQUEST_AUTHORIZATION" />
+                <action android:name="app.Rbot.intent.action.REQUEST_AUTHORIZATION" />
 
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>

@@ -204,8 +204,8 @@ public class GatewayMonitorService extends Service {
         PendingIntent pi = PendingIntent.getActivity(this, 101, openIntent, flags);
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(this, UPDATE_NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(getString(R.string.botdrop_update_title))
-            .setContentText(getString(R.string.botdrop_new_version_detected, latestVersion))
+            .setContentTitle(getString(R.string.rbot_update_title))
+            .setContentText(getString(R.string.rbot_new_version_detected, latestVersion))
             .setSmallIcon(R.drawable.ic_service_notification)
             .setContentIntent(pi)
             .setAutoCancel(true)
@@ -349,9 +349,9 @@ public class GatewayMonitorService extends Service {
         // Update channel
         NotificationChannel updateChannel = new NotificationChannel(
             UPDATE_NOTIFICATION_CHANNEL_ID,
-            getString(R.string.botdrop_update_channel_name),
+            getString(R.string.rbot_update_channel_name),
             NotificationManager.IMPORTANCE_DEFAULT);
-        updateChannel.setDescription(getString(R.string.botdrop_update_channel_description));
+        updateChannel.setDescription(getString(R.string.rbot_update_channel_description));
         manager.createNotificationChannel(updateChannel);
     }
 

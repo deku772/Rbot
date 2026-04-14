@@ -26,18 +26,18 @@ import android.util.Log;
 /**
  * Launcher activity with two phases:
  *
- * Phase 1 (Welcome): Guided permission requests — root access, notification,
+ * Phase 1 (Welcome): Guided permission requests 鈥?root access, notification,
  * battery optimization, storage access.
  *
  * Phase 2 (Loading): Routes to the appropriate screen:
- * 1. No root access → Show error
- * 2. Rootfs not extracted → SetupActivity (install step)
- * 3. AstrBot not installed → SetupActivity (install step)
- * 4. All ready → MainActivity
+ * 1. No root access 鈫?Show error
+ * 2. Rootfs not extracted 鈫?SetupActivity (install step)
+ * 3. AstrBot not installed 鈫?SetupActivity (install step)
+ * 4. All ready 鈫?MainActivity
  */
-public class RbotLauncherActivity extends Activity {
+public class RbotActivity extends Activity {
 
-    private static final String TAG = "RbotLauncherActivity";
+    private static final String TAG = "RbotActivity";
     private static final int REQUEST_CODE_NOTIFICATION_SETTINGS = 1001;
     private static final int REQUEST_CODE_BATTERY_OPTIMIZATION = 1002;
     private static final int REQUEST_CODE_ALL_FILES_ACCESS = 1003;
@@ -64,7 +64,7 @@ public class RbotLauncherActivity extends Activity {
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_botdrop_launcher);
+        setContentView(R.layout.activity_rbot_launcher);
 
         mWelcomeContainer = findViewById(R.id.welcome_container);
         mLoadingContainer = findViewById(R.id.loading_container);
@@ -254,37 +254,37 @@ public class RbotLauncherActivity extends Activity {
         boolean storageGranted = isStoragePermissionGranted();
 
         if (notifGranted) {
-            mNotificationStatus.setText("✓");
+            mNotificationStatus.setText("\u2705");
             mNotificationStatus.setVisibility(View.VISIBLE);
             mNotificationButton.setEnabled(false);
-            mNotificationButton.setText(R.string.botdrop_enabled);
+            mNotificationButton.setText(R.string.rbot_enabled);
         } else {
             mNotificationStatus.setVisibility(View.GONE);
             mNotificationButton.setEnabled(true);
-            mNotificationButton.setText(R.string.botdrop_allow);
+            mNotificationButton.setText(R.string.rbot_allow);
         }
 
         if (batteryExempt) {
-            mBatteryStatus.setText("✓");
+            mBatteryStatus.setText("\u2705");
             mBatteryStatus.setVisibility(View.VISIBLE);
             mBatteryButton.setEnabled(false);
-            mBatteryButton.setText(R.string.botdrop_granted);
+            mBatteryButton.setText(R.string.rbot_granted);
         } else {
             mBatteryStatus.setVisibility(View.GONE);
             mBatteryButton.setEnabled(true);
-            mBatteryButton.setText(R.string.botdrop_allow);
+            mBatteryButton.setText(R.string.rbot_allow);
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             mStorageButton.setVisibility(View.VISIBLE);
             mStorageStatus.setVisibility(storageGranted ? View.VISIBLE : View.GONE);
             if (storageGranted) {
-                mStorageStatus.setText("✓");
+                mStorageStatus.setText("\u2705");
                 mStorageButton.setEnabled(false);
-                mStorageButton.setText(R.string.botdrop_granted);
+                mStorageButton.setText(R.string.rbot_granted);
             } else {
                 mStorageButton.setEnabled(true);
-                mStorageButton.setText(R.string.botdrop_allow);
+                mStorageButton.setText(R.string.rbot_allow);
             }
         } else {
             mStorageButton.setVisibility(View.GONE);
@@ -297,11 +297,11 @@ public class RbotLauncherActivity extends Activity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             int backgroundStatus = getRestrictBackgroundStatus();
             if (backgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_ENABLED) {
-                mBackgroundHintText.setText(R.string.botdrop_background_data_restricted);
+                mBackgroundHintText.setText(R.string.rbot_background_data_restricted);
             } else if (backgroundStatus == ConnectivityManager.RESTRICT_BACKGROUND_STATUS_WHITELISTED) {
-                mBackgroundHintText.setText(R.string.botdrop_background_data_allowed);
+                mBackgroundHintText.setText(R.string.rbot_background_data_allowed);
             } else {
-                mBackgroundHintText.setText(R.string.botdrop_background_data_hint);
+                mBackgroundHintText.setText(R.string.rbot_background_data_hint);
             }
         }
 
@@ -314,14 +314,14 @@ public class RbotLauncherActivity extends Activity {
         // Check 1: Root available?
         if (!ChrootManager.isRootAvailable()) {
             Log.w(TAG, "Root not available");
-            mStatusText.setText("需要 Root 权限才能运行 Rbot");
+            mStatusText.setText("\u9700\u8981 Root \u6743\u9650\u624d\u80fd\u8fd0\u884c Rbot");
             return;
         }
 
         // Check 2: Rootfs extracted?
         if (!ChrootManager.isRootfsReady()) {
             Log.i(TAG, "Rootfs not ready, routing to setup");
-            mStatusText.setText(R.string.botdrop_setup_required);
+            mStatusText.setText(R.string.rbot_setup_required);
             Intent intent = new Intent(this, SetupActivity.class);
             intent.putExtra(SetupActivity.EXTRA_START_STEP, SetupActivity.STEP_INSTALL);
             startActivity(intent);
@@ -329,10 +329,11 @@ public class RbotLauncherActivity extends Activity {
             return;
         }
 
-        // Check 3: AstrBot installed?
-        if (!ChrootManager.isAstrBotInstalled()) {
-            Log.i(TAG, "AstrBot not installed, routing to setup");
-            mStatusText.setText(R.string.botdrop_setup_required);
+        // Check 3: Active bot installed?
+        BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+        if (!activeBot.isInstalled()) {
+            Log.i(TAG, activeBot.getName() + " not installed, routing to setup");
+            mStatusText.setText(R.string.rbot_setup_required);
             Intent intent = new Intent(this, SetupActivity.class);
             intent.putExtra(SetupActivity.EXTRA_START_STEP, SetupActivity.STEP_INSTALL);
             startActivity(intent);
@@ -340,10 +341,15 @@ public class RbotLauncherActivity extends Activity {
             return;
         }
 
-        // All ready — go to main
-        Log.i(TAG, "All ready, routing to main");
-        mStatusText.setText(R.string.botdrop_starting_status);
-        Intent intent = new Intent(this, MainActivity.class);
+        // All ready — route to the active bot's management panel
+        Log.i(TAG, "All ready, routing to " + activeBot.getName() + " panel");
+        mStatusText.setText(R.string.rbot_starting_status);
+        Intent intent;
+        if (activeBot.getId().equals(BotAdapter.ID_HERMES)) {
+            intent = new Intent(this, HermesManagementActivity.class);
+        } else {
+            intent = new Intent(this, MainActivity.class);
+        }
         startActivity(intent);
         finish();
     }

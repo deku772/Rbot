@@ -14,8 +14,8 @@
 
 **Files:**
 - Modify: `app/build.gradle`
-- Create: `app/src/main/java/app/botdrop/BundledOpenclawUtils.java`
-- Test: `app/src/test/java/app/botdrop/BundledOpenclawUtilsTest.java`
+- Create: `app/src/main/java/app/rbot/BundledOpenclawUtils.java`
+- Test: `app/src/test/java/app/rbot/BundledOpenclawUtilsTest.java`
 
 **Step 1: Write the failing tests**
 
@@ -26,7 +26,7 @@ Add tests for:
 
 **Step 2: Run test to verify it fails**
 
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.BundledOpenclawUtilsTest --no-daemon`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.BundledOpenclawUtilsTest --no-daemon`
 
 Expected: FAIL because `BundledOpenclawUtils` does not exist yet.
 
@@ -35,7 +35,7 @@ Expected: FAIL because `BundledOpenclawUtils` does not exist yet.
 Implement `BundledOpenclawUtils` with:
 - asset path constants for offline bundle manifest, runtime tarball, and QQ plugin payload
 - manifest parser using `AssetManager`
-- helpers for bundled-version checks and target paths under `$PREFIX/share/botdrop/offline-openclaw`
+- helpers for bundled-version checks and target paths under `$PREFIX/share/rbot/offline-openclaw`
 
 Update `app/build.gradle` to:
 - add a generated assets directory under `build/generated/assets/offlineOpenclaw`
@@ -48,14 +48,14 @@ Update `app/build.gradle` to:
 
 **Step 4: Run tests to verify they pass**
 
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.BundledOpenclawUtilsTest --no-daemon`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.BundledOpenclawUtilsTest --no-daemon`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add app/build.gradle app/src/main/java/app/botdrop/BundledOpenclawUtils.java app/src/test/java/app/botdrop/BundledOpenclawUtilsTest.java
+git add app/build.gradle app/src/main/java/app/rbot/BundledOpenclawUtils.java app/src/test/java/app/rbot/BundledOpenclawUtilsTest.java
 git commit -m "feat: add generated offline openclaw assets"
 ```
 
@@ -63,10 +63,10 @@ git commit -m "feat: add generated offline openclaw assets"
 
 **Files:**
 - Modify: `app/src/main/java/com/termux/app/TermuxInstaller.java`
-- Modify: `app/src/main/java/app/botdrop/BotDropService.java`
-- Modify: `app/src/main/java/app/botdrop/AgentSelectionFragment.java`
-- Test: `app/src/test/java/app/botdrop/BotDropServiceTest.java`
-- Test: `app/src/test/java/app/botdrop/OpenclawVersionUtilsTest.java`
+- Modify: `app/src/main/java/app/rbot/RbotService.java`
+- Modify: `app/src/main/java/app/rbot/AgentSelectionFragment.java`
+- Test: `app/src/test/java/app/rbot/RbotServiceTest.java`
+- Test: `app/src/test/java/app/rbot/OpenclawVersionUtilsTest.java`
 
 **Step 1: Write the failing tests**
 
@@ -81,8 +81,8 @@ Run:
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests app.botdrop.BotDropServiceTest \
-  --tests app.botdrop.OpenclawVersionUtilsTest \
+  --tests app.rbot.RbotServiceTest \
+  --tests app.rbot.OpenclawVersionUtilsTest \
   --no-daemon
 ```
 
@@ -91,15 +91,15 @@ Expected: FAIL on missing offline install behavior.
 **Step 3: Write minimal implementation**
 
 Change the install/update pipeline to:
-- stage bundled assets from APK assets to `$PREFIX/share/botdrop/offline-openclaw`
+- stage bundled assets from APK assets to `$PREFIX/share/rbot/offline-openclaw`
 - generate `install.sh` with an offline branch that:
   - extracts the runtime archive into a stable versioned runtime directory
   - installs or verifies `sharp-node-addon` from apt only
   - recreates the Android wrapper pointing at the bundled runtime root
   - deploys QQ plugin files into `~/.openclaw/extensions/qqbot`
   - patches `koffi` only if the bundle still ships it
-- make `BotDropService.installOpenclaw()` refresh scripts and stage assets before executing the script
-- make `BotDropService.updateOpenclaw()` reuse the same offline staged bundle when the bundled version is selected
+- make `RbotService.installOpenclaw()` refresh scripts and stage assets before executing the script
+- make `RbotService.updateOpenclaw()` reuse the same offline staged bundle when the bundled version is selected
 - make `AgentSelectionFragment` default “latest” installs to the bundled version when bundled assets exist
 
 **Step 4: Run tests to verify they pass**
@@ -108,8 +108,8 @@ Run:
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests app.botdrop.BotDropServiceTest \
-  --tests app.botdrop.OpenclawVersionUtilsTest \
+  --tests app.rbot.RbotServiceTest \
+  --tests app.rbot.OpenclawVersionUtilsTest \
   --no-daemon
 ```
 
@@ -118,16 +118,16 @@ Expected: PASS
 **Step 5: Commit**
 
 ```bash
-git add app/src/main/java/com/termux/app/TermuxInstaller.java app/src/main/java/app/botdrop/BotDropService.java app/src/main/java/app/botdrop/AgentSelectionFragment.java app/src/test/java/app/botdrop/BotDropServiceTest.java app/src/test/java/app/botdrop/OpenclawVersionUtilsTest.java
+git add app/src/main/java/com/termux/app/TermuxInstaller.java app/src/main/java/app/rbot/RbotService.java app/src/main/java/app/rbot/AgentSelectionFragment.java app/src/test/java/app/rbot/RbotServiceTest.java app/src/test/java/app/rbot/OpenclawVersionUtilsTest.java
 git commit -m "feat: install bundled openclaw runtime offline"
 ```
 
 ### Task 3: Remove QQ plugin’s runtime online install dependency
 
 **Files:**
-- Modify: `app/src/main/java/app/botdrop/ChannelFormFragment.java`
-- Modify: `app/src/main/java/app/botdrop/ChannelSetupHelper.java` (if install metadata is needed)
-- Test: `app/src/test/java/app/botdrop/ChannelSetupHelperTest.java`
+- Modify: `app/src/main/java/app/rbot/ChannelFormFragment.java`
+- Modify: `app/src/main/java/app/rbot/ChannelSetupHelper.java` (if install metadata is needed)
+- Test: `app/src/test/java/app/rbot/ChannelSetupHelperTest.java`
 
 **Step 1: Write the failing tests**
 
@@ -137,7 +137,7 @@ Add tests for:
 
 **Step 2: Run test to verify it fails**
 
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.ChannelSetupHelperTest --no-daemon`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.ChannelSetupHelperTest --no-daemon`
 
 Expected: FAIL because the code still expects `openclaw plugins install @sliverp/qqbot@latest`.
 
@@ -150,14 +150,14 @@ Update QQ channel setup to:
 
 **Step 4: Run tests to verify they pass**
 
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.ChannelSetupHelperTest --no-daemon`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.ChannelSetupHelperTest --no-daemon`
 
 Expected: PASS
 
 **Step 5: Commit**
 
 ```bash
-git add app/src/main/java/app/botdrop/ChannelFormFragment.java app/src/main/java/app/botdrop/ChannelSetupHelper.java app/src/test/java/app/botdrop/ChannelSetupHelperTest.java
+git add app/src/main/java/app/rbot/ChannelFormFragment.java app/src/main/java/app/rbot/ChannelSetupHelper.java app/src/test/java/app/rbot/ChannelSetupHelperTest.java
 git commit -m "feat: prebundle qq plugin for offline install"
 ```
 
@@ -183,8 +183,8 @@ Expected: APK includes generated offline assets and installs on device.
 Run:
 
 ```bash
-adb shell run-as app.botdrop ls -R files/usr/share/botdrop/offline-openclaw
-adb shell logcat -d -v time | grep -E 'BundledOpenclaw|BotDrop\\.TermuxInstaller|BotDrop\\.BotDropService|qqbot'
+adb shell run-as app.rbot ls -R files/usr/share/rbot/offline-openclaw
+adb shell logcat -d -v time | grep -E 'BundledOpenclaw|Rbot\\.TermuxInstaller|Rbot\\.RbotService|qqbot'
 ```
 
 Expected:
@@ -198,10 +198,10 @@ Run:
 
 ```bash
 ./gradlew :app:testDebugUnitTest \
-  --tests app.botdrop.BundledOpenclawUtilsTest \
-  --tests app.botdrop.BotDropServiceTest \
-  --tests app.botdrop.OpenclawVersionUtilsTest \
-  --tests app.botdrop.ChannelSetupHelperTest \
+  --tests app.rbot.BundledOpenclawUtilsTest \
+  --tests app.rbot.RbotServiceTest \
+  --tests app.rbot.OpenclawVersionUtilsTest \
+  --tests app.rbot.ChannelSetupHelperTest \
   --no-daemon
 ```
 

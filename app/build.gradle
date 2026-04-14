@@ -38,7 +38,7 @@ android {
         // Auto-increment version code based on local build counter
         versionCode computedVersionCode
         // Version name: MAJOR.MINOR.BUILD_NUMBER
-        versionName "1.1.0"
+        versionName "1.1.1"
 
         manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.rbot"
         manifestPlaceholders.TERMUX_APP_NAME = "Rbot"

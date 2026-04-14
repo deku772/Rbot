@@ -53,7 +53,7 @@
 
         <!-- Launcher -->
         <activity
-            android:name="app.rbot.RbotLauncherActivity"
+            android:name="app.rbot.MainActivity"
             android:exported="true"
             android:screenOrientation="portrait"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar">
@@ -70,13 +70,6 @@
             android:exported="false"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|keyboardHidden"
-            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
-
-        <!-- Main screen: status + start/stop + logs -->
-        <activity
-            android:name="app.rbot.MainActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"
             android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
 
         <!-- Settings page: environment management, backup/restore, danger zone -->

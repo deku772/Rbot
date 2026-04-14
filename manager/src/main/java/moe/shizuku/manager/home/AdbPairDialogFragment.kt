@@ -27,7 +27,7 @@ import moe.shizuku.manager.R
 import moe.shizuku.manager.ShizukuSettings
 import moe.shizuku.manager.adb.*
 import moe.shizuku.manager.databinding.AdbPairDialogBinding
-import moe.shizuku.manager.utils.BotDropAnalytics
+import moe.shizuku.manager.utils.RbotAnalytics
 import rikka.lifecycle.viewModels
 import java.net.ConnectException
 
@@ -40,7 +40,7 @@ class AdbPairDialogFragment : DialogFragment() {
 
     override fun onCreateDialog(savedInstanceState: Bundle?): Dialog {
         val context = requireContext()
-        BotDropAnalytics.logEvent(context, "automation_shizuku_pair_dialog_shown")
+        RbotAnalytics.logEvent(context, "automation_shizuku_pair_dialog_shown")
         binding = AdbPairDialogBinding.inflate(LayoutInflater.from(context))
 
         val builder = MaterialAlertDialogBuilder(context).apply {
@@ -66,7 +66,7 @@ class AdbPairDialogFragment : DialogFragment() {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).isVisible = false
 
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
-            BotDropAnalytics.logEvent(it.context, "automation_shizuku_pair_settings_tap")
+            RbotAnalytics.logEvent(it.context, "automation_shizuku_pair_settings_tap")
             val intent = Intent(Settings.ACTION_APPLICATION_DEVELOPMENT_SETTINGS)
             intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             intent.putExtra(":settings:fragment_args_key", "toggle_adb_wireless")
@@ -91,7 +91,7 @@ class AdbPairDialogFragment : DialogFragment() {
 
             val password = binding.pairingCode.editText!!.text.toString()
 
-            BotDropAnalytics.logEvent(context, "automation_shizuku_pair_submit")
+            RbotAnalytics.logEvent(context, "automation_shizuku_pair_submit")
             viewModel.run(port, password)
         }
 
@@ -194,15 +194,15 @@ private class ViewModel(context: Context) : androidx.lifecycle.ViewModel() {
             AdbPairingClient(host, port, password, key).runCatching {
                 start()
             }.onFailure {
-                BotDropAnalytics.logEvent(appContext, "automation_shizuku_pair_failed", "reason", mapPairingFailure(it))
+                RbotAnalytics.logEvent(appContext, "automation_shizuku_pair_failed", "reason", mapPairingFailure(it))
                 _result.postValue(it)
                 it.printStackTrace()
             }.onSuccess {
                 if (it) {
-                    BotDropAnalytics.logEvent(appContext, "automation_shizuku_pair_completed")
+                    RbotAnalytics.logEvent(appContext, "automation_shizuku_pair_completed")
                     _result.postValue(null)
                 } else {
-                    BotDropAnalytics.logEvent(appContext, "automation_shizuku_pair_failed", "reason", "unknown")
+                    RbotAnalytics.logEvent(appContext, "automation_shizuku_pair_failed", "reason", "unknown")
                 }
             }
         }

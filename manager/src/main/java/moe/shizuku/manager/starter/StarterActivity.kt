@@ -20,7 +20,7 @@ import moe.shizuku.manager.adb.AdbKeyException
 import moe.shizuku.manager.adb.PreferenceAdbKeyStore
 import moe.shizuku.manager.app.AppBarActivity
 import moe.shizuku.manager.databinding.StarterActivityBinding
-import moe.shizuku.manager.utils.BotDropAnalytics
+import moe.shizuku.manager.utils.RbotAnalytics
 import rikka.lifecycle.Resource
 import rikka.lifecycle.Status
 import rikka.lifecycle.viewModels
@@ -51,7 +51,7 @@ class StarterActivity : AppBarActivity() {
 
         val binding = StarterActivityBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        BotDropAnalytics.logScreen(this, "automation_shizuku_starter", "StarterActivity")
+        RbotAnalytics.logScreen(this, "automation_shizuku_starter", "StarterActivity")
 
         viewModel.output.observe(this) {
             val output = it.data!!.trim()
@@ -64,7 +64,7 @@ class StarterActivity : AppBarActivity() {
                         Shizuku.removeBinderReceivedListener(this)
                         if (!analyticsCompletionLogged) {
                             analyticsCompletionLogged = true
-                            BotDropAnalytics.logEvent(this@StarterActivity, "automation_shizuku_start_completed", "source", getAnalyticsSource())
+                            RbotAnalytics.logEvent(this@StarterActivity, "automation_shizuku_start_completed", "source", getAnalyticsSource())
                         }
                         viewModel.appendOutput("Service started, this window will be automatically closed in 3 seconds")
 
@@ -76,7 +76,7 @@ class StarterActivity : AppBarActivity() {
             } else if (it.status == Status.ERROR) {
                 if (!analyticsCompletionLogged) {
                     analyticsCompletionLogged = true
-                    BotDropAnalytics.logEvent(this, "automation_shizuku_start_failed", "reason", mapStartFailure(it.error))
+                    RbotAnalytics.logEvent(this, "automation_shizuku_start_failed", "reason", mapStartFailure(it.error))
                 }
                 var message = 0
                 when (it.error) {
@@ -137,7 +137,7 @@ private class ViewModel(context: Context, root: Boolean, host: String?, port: In
 
     init {
         try {
-            BotDropAnalytics.logEvent(context, "automation_shizuku_start_started", "source", if (root) "root" else "wireless")
+            RbotAnalytics.logEvent(context, "automation_shizuku_start_started", "source", if (root) "root" else "wireless")
             if (root) {
                 startRoot()
             } else {

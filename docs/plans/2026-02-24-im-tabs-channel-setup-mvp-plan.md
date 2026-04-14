@@ -13,8 +13,8 @@
 **Status:** ✅ 已实现 Feishu 专用解码与 `writeFeishuChannelConfig` 写入路径；已按当前实现补齐单测断言与覆盖面，不依赖 `writeChannelConfig("feishu", ...)` 分支。
 
 **Files:**
-- `app/src/main/java/app/botdrop/ChannelSetupHelper.java`
-- `app/src/test/java/app/botdrop/ChannelSetupHelperTest.java`
+- `app/src/main/java/app/rbot/ChannelSetupHelper.java`
+- `app/src/test/java/app/rbot/ChannelSetupHelperTest.java`
 
 **Step 1: 写失败测试（新增）**
 - 在 `ChannelSetupHelperTest` 增加三条测试：
@@ -32,7 +32,7 @@ public void testDecodeSetupCode_validFeishu_decodesCorrectly() {
 ```
 
 **Step 2: 运行测试（失败）**
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.ChannelSetupHelperTest`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.ChannelSetupHelperTest`
 Expected: fail because `decodeSetupCode` 未识别 `feishu`/`fs`，`writeChannelConfig` 未支持 `feishu`。
 
 **Step 3: 实现最小改动（最小可打通）**
@@ -43,21 +43,21 @@ Expected: fail because `decodeSetupCode` 未识别 `feishu`/`fs`，`writeChannel
 - 更新 `plugins.entries` 对应 `feishu` 开关。
 
 **Step 4: 运行测试（通过）**
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.ChannelSetupHelperTest`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.ChannelSetupHelperTest`
 Expected: 3 条新增用例通过，其余原有用例保持通过。
 
 **Step 5: 提交**
 ```bash
-git add app/src/main/java/app/botdrop/ChannelSetupHelper.java app/src/test/java/app/botdrop/ChannelSetupHelperTest.java
+git add app/src/main/java/app/rbot/ChannelSetupHelper.java app/src/test/java/app/rbot/ChannelSetupHelperTest.java
 git commit -m "feat: add feishu support to setup code decode and channel write"
 ```
 
 ## Task 2：新增通道表单能力抽象（供 Tab 页面复用）
 
 **Files:**
-- `app/src/main/java/app/botdrop/ChannelConfigMeta.java`（新建）
-- `app/src/main/java/app/botdrop/ChannelFormFragment.java`（新建，基类）
-- `app/src/test/java/app/botdrop/ChannelConfigMetaTest.java`（新建）
+- `app/src/main/java/app/rbot/ChannelConfigMeta.java`（新建）
+- `app/src/main/java/app/rbot/ChannelFormFragment.java`（新建，基类）
+- `app/src/test/java/app/rbot/ChannelConfigMetaTest.java`（新建）
 
 **Step 1: 写失败测试（新增）**
 - `ChannelConfigMetaTest` 覆盖三个平台的验证规则：
@@ -66,7 +66,7 @@ git commit -m "feat: add feishu support to setup code decode and channel write"
   - 飞书：至少 token 非空，其他字段可选（先 MVP）
 
 **Step 2: 运行测试（失败）**
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.ChannelConfigMetaTest`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.ChannelConfigMetaTest`
 Expected: 测试失败，类与逻辑不存在。
 
 **Step 3: 实现可复用层（最小）**
@@ -79,27 +79,27 @@ Expected: 测试失败，类与逻辑不存在。
   - 抽象接口 `collectConfigFields()` 由子类实现
 
 **Step 4: 运行测试（通过）**
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.ChannelConfigMetaTest`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.ChannelConfigMetaTest`
 Expected: 3 个平台校验行为覆盖通过。
 
 **Step 5: 提交**
 ```bash
-git add app/src/main/java/app/botdrop/ChannelConfigMeta.java app/src/main/java/app/botdrop/ChannelFormFragment.java app/src/test/java/app/botdrop/ChannelConfigMetaTest.java
+git add app/src/main/java/app/rbot/ChannelConfigMeta.java app/src/main/java/app/rbot/ChannelFormFragment.java app/src/test/java/app/rbot/ChannelConfigMetaTest.java
 git commit -m "feat: extract channel form meta and validation helpers"
 ```
 
 ## Task 3：重构 ChannelStep 为 Tab 页面（Telegram + Discord + 飞书）
 
 **Files:**
-- `app/src/main/res/layout/fragment_botdrop_channel.xml`
-- `app/src/main/java/app/botdrop/ChannelFragment.java`
-- `app/src/main/java/app/botdrop/ChannelPagerAdapter.java`（新建）
-- `app/src/main/java/app/botdrop/TelegramChannelFragment.java`（新建）
-- `app/src/main/java/app/botdrop/DiscordChannelFragment.java`（新建）
-- `app/src/main/java/app/botdrop/FeishuChannelFragment.java`（新建）
-- `app/src/main/res/layout/fragment_botdrop_channel_telegram.xml`（新建）
-- `app/src/main/res/layout/fragment_botdrop_channel_discord.xml`（新建）
-- `app/src/main/res/layout/fragment_botdrop_channel_feishu.xml`（新建）
+- `app/src/main/res/layout/fragment_rbot_channel.xml`
+- `app/src/main/java/app/rbot/ChannelFragment.java`
+- `app/src/main/java/app/rbot/ChannelPagerAdapter.java`（新建）
+- `app/src/main/java/app/rbot/TelegramChannelFragment.java`（新建）
+- `app/src/main/java/app/rbot/DiscordChannelFragment.java`（新建）
+- `app/src/main/java/app/rbot/FeishuChannelFragment.java`（新建）
+- `app/src/main/res/layout/fragment_rbot_channel_telegram.xml`（新建）
+- `app/src/main/res/layout/fragment_rbot_channel_discord.xml`（新建）
+- `app/src/main/res/layout/fragment_rbot_channel_feishu.xml`（新建）
 
 **Step 1: 写失败测试**
 - 这里以编译失败为测试触发器：先改 `ChannelFragment` 引入 `TabLayout/ViewPager2`，先不创建新类，`./gradlew :app:compileDebugJavaWithJavac` 预期失败。
@@ -109,7 +109,7 @@ Run: `./gradlew :app:compileDebugJavaWithJavac`
 Expected: 找不到 `ChannelPagerAdapter/Fragment` 相关符号。
 
 **Step 3: 实现最小 UI 与路由**
-- `fragment_botdrop_channel.xml` 改为 `TabLayout + ViewPager2 + container`。
+- `fragment_rbot_channel.xml` 改为 `TabLayout + ViewPager2 + container`。
 - `ChannelFragment` 初始化 3 个 tab 并绑定 adapter。
 - `ChannelPagerAdapter` 仅承载 3 个 Fragment。
 - 各子 Fragment 继承 `ChannelFormFragment`，复用 Start Gateway 与失败展示。
@@ -121,16 +121,16 @@ Expected: 编译通过，资源命名与 view id 校验通过。
 
 **Step 5: 提交**
 ```bash
-git add app/src/main/java/app/botdrop app/src/main/res/layout/fragment_botdrop_channel*.xml
+git add app/src/main/java/app/rbot app/src/main/res/layout/fragment_rbot_channel*.xml
 git commit -m "feat: add channel setup tab container with telegram/discord/feishu pages"
 ```
 
 ## Task 4：Dashboard 与 Launcher 的通道识别同步到 3 个平台
 
 **Files:**
-- `app/src/main/res/layout/activity_botdrop_dashboard.xml`
-- `app/src/main/java/app/botdrop/DashboardActivity.java`
-- `app/src/main/java/app/botdrop/BotDropLauncherActivity.java`
+- `app/src/main/res/layout/activity_rbot_dashboard.xml`
+- `app/src/main/java/app/rbot/DashboardActivity.java`
+- `app/src/main/java/app/rbot/RbotLauncherActivity.java`
 
 **Step 1: 写失败测试（可选）**
 - 无单测文件可覆盖 UI 解析，先新增逻辑分支，预期行为通过手工验证。
@@ -140,18 +140,18 @@ Run: `./gradlew :app:compileDebugJavaWithJavac`
 Expected: 先出现 `findViewById` 的缺失 id / 编译期变量未定义。
 
 **Step 3: 实现同步**
-- `activity_botdrop_dashboard.xml` 新增飞书行，统一用同类样式并保持可点击。
+- `activity_rbot_dashboard.xml` 新增飞书行，统一用同类样式并保持可点击。
 - `DashboardActivity` 新增 `mFeishuStatus`/`mFeishuChannelRow` 读取 `channels.feishu` 并显示连接状态。
-- `BotDropLauncherActivity.hasChannelConfigured()` 按 `channels` 下各平台关键字段完整性做判定。
+- `RbotLauncherActivity.hasChannelConfigured()` 按 `channels` 下各平台关键字段完整性做判定。
 - 将 `openTelegramChannelConfig()` 命名保持不变，点击任意 channel 行都跳转至 `STEP_CHANNEL`（同页 Tab 可供用户切换）。
 
 **Step 4: 运行测试（通过）**
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.ChannelSetupHelperTest`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.ChannelSetupHelperTest`
 Expected: 既有测试通过，新增代码无回归。
 
 **Step 5: 提交**
 ```bash
-git add app/src/main/res/layout/activity_botdrop_dashboard.xml app/src/main/java/app/botdrop/DashboardActivity.java app/src/main/java/app/botdrop/BotDropLauncherActivity.java
+git add app/src/main/res/layout/activity_rbot_dashboard.xml app/src/main/java/app/rbot/DashboardActivity.java app/src/main/java/app/rbot/RbotLauncherActivity.java
 git commit -m "feat: expose multi-channel status in dashboard and update launcher guard"
 ```
 
@@ -163,8 +163,8 @@ git commit -m "feat: expose multi-channel status in dashboard and update launche
 - 无代码新文件（验证流程）
 
 **Step 1: 本地验证（回归）**
-- `./gradlew :app:testDebugUnitTest --tests app.botdrop.ChannelConfigMetaTest`
-- `./gradlew :app:testDebugUnitTest --tests app.botdrop.ChannelSetupHelperTest`
+- `./gradlew :app:testDebugUnitTest --tests app.rbot.ChannelConfigMetaTest`
+- `./gradlew :app:testDebugUnitTest --tests app.rbot.ChannelSetupHelperTest`
 - `./gradlew :app:assembleDebug`
 Expected: 所有命令成功完成。
 

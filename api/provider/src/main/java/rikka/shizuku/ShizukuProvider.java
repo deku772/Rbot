@@ -70,13 +70,13 @@ public class ShizukuProvider extends ContentProvider {
     // For share Binder between processes
     public static final String METHOD_GET_BINDER = "getBinder";
 
-    public static final String ACTION_BINDER_RECEIVED = "app.botdrop.api.action.BINDER_RECEIVED";
+    public static final String ACTION_BINDER_RECEIVED = "app.rbot.api.action.BINDER_RECEIVED";
 
-    public static final String EXTRA_BINDER = "app.botdrop.intent.extra.BINDER";
+    public static final String EXTRA_BINDER = "app.rbot.intent.extra.BINDER";
 
-    public static final String PERMISSION = "app.botdrop.permission.API_V23";
+    public static final String PERMISSION = "app.rbot.permission.API_V23";
 
-    public static final String MANAGER_APPLICATION_ID = "app.botdrop";
+    public static final String MANAGER_APPLICATION_ID = "app.rbot";
 
     private static boolean enableMultiProcess = false;
 

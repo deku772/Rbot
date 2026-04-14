@@ -29,8 +29,8 @@ public class BinderSender {
 
     private static final Logger LOGGER = new Logger("BinderSender");
 
-    private static final String PERMISSION_MANAGER = "app.botdrop.permission.MANAGER";
-    private static final String PERMISSION = "app.botdrop.permission.API_V23";
+    private static final String PERMISSION_MANAGER = "app.rbot.permission.MANAGER";
+    private static final String PERMISSION = "app.rbot.permission.API_V23";
 
     private static ShizukuService sShizukuService;
 

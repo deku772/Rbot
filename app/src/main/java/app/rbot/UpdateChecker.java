@@ -22,7 +22,7 @@ import java.net.URL;
 public class UpdateChecker {
 
     private static final String TAG = "UpdateChecker";
-    private static final String CHECK_URL = "https://api.botdrop.app/version";
+    private static final String CHECK_URL = "https://api.rbot.app/version";
     private static final long CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L;
     private static final int CONNECT_TIMEOUT_MS = 10000;
     private static final int READ_TIMEOUT_MS = 10000;

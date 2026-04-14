@@ -9,7 +9,7 @@ Use this project's Python `HTTPDevice` client to run reliable step-by-step mobil
 1. Check if uiautomator2 is available, install if missing:
 
 ```bash
-python -c "import uiautomator2" 2>/dev/null || apt install -y python-uiautomator2-botdrop
+python -c "import uiautomator2" 2>/dev/null || apt install -y python-uiautomator2-rbot
 ```
 
 2. Start u2 service and verify endpoint `127.0.0.1:9008`:

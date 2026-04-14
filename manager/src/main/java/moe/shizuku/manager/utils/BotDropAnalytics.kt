@@ -3,9 +3,9 @@ package moe.shizuku.manager.utils
 import android.content.Context
 import android.util.Log
 
-object BotDropAnalytics {
+object RbotAnalytics {
 
-    private const val TAG = "BotDropAnalytics"
+    private const val TAG = "RbotAnalytics"
     private const val ANALYTICS_MANAGER_CLASS = "com.termux.app.AnalyticsManager"
 
     fun logScreen(context: Context, screenName: String, screenClass: String) {

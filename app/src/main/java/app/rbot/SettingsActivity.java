@@ -1,9 +1,11 @@
 package app.rbot;
 
+import android.app.Dialog;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.widget.Button;
+import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -276,53 +278,73 @@ public class SettingsActivity extends AppCompatActivity {
 
     private void showSwitchBotDialog() {
         BotManager.BotInfo[] bots = mBotManager.getAllBotInfo();
-        String[] names = new String[bots.length];
-        boolean[] installed = new boolean[bots.length];
-        for (int i = 0; i < bots.length; i++) {
-            names[i] = bots[i].name + " — " + bots[i].platforms;
-            installed[i] = bots[i].installed;
-        }
 
-        String currentId = mBotManager.getActiveBotId();
-        int currentIdx = 0;
-        for (int i = 0; i < bots.length; i++) {
-            if (bots[i].id.equals(currentId)) {
-                currentIdx = i;
-                break;
+        android.app.Dialog dialog = new android.app.Dialog(this, android.R.style.Theme_DeviceDefault_Dialog);
+        dialog.setContentView(R.layout.dialog_bot_select);
+
+        ListView listView = dialog.findViewById(R.id.bot_list);
+        TextView titleView = dialog.findViewById(R.id.dialog_title);
+
+        java.util.List<BotManager.BotInfo> botList = java.util.Arrays.asList(bots);
+        android.widget.ArrayAdapter<BotManager.BotInfo> adapter = new android.widget.ArrayAdapter<BotManager.BotInfo>(this, R.layout.item_bot_select, botList) {
+            @Override
+            public android.view.View getView(int position, android.view.View convertView, android.view.ViewGroup parent) {
+                if (convertView == null) {
+                    convertView = getLayoutInflater().inflate(R.layout.item_bot_select, parent, false);
+                }
+                BotManager.BotInfo bot = getItem(position);
+                TextView nameView = convertView.findViewById(R.id.bot_name);
+                TextView platformsView = convertView.findViewById(R.id.bot_platforms);
+                TextView statusView = convertView.findViewById(R.id.bot_status);
+
+                nameView.setText(bot.name);
+                platformsView.setText("支持平台: " + bot.platforms);
+
+                String statusText;
+                int statusColor;
+                if (bot.running) {
+                    statusText = "🟢 运行中";
+                    statusColor = 0xFF4CAF50;
+                } else if (bot.installed) {
+                    statusText = "🟡 已安装";
+                    statusColor = 0xFFFFC107;
+                } else {
+                    statusText = "⚪ 未安装";
+                    statusColor = 0xFF9E9E9E;
+                }
+                statusView.setText(statusText);
+                statusView.setTextColor(statusColor);
+
+                return convertView;
             }
-        }
+        };
 
-        new androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("切换 Bot 引擎")
-            .setMessage("选择一个 Bot 引擎。切换将停止当前运行的 Bot。")
-            .setSingleChoiceItems(names, currentIdx, (dialog, which) -> {
-                dialog.dismiss();
-                BotManager.BotInfo selected = bots[which];
+        listView.setAdapter(adapter);
+        listView.setOnItemClickListener((parent, view, position, id) -> {
+            dialog.dismiss();
+            BotManager.BotInfo selected = bots[position];
 
-                // Confirm switch
-                new androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle("确认切换到 " + selected.name)
-                    .setMessage("这将停止当前运行的 Bot。\n\n" +
-                        "切换后，你需要在新引擎中重新配置消息平台。")
-                    .setPositiveButton("确认切换", (d2, w2) -> {
-                        appendToLog("\n🔄 正在切换到 " + selected.name + "...");
-                        new Thread(() -> {
-                            // Stop current bot
-                            mBotManager.stop();
-                            // Switch
-                            mBotManager.switchTo(selected.id);
-                            mHandler.post(() -> {
-                                appendToLog("✅ 已切换到 " + selected.name);
-                                refreshBotInfo();
-                                Toast.makeText(this, "已切换到 " + selected.name, Toast.LENGTH_SHORT).show();
-                            });
-                        }).start();
-                    })
-                    .setNegativeButton("取消", null)
-                    .show();
-            })
-            .setNegativeButton("取消", null)
-            .show();
+            new com.google.android.material.dialog.MaterialAlertDialogBuilder(this, R.style.TermuxAlertDialogStyle)
+                .setTitle("确认切换到 " + selected.name + "？")
+                .setMessage("• 当前 Bot 会停止\n• 切换后需在新引擎中重新配置消息平台\n\n" +
+                    "⚠️ 如未安装，将跳转到安装流程。")
+                .setPositiveButton("确认切换", (d2, w2) -> {
+                    appendToLog("\n🔄 正在切换到 " + selected.name + "...");
+                    new Thread(() -> {
+                        mBotManager.stop();
+                        mBotManager.switchTo(selected.id);
+                        mHandler.post(() -> {
+                            appendToLog("✅ 已切换到 " + selected.name);
+                            refreshBotInfo();
+                            Toast.makeText(this, "已切换到 " + selected.name, Toast.LENGTH_SHORT).show();
+                        });
+                    }).start();
+                })
+                .setNegativeButton("取消", null)
+                .show();
+        });
+
+        dialog.show();
     }
 
     private void showReinstallRootfsDialog() {

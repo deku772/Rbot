@@ -21,9 +21,9 @@ Use JDK 17, Android SDK, and NDK (see `README.md`).
 
 ## Coding Style & Naming Conventions
 - Java style follows Android conventions: 4-space indentation, clear method names, small focused methods.
-- Keep package structure consistent (`app.botdrop.*`, `com.termux.*`).
+- Keep package structure consistent (`app.rbot.*`, `com.termux.*`).
 - Class names use `PascalCase`; methods/fields use `camelCase`; constants use `UPPER_SNAKE_CASE`.
-- Test classes end with `Test` (for example `BotDropServiceTest`, `TerminalRowTest`).
+- Test classes end with `Test` (for example `RbotServiceTest`, `TerminalRowTest`).
 - Prefer comments only where intent is not obvious.
 
 ## Testing Guidelines

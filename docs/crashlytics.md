@@ -4,7 +4,7 @@ This project supports Firebase Crashlytics for release crash reporting with open
 
 ## Setup
 
-1. Create a Firebase Android app for package `app.botdrop`.
+1. Create a Firebase Android app for package `app.rbot`.
 2. Download `google-services.json` from Firebase.
 3. Place it at `app/google-services.json` (do not commit this file).
 4. Build as usual:
@@ -21,7 +21,7 @@ If `app/google-services.json` is missing, Crashlytics Gradle plugins are not app
 - Debug builds default to `disabled`.
 - Release builds default to `enabled`.
 - Runtime toggle is available in:
-  - `Settings -> BotDrop -> Debugging -> Firebase Crashlytics`
+  - `Settings -> Rbot -> Debugging -> Firebase Crashlytics`
 
 ## Privacy notes
 

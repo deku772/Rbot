@@ -4,11 +4,11 @@ Goal: improve npm install success in China Mainland networks by automatically se
 
 ## Behavior
 
-- Before running any `npm view` / `npm install -g ...` in Termux, BotDrop runs an auto-selection snippet.
+- Before running any `npm view` / `npm install -g ...` in Termux, Rbot runs an auto-selection snippet.
 - If `BOTDROP_NPM_REGISTRY` is set, it wins (explicit override).
-- Otherwise BotDrop detects **current network** via default gateway IP (`ip route`), and caches a chosen registry for that gateway for 24h.
+- Otherwise Rbot detects **current network** via default gateway IP (`ip route`), and caches a chosen registry for that gateway for 24h.
 - The selection first probes registry reachability (2s timeout): `registry.npmjs.org` vs `registry.npmmirror.com` and picks the working one.
-- When cache exists for current gateway, BotDrop re-validates that registry; stale cache is automatically re-resolved.
+- When cache exists for current gateway, Rbot re-validates that registry; stale cache is automatically re-resolved.
 - If probes are inconclusive, it falls back to a lightweight GeoIP heuristic (`ipinfo.io/country`).
 
 ## Registries
@@ -18,7 +18,7 @@ Goal: improve npm install success in China Mainland networks by automatically se
 
 ## Files
 
-- Cache: `$HOME/.botdrop_npm_registry_cache` (simple key/value lines)
+- Cache: `$HOME/.rbot_npm_registry_cache` (simple key/value lines)
 
 ## Notes
 

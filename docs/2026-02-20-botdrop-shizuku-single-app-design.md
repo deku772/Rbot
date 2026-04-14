@@ -1,15 +1,15 @@
-# BotDrop 单 App Shizuku 集成设计文档
+# Rbot 单 App Shizuku 集成设计文档
 
 版本：`feat/shizuku-single-app-merge`
 更新日期：2026-02-21（修复执行边界与启动器问题）
 
-本文档定义当前 BotDrop 里将 Shizuku 运行时与执行桥接内嵌到同一个 APK 的设计、启动路径和执行路径。目标是在不再依赖独立 Shizuku App 的前提下，保留官方 Shizuku 的能力并让 openclaw 命令走同源可控通道。
+本文档定义当前 Rbot 里将 Shizuku 运行时与执行桥接内嵌到同一个 APK 的设计、启动路径和执行路径。目标是在不再依赖独立 Shizuku App 的前提下，保留官方 Shizuku 的能力并让 openclaw 命令走同源可控通道。
 
 ## 1. 设计目标
 
 - 单 APK 内完成 Shizuku runtime 的启动与桥接，不再要求用户安装独立 `moe.shizuku.privilege` 应用。
-- 保持现有 BotDrop 功能不回退，openclaw 运行在 Termux 环境中，通过 bridge 与 BotDrop app 通信。
-- BotDrop app 通过 Shizuku API 执行需要提权的操作；shell 命令（openclaw、npm 等）始终走 Termux local 执行。
+- 保持现有 Rbot 功能不回退，openclaw 运行在 Termux 环境中，通过 bridge 与 Rbot app 通信。
+- Rbot app 通过 Shizuku API 执行需要提权的操作；shell 命令（openclaw、npm 等）始终走 Termux local 执行。
 - 提供统一入口查看状态：官方 Home（若存在）与 Shizuku 状态页。
 - 将 openclaw 与 Shizuku 的联动方式标准化到本地配置文件 `~/.openclaw/shizuku-bridge.json`。
 
@@ -42,32 +42,32 @@
 
 ### 2.3 本地桥接层（Embedded Shizuku Bridge）
 
-- `app.botdrop.shizuku.ShizukuBridgeService`
+- `app.rbot.shizuku.ShizukuBridgeService`
   - 前台服务，负责启动 `ShizukuBridgeServer`，并写入 `~/.openclaw/shizuku-bridge.json`。
-- `app.botdrop.shizuku.ShizukuBridgeServer`
+- `app.rbot.shizuku.ShizukuBridgeServer`
   - 监听 `127.0.0.1:18790`（`/shizuku/status`, `/shizuku/exec`）；
   - 鉴权 token 校验 + 结果回写 JSON；
   - Shizuku 通路不可用时返回不可用错误，不做本地 fallback。
-- `app.botdrop.shizuku.ShizukuShellExecutor`
+- `app.rbot.shizuku.ShizukuShellExecutor`
   - 与 `ShellService` 的 AIDL 通道 (`IShellService`) 交互；
   - 提供连接、重连与结果解析能力。
-- `app.botdrop.shizuku.ShellService`
+- `app.rbot.shizuku.ShellService`
   - 应用内 AIDL 服务，执行真实命令时优先走 Shizuku API；
   - 成功时调用 `IShizukuService.newProcess(...)`；
   - 失败时返回明确错误字符串（如 `Shizuku permission not granted`）。
-- `app.botdrop.shizuku.IShellService`
+- `app.rbot.shizuku.IShellService`
   - 本地 AIDL 接口：`executeCommand` + `destroy`。
 
-### 2.4 BotDrop 命令路由（Termux / Shizuku 边界）
+### 2.4 Rbot 命令路由（Termux / Shizuku 边界）
 
-- `app.botdrop.BotDropService`
+- `app.rbot.RbotService`
   - 命令分发入口：`executeCommandSync(...)`；
   - **所有 shell 命令（openclaw、npm、gateway 管理等）走 Termux local 执行**，`shouldExecuteViaShizuku()` 始终返回 `false`；
   - Shizuku 仅用于 binder 级 API 操作（权限检查、状态查询等），不用于 shell 命令执行；
-  - openclaw 通过 bridge（HTTP `127.0.0.1:18790`）向 BotDrop app 下达指令，BotDrop app 再通过 Shizuku API 连接私有 Shizuku 服务。
-- `app.botdrop.GatewayMonitorService`
+  - openclaw 通过 bridge（HTTP `127.0.0.1:18790`）向 Rbot app 下达指令，Rbot app 再通过 Shizuku API 连接私有 Shizuku 服务。
+- `app.rbot.GatewayMonitorService`
   - 保活网关运行态；不直接实现 Shizuku 执行逻辑，但与 command 路径串联。
-- `app.botdrop.DashboardActivity`
+- `app.rbot.DashboardActivity`
   - 提供“Open Shizuku”入口；
   - 启动桥接服务（`startShizukuBridgeService()`）；
   - 打开官方/内置 Shizuku 状态页（`ShizukuStatusActivity`）。
@@ -113,7 +113,7 @@ graph TD
 ```mermaid
 graph TD
   A["用户操作 / Gateway 管理"]
-  A --> B["BotDropService.executeCommandSync"]
+  A --> B["RbotService.executeCommandSync"]
   B --> C["Termux local 执行（所有 shell 命令）"]
   C --> D["openclaw / npm / gateway 等"]
 
@@ -134,8 +134,8 @@ graph TD
 graph TD
   A["Dashboard 点击 Start Gateway"]
   A --> B["DashboardActivity.startGateway()"]
-  B --> C["mBotDropService.startGateway(callback)"]
-  C --> D["BotDropService.startGateway"]
+  B --> C["mRbotService.startGateway(callback)"]
+  C --> D["RbotService.startGateway"]
   D --> E["build startup shell script"]
   E --> F["mkdir ~/.openclaw + clean pid/log"]
   F --> G["清理旧 openclaw gateway 进程"]
@@ -191,10 +191,10 @@ graph TD
   - `startWithRoot()`：`hasRootPermission()`、`ServiceStarter.commandForUserService(...)`、`executeShellAsRoot(command)`、`waitForBinder(context)`；
   - `startWithAdb()`：`ShizukuSettings.initialize(context)`、`isAdbStartAllowed()`、`AdbMdns`、`Starter.internalCommand(context)`、`waitForBinder(context)`。
 
-### 4.2 `BotDropService.executeCommandSync(command, timeoutSeconds)`
+### 4.2 `RbotService.executeCommandSync(command, timeoutSeconds)`
 - 所有 shell 命令走 `executeCommandViaLocal`（Termux 环境）；
 - `shouldExecuteViaShizuku()` 始终返回 `false`，确保 Termux / Shizuku 边界清晰；
-- Shizuku 通道仅由 openclaw 通过 bridge HTTP 接口按需调用，不在 BotDropService 命令路由中使用。
+- Shizuku 通道仅由 openclaw 通过 bridge HTTP 接口按需调用，不在 RbotService 命令路由中使用。
 
 ### 4.3 `ShizukuBridgeServer.handleExec`
 - 解析 JSON body：`command`, `timeoutMs`, 可选 `env`；
@@ -232,7 +232,7 @@ graph TD
   - 权限确认仍走 `Shizuku.requestPermission` 与 `ShizukuPermissionActivity`。
 - 偏差
   - 官方“独立应用”模式下，runtime 与管理 UI 分离安装；
-  - 当前实现是单 App 内嵌模型：管理入口和 gateway 桥接共同存在于 BotDrop 包内。
+  - 当前实现是单 App 内嵌模型：管理入口和 gateway 桥接共同存在于 Rbot 包内。
   - 当前与官方差异集中在非 root 回退链路：`EXTRA_BINDER` 常量、`sendBinder` 回包校验、`ShizukuSettings` 初始化时序；这三点为当前稳定性关键项。
 
 ## 7. 风险与验证点
@@ -265,9 +265,9 @@ graph TD
 - **修复**：在 `ShizukuRemoteProcess` 中覆写 `waitFor(long, TimeUnit)`，委托给 `remote.waitForTimeout()`。
 
 ### 8.3 Termux / Shizuku 执行边界
-- **问题**：`BotDropService.shouldExecuteViaShizuku()` 对所有命令返回 `true`，导致 `openclaw --version` 等 shell 命令走 Shizuku shell（uid=2000 无权访问 app 私有目录），precheck 报 exit=127。
+- **问题**：`RbotService.shouldExecuteViaShizuku()` 对所有命令返回 `true`，导致 `openclaw --version` 等 shell 命令走 Shizuku shell（uid=2000 无权访问 app 私有目录），precheck 报 exit=127。
 - **修复**：`shouldExecuteViaShizuku()` 改为始终返回 `false`。所有 shell 命令走 Termux local 执行，Shizuku 仅用于 binder API 操作。
-- **架构明确**：openclaw（Termux）→ bridge HTTP → BotDrop app → Shizuku API → 私有 Shizuku 服务。
+- **架构明确**：openclaw（Termux）→ bridge HTTP → Rbot app → Shizuku API → 私有 Shizuku 服务。
 
 ## 9. 后续迭代建议
 
@@ -295,7 +295,7 @@ graph TD
 
 - 目标：从“直接迁移”改为“单 App 内聚体验”，减少跳转成本和权限配置成本。
 - 动作项：
-  - 重构 Shizuku 相关界面文案与布局为 BotDrop 风格（文案、图标、按钮顺序、空态/错误态）；
+  - 重构 Shizuku 相关界面文案与布局为 Rbot 风格（文案、图标、按钮顺序、空态/错误态）；
   - 统一 `官方 Home` 与内置 `ShizukuStatusActivity` 的入口逻辑：  
     - 已安装官方管理器时走官方入口；
     - 未安装时直接进入内置页，并提供“重新授权”与“刷新运行状态”主操作；

@@ -13,8 +13,8 @@
 ### Task 1: Add a bundle-aware gate
 
 **Files:**
-- Modify: `app/src/main/java/app/botdrop/BundledOpenclawUtils.java`
-- Test: `app/src/test/java/app/botdrop/BundledOpenclawUtilsTest.java`
+- Modify: `app/src/main/java/app/rbot/BundledOpenclawUtils.java`
+- Test: `app/src/test/java/app/rbot/BundledOpenclawUtilsTest.java`
 
 **Step 1: Write the failing test**
 
@@ -24,7 +24,7 @@ Add tests for:
 
 **Step 2: Run test to verify it fails**
 
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.BundledOpenclawUtilsTest --no-daemon`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.BundledOpenclawUtilsTest --no-daemon`
 
 Expected: FAIL because the helper does not exist yet.
 
@@ -34,15 +34,15 @@ Add a small helper on `BundledOpenclawUtils` that returns `true` when an offline
 
 **Step 4: Run test to verify it passes**
 
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.BundledOpenclawUtilsTest --no-daemon`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.BundledOpenclawUtilsTest --no-daemon`
 
 Expected: PASS
 
 ### Task 2: Hide update/version UI behind the gate
 
 **Files:**
-- Modify: `app/src/main/java/app/botdrop/DashboardActivity.java`
-- Modify: `app/src/main/java/app/botdrop/AgentSelectionFragment.java`
+- Modify: `app/src/main/java/app/rbot/DashboardActivity.java`
+- Modify: `app/src/main/java/app/rbot/AgentSelectionFragment.java`
 
 **Step 1: Wire the gate into dashboard**
 
@@ -58,7 +58,7 @@ Expected: PASS
 
 **Step 3: Run focused verification**
 
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.BundledOpenclawUtilsTest --no-daemon`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.BundledOpenclawUtilsTest --no-daemon`
 
 Expected: PASS
 

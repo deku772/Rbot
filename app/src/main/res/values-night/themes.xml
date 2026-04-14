@@ -8,16 +8,16 @@
     <!-- See https://developer.android.com/training/material/theme.html for how to customize the Material theme. -->
     <!-- NOTE: Cannot use "Light." since it hides the terminal scrollbar on the default black background. -->
     <style name="Theme.TermuxActivity.DayNight.NoActionBar" parent="Theme.TermuxApp.DayNight.NoActionBar">
-        <!-- BotDrop primary brand color. -->
-        <item name="colorPrimary">@color/botdrop_background</item>
+        <!-- Rbot primary brand color. -->
+        <item name="colorPrimary">@color/rbot_background</item>
         <item name="colorPrimaryDark">#111111</item>
-        <item name="colorPrimaryVariant">@color/botdrop_background</item>
-        <item name="colorAccent">@color/botdrop_accent</item>
+        <item name="colorPrimaryVariant">@color/rbot_background</item>
+        <item name="colorAccent">@color/rbot_accent</item>
 
-        <item name="android:windowBackground">@color/botdrop_background</item>
-        <item name="android:textColor">@color/botdrop_on_background</item>
-        <item name="android:textColorPrimary">@color/botdrop_on_background</item>
-        <item name="android:textColorSecondary">@color/botdrop_secondary_text</item>
+        <item name="android:windowBackground">@color/rbot_background</item>
+        <item name="android:textColor">@color/rbot_on_background</item>
+        <item name="android:textColorPrimary">@color/rbot_on_background</item>
+        <item name="android:textColorSecondary">@color/rbot_secondary_text</item>
         <item name="android:statusBarColor">#111111</item>
         <item name="android:navigationBarColor">#111111</item>
 
@@ -34,14 +34,14 @@
 
         <!-- Left drawer. -->
         <item name="buttonBarButtonStyle">@style/TermuxActivity.Drawer.ButtonBarStyle.Dark</item>
-        <item name="termuxActivityDrawerBackground">@color/botdrop_surface</item>
-        <item name="termuxActivityDrawerImageTint">@color/botdrop_accent</item>
+        <item name="termuxActivityDrawerBackground">@color/rbot_surface</item>
+        <item name="termuxActivityDrawerImageTint">@color/rbot_accent</item>
 
         <!-- Extra keys colors. -->
-        <item name="extraKeysButtonTextColor">@color/botdrop_on_background</item>
-        <item name="extraKeysButtonActiveTextColor">@color/botdrop_accent</item>
-        <item name="extraKeysButtonBackgroundColor">@color/botdrop_surface</item>
-        <item name="extraKeysButtonActiveBackgroundColor">@color/botdrop_accent_dark</item>
+        <item name="extraKeysButtonTextColor">@color/rbot_on_background</item>
+        <item name="extraKeysButtonActiveTextColor">@color/rbot_accent</item>
+        <item name="extraKeysButtonBackgroundColor">@color/rbot_surface</item>
+        <item name="extraKeysButtonActiveBackgroundColor">@color/rbot_accent_dark</item>
     </style>
 
 </resources>

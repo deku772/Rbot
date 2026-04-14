@@ -1,6 +1,6 @@
 # Android UI Automation (No-Root) Design
 
-Goal: let BotDrop/OpenClaw reliably control the device UI on a dedicated phone without root, using a structured (selector-based) API instead of coordinate clicking.
+Goal: let Rbot/OpenClaw reliably control the device UI on a dedicated phone without root, using a structured (selector-based) API instead of coordinate clicking.
 
 ## Scope
 
@@ -16,7 +16,7 @@ Non-goals:
 
 ## Architecture
 
-1. **AccessibilityService** (`BotDropAccessibilityService`)
+1. **AccessibilityService** (`RbotAccessibilityService`)
    - Subscribes to window/content change events.
    - Maintains a cached snapshot of the active window node tree.
    - Executes node actions (via `AccessibilityNodeInfo.performAction`).
@@ -24,7 +24,7 @@ Non-goals:
 
 2. **Automation Controller Service** (`AutomationControllerService`, foreground)
    - Hosts a local API server bound to `127.0.0.1:<port>` (HTTP or WebSocket).
-   - Translates API calls into binder calls on `BotDropAccessibilityService`.
+   - Translates API calls into binder calls on `RbotAccessibilityService`.
    - Provides request/response timeouts and a single-flight lock to avoid concurrent conflicting actions.
 
 3. **OpenClaw Integration**

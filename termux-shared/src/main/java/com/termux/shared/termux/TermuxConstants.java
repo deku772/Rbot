@@ -347,9 +347,9 @@ public final class TermuxConstants {
      */
 
     /** Termux app name */
-    public static final String TERMUX_APP_NAME = "BotDrop"; // Default: "Termux"
+    public static final String TERMUX_APP_NAME = "Rbot"; // Default: "Termux"
     /** Termux package name */
-    public static final String TERMUX_PACKAGE_NAME = "app.botdrop"; // Default: "com.termux"
+    public static final String TERMUX_PACKAGE_NAME = "app.rbot"; // Default: "com.termux"
     /** Termux GitHub repo name */
     public static final String TERMUX_GITHUB_REPO_NAME = "termux-app"; // Default: "termux-app"
     /** Termux GitHub repo url */
@@ -591,12 +591,12 @@ public final class TermuxConstants {
 
 
 
-    /** BotDrop sdcard data directory — for caches, downloads, and user-visible files.
+    /** Rbot sdcard data directory — for caches, downloads, and user-visible files.
      *  Large files (rootfs tarballs, backups) go here to save internal storage.
      *  Symlinks are NOT supported on sdcard (sdcardfs/FUSE), so executable rootfs
      *  must stay in internal storage. */
-    public static final String BOTDROP_SDCARD_DIR_PATH = "/storage/emulated/0/botdrop";
-    /** BotDrop sdcard cache directory — rootfs download cache, reusable across reinstalls */
+    public static final String BOTDROP_SDCARD_DIR_PATH = "/storage/emulated/0/rbot";
+    /** Rbot sdcard cache directory — rootfs download cache, reusable across reinstalls */
     public static final String BOTDROP_SDCARD_CACHE_DIR_PATH = BOTDROP_SDCARD_DIR_PATH + "/cache";
 
 

@@ -1,12 +1,12 @@
-# BotDrop Android GA4 Event Dictionary
+# Rbot Android GA4 Event Dictionary
 
 Date: 2026-03-12
-Application ID: `app.botdrop`
+Application ID: `app.rbot`
 Analytics backend: Firebase Analytics / GA4
 
 ## Scope
 
-This document covers the BotDrop Android UI instrumentation added in the launcher, setup funnel, dashboard, automation panel, and the integrated Shizuku `manager` flows.
+This document covers the Rbot Android UI instrumentation added in the launcher, setup funnel, dashboard, automation panel, and the integrated Shizuku `manager` flows.
 
 Sensitive values are intentionally excluded from analytics payloads:
 
@@ -320,7 +320,7 @@ Use GA4 DebugView before trusting any dashboard numbers.
 ### 1. Enable Analytics debug mode on the device
 
 ```bash
-adb shell setprop debug.firebase.analytics.app app.botdrop
+adb shell setprop debug.firebase.analytics.app app.rbot
 ```
 
 To disable it later:
@@ -357,7 +357,7 @@ Firebase Console -> Analytics -> DebugView
 
 ### 5. If DebugView shows nothing
 
-1. Confirm the app uses the `app.botdrop` package on device
+1. Confirm the app uses the `app.rbot` package on device
 2. Confirm `google-services.json` is present in `app/`
 3. Confirm analytics collection is enabled in app settings/debug preferences
 4. Relaunch the app after running the `adb shell setprop` command

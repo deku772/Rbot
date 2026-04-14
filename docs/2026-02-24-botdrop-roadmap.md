@@ -1,4 +1,4 @@
-# BotDrop Roadmap
+# Rbot Roadmap
 
 更新日期：2026-02-24
 
@@ -65,9 +65,9 @@ P3（远期）      商业化
 #### 1.3 Shizuku UI 调优
 
 - 状态：**未开始**
-- 当前界面直接复制自官方 Shizuku Manager，需改为 BotDrop 风格。
+- 当前界面直接复制自官方 Shizuku Manager，需改为 Rbot 风格。
 - 动作项：
-  - 重构文案、图标、按钮布局为 BotDrop 统一风格；
+  - 重构文案、图标、按钮布局为 Rbot 统一风格；
   - 合并官方 Home 与内置 `ShizukuStatusActivity` 入口逻辑；
   - 状态从弹窗改为 Dashboard 内嵌片段（运行态、权限态、启动方式、最近错误、重试入口）；
   - 增加首屏引导与故障指引卡片。
@@ -105,7 +105,7 @@ P3（远期）      商业化
 1) 视图与入口（约 35 分钟）
 - [ ] `DashboardActivity` 新增“OpenClaw 版本管理”按钮（复用现有 `openclaw_version_text` 位置）。
 - [ ] 弹出版本选择弹窗（`AlertDialog`/`BottomSheet` 均可），显示：标题、`loading`、`错误重试`、版本列表。
-- [ ] 在 `activity_botdrop_dashboard.xml` 增加/复用按钮容器（不改现有交互流程）。
+- [ ] 在 `activity_rbot_dashboard.xml` 增加/复用按钮容器（不改现有交互流程）。
 
 2) 版本数据与安装（约 50 分钟）
 - [ ] 新建一个小工具方法读取版本列表：
@@ -113,7 +113,7 @@ P3（远期）      商业化
   - 解析后按 semver 降序展示；
   - 失败时 fallback 到 `["openclaw@latest", 当前已安装版本]`。
 - [ ] 点击版本项时弹出确认文案：`将安装 openclaw@x.y.z`。
-- [ ] 使用 `BotDropService.updateOpenclaw("openclaw@x.y.z")` 执行安装。
+- [ ] 使用 `RbotService.updateOpenclaw("openclaw@x.y.z")` 执行安装。
 - [ ] 安装过程中复用现有 `dialog_openclaw_update` 进度弹窗显示进度。
 
 3) 收口与防抖（约 20 分钟）
@@ -200,7 +200,7 @@ P3（远期）      商业化
 
 | 项 | 说明 |
 |---|---|
-| **免费 LLM API 额度** | BotDrop 提供免费试用额度（代理调用 Claude/GPT），用户无需注册第三方 API Key 即可开始 |
+| **免费 LLM API 额度** | Rbot 提供免费试用额度（代理调用 Claude/GPT），用户无需注册第三方 API Key 即可开始 |
 | **应用内聊天窗口** | 不依赖 Telegram/Discord，直接在 App 内与 agent 对话（类似豆包 / ChatGPT App 的界面） |
 | **混合模式** | 内置聊天 + 外部 IM 可同时工作；内置聊天用于调试/快速测试，IM 用于日常使用 |
 

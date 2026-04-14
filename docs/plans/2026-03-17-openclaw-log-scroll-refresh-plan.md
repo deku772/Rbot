@@ -13,7 +13,7 @@
 ### Task 1: Add a failing regression test for log page refresh behavior
 
 **Files:**
-- Create: `app/src/test/java/app/botdrop/OpenclawLogScrollBehaviorTest.java`
+- Create: `app/src/test/java/app/rbot/OpenclawLogScrollBehaviorTest.java`
 - Reference: `app/src/main/res/layout/item_openclaw_log_page.xml`
 
 **Step 1: Write the failing test**
@@ -24,14 +24,14 @@ Add a second test that scrolls to a middle offset, refreshes the text, and asser
 
 **Step 2: Run test to verify it fails**
 
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.OpenclawLogScrollBehaviorTest`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.OpenclawLogScrollBehaviorTest`
 
 Expected: FAIL because the current refresh path resets the `ScrollView` position during `TextView#setText()`.
 
 ### Task 2: Implement the minimal fix in the log page binding path
 
 **Files:**
-- Modify: `app/src/main/java/app/botdrop/DashboardActivity.java`
+- Modify: `app/src/main/java/app/rbot/DashboardActivity.java`
 
 **Step 1: Add scroll-preserving update logic**
 
@@ -43,15 +43,15 @@ Do not change polling cadence, dialog lifecycle, or command execution. Limit the
 
 **Step 3: Run targeted tests**
 
-Run: `./gradlew :app:testDebugUnitTest --tests app.botdrop.OpenclawLogScrollBehaviorTest`
+Run: `./gradlew :app:testDebugUnitTest --tests app.rbot.OpenclawLogScrollBehaviorTest`
 
 Expected: PASS
 
 ### Task 3: Verify no regression in the app test suite
 
 **Files:**
-- Modify: `app/src/main/java/app/botdrop/DashboardActivity.java`
-- Create: `app/src/test/java/app/botdrop/OpenclawLogScrollBehaviorTest.java`
+- Modify: `app/src/main/java/app/rbot/DashboardActivity.java`
+- Create: `app/src/test/java/app/rbot/OpenclawLogScrollBehaviorTest.java`
 
 **Step 1: Run broader verification**
 

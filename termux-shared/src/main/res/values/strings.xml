@@ -1,14 +1,14 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 
 <!DOCTYPE resources [
     <!ENTITY TERMUX_PACKAGE_NAME "com.termux">
-    <!ENTITY TERMUX_APP_NAME "BotDrop">
-    <!ENTITY TERMUX_API_APP_NAME "BotDrop:API">
-    <!ENTITY TERMUX_BOOT_APP_NAME "BotDrop:Boot">
-    <!ENTITY TERMUX_FLOAT_APP_NAME "BotDrop:Float">
-    <!ENTITY TERMUX_STYLING_APP_NAME "BotDrop:Styling">
-    <!ENTITY TERMUX_TASKER_APP_NAME "BotDrop:Tasker">
-    <!ENTITY TERMUX_WIDGET_APP_NAME "BotDrop:Widget">
+    <!ENTITY TERMUX_APP_NAME "Rbot">
+    <!ENTITY TERMUX_API_APP_NAME "Rbot:API">
+    <!ENTITY TERMUX_BOOT_APP_NAME "Rbot:Boot">
+    <!ENTITY TERMUX_FLOAT_APP_NAME "Rbot:Float">
+    <!ENTITY TERMUX_STYLING_APP_NAME "Rbot:Styling">
+    <!ENTITY TERMUX_TASKER_APP_NAME "Rbot:Tasker">
+    <!ENTITY TERMUX_WIDGET_APP_NAME "Rbot:Widget">
     <!ENTITY TERMUX_PREFIX_DIR_PATH "/data/data/com.termux/files/usr">
     ]>
 

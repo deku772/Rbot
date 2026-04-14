@@ -14,7 +14,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import moe.shizuku.manager.R
 import moe.shizuku.manager.ShizukuSettings
-import moe.shizuku.manager.utils.BotDropAnalytics
+import moe.shizuku.manager.utils.RbotAnalytics
 import rikka.core.ktx.unsafeLazy
 import java.net.ConnectException
 
@@ -137,13 +137,13 @@ class AdbPairingService : Service() {
     }
 
     private fun onStart(): Notification {
-        BotDropAnalytics.logEvent(this, "automation_shizuku_pair_search_started")
+        RbotAnalytics.logEvent(this, "automation_shizuku_pair_search_started")
         startSearch()
         return searchingNotification
     }
 
     private fun onInput(code: String, port: Int): Notification {
-        BotDropAnalytics.logEvent(this, "automation_shizuku_pair_submit")
+        RbotAnalytics.logEvent(this, "automation_shizuku_pair_submit")
         GlobalScope.launch(Dispatchers.IO) {
             val host = "127.0.0.1"
 
@@ -174,14 +174,14 @@ class AdbPairingService : Service() {
 
         if (success) {
             Log.i(tag, "Pair succeed")
-            BotDropAnalytics.logEvent(this, "automation_shizuku_pair_completed")
+            RbotAnalytics.logEvent(this, "automation_shizuku_pair_completed")
 
             title = getString(R.string.notification_adb_pairing_succeed_title)
             text = getString(R.string.notification_adb_pairing_succeed_text)
 
             stopSearch()
         } else {
-            BotDropAnalytics.logEvent(this, "automation_shizuku_pair_failed", "reason", mapPairingFailure(exception))
+            RbotAnalytics.logEvent(this, "automation_shizuku_pair_failed", "reason", mapPairingFailure(exception))
             title = getString(R.string.notification_adb_pairing_failed_title)
 
             text = when (exception) {

@@ -49,7 +49,7 @@ object AuthorizationManager {
                 }
             }
             for (pi in allPackages) {
-                if ("app.botdrop" == pi.packageName) continue
+                if ("app.rbot" == pi.packageName) continue
                 if (pi.applicationInfo?.metaData?.getBoolean("moe.shizuku.client.V3_SUPPORT") != true) continue
                 if (pi.requestedPermissions?.contains(Manifest.permission.API_V23) != true) continue
 

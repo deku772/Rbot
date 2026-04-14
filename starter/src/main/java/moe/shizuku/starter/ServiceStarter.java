@@ -21,7 +21,7 @@ public class ServiceStarter {
 
     private static final String TAG = "ShizukuServiceStarter";
 
-    private static final String EXTRA_BINDER = "app.botdrop.intent.extra.BINDER";
+    private static final String EXTRA_BINDER = "app.rbot.intent.extra.BINDER";
 
     public static final String DEBUG_ARGS;
 
@@ -99,7 +99,7 @@ public class ServiceStarter {
     }
 
     private static boolean sendBinder(IBinder binder, String token, int userId, boolean retry) {
-        String packageName = "app.botdrop";
+        String packageName = "app.rbot";
         String name = packageName + ".shizuku";
         IContentProvider provider = null;
 

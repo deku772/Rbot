@@ -1,19 +1,19 @@
-# BotDrop 用户指引：Shizuku 配对与使用（单 App）
+# Rbot 用户指引：Shizuku 配对与使用（单 App）
 
 > 适用版本：`feat/shizuku-single-app-merge`
 
-本指南面向用户，说明在 BotDrop 单 App 内完成 Shizuku 配对、启动和使用 OpenClaw 的流程。
+本指南面向用户，说明在 Rbot 单 App 内完成 Shizuku 配对、启动和使用 OpenClaw 的流程。
 
 ## 1. 你需要先确认的前置条件
 
-- 设备已安装 BotDrop（含内嵌 Shizuku 集成）。
+- 设备已安装 Rbot（含内嵌 Shizuku 集成）。
 - 如使用 ADB 模式，请确保系统允许开发者模式并打开相关 adb 开关（不同系统不同）。
 - 若手机有 root，建议开启 root；否则走 ADB 方式。
-- 首次启动前请允许 BotDrop 的安装和权限申请弹窗。
+- 首次启动前请允许 Rbot 的安装和权限申请弹窗。
 
 ## 2. 一键上手（从 Dashboard 开始）
 
-1. 打开 BotDrop。
+1. 打开 Rbot。
 2. 进入 Dashboard，确认能看到 Shizuku 区域（`Open Shizuku` / `Request Shizuku Permission`）。
 3. 点击 `Open Shizuku`。
 4. 在弹出的 Shizuku 状态页中，先查看：
@@ -26,15 +26,15 @@
 
 在本仓库的单 App 形态中，配对指：
 
-- BotDrop 能够拿到 Shizuku 的 Binder；
+- Rbot 能够拿到 Shizuku 的 Binder；
 - 本应用在 Shizuku 权限里被授权；
-- openclaw 的桥接能力可向 BotDrop 发起提权执行请求。
+- openclaw 的桥接能力可向 Rbot 发起提权执行请求。
 
 ## 4. 启动流程（你要看到的状态）
 
 ### 4.1 自动启动
 
-BotDrop 启动时会尝试初始化 Shizuku runtime，流程包括：
+Rbot 启动时会尝试初始化 Shizuku runtime，流程包括：
 
 - 请求 Provider binder
 - 检查 Binder 是否 ready
@@ -122,7 +122,7 @@ BotDrop 启动时会尝试初始化 Shizuku runtime，流程包括：
 
 ## 7. 一次性快速验收清单
 
-1. 重新启动 BotDrop 后，打开 `Open Shizuku`；
+1. 重新启动 Rbot 后，打开 `Open Shizuku`；
 2. 完成权限请求；
 3. 检查状态页显示已授权；
 4. 启动 Gateway；
@@ -135,7 +135,7 @@ BotDrop 启动时会尝试初始化 Shizuku runtime，流程包括：
 如需提 bug，可附上：
 
 ```bash
-adb logcat -s ShizukuBootstrap ShizukuStatus ShizukuBridgeService ShizukuBridgeServer ShizukuShellService BotDropService:V
+adb logcat -s ShizukuBootstrap ShizukuStatus ShizukuBridgeService ShizukuBridgeServer ShizukuShellService RbotService:V
 ```
 
 并补充：

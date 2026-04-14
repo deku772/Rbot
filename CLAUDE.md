@@ -38,7 +38,7 @@ $JAVA_HOME/bin/java -version
 export JAVA_HOME=/opt/homebrew/opt/openjdk@17
 ./gradlew clean assembleDebug
 
-# Output: app/build/outputs/apk/debug/botdrop-app_*_debug.apk
+# Output: app/build/outputs/apk/debug/rbot-app_*_debug.apk
 ```
 
 **Run tests:**
@@ -59,7 +59,7 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@17
 - **Termux Core:** `termux-shared/`, `terminal-*` - Forked from Termux
 - **Version API:** `worker/` - Cloudflare Worker for version checking
 - **Documentation:** `docs/` - Design docs, plans, troubleshooting guides
-- **Bootstrap:** Downloaded from `zhixianio/botdrop-packages` during build
+- **Bootstrap:** Downloaded from `zhixianio/rbot-packages` during build
 
 ## Key Commands
 
@@ -79,7 +79,7 @@ adb logcat | grep -E "ANDBOTT|Termux"
 
 ## Bootstrap Management
 
-**Current strategy:** Use `/releases/latest/download/` from botdrop-packages
+**Current strategy:** Use `/releases/latest/download/` from rbot-packages
 
 - Latest release should always point to a stable, tested bootstrap
 - To rollback: Change latest release in GitHub, no code changes needed
