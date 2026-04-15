@@ -58,7 +58,7 @@ APK 位于 `app/build/outputs/apk/debug/`。
 
 ```
 ┌─────────────────────────────┐
-│  Rbot v1.0                  │
+│  Rbot v2.0.1                │
 ├─────────────────────────────┤
 │  [日志] [管理]              │
 ├─────────────────────────────┤
@@ -128,7 +128,15 @@ APK 位于 `app/build/outputs/apk/debug/`。
 
 ## 版本历史
 
-### v1.0.1765+ (2026-04-11)
+### v2.0.1 (2026-04-15)
+
+- 修复 AstrBot 启动/停止/状态检测（toybox bash 兼容性）
+- 修复 `wc -l` exit code 问题导致状态始终显示"已停止"
+- 修复 stopAstrBot 的 PID 解析（`for line in $(ps ...)` 无法正确解析）
+- 移除 MonitorAlarmReceiver 周期检查（改为开机拉起一次）
+- 启动命令统一为 `python3 main.py`
+
+### v2.0.0 (2026-04-15)
 
 - 修复 `/tmp` 不可写导致备份失败（tmpfs + TMPDIR）
 - 修复停止后 AstrBot 自动重启（同步 commit + 验证杀死）
