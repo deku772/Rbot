@@ -64,3 +64,4 @@ id_rbot
 rbot_key*
 build_out*.txt
 build_output.txt
+*.txt
