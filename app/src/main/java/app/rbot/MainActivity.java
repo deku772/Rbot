@@ -162,14 +162,9 @@ public class MainActivity extends AppCompatActivity {
             startActivity(intent);
         });
         mNavManageButton.setOnClickListener(v -> {
-            // Navigate to active bot's management panel
+            // AstrBot managed from main panel — show toast with status
             BotAdapter bot = BotManager.getInstance(this).getActiveBot();
-            if ("hermes".equals(bot.getId())) {
-                startActivity(new Intent(this, HermesManagementActivity.class));
-            } else {
-                // AstrBot managed from main panel — show toast with status
-                Toast.makeText(this, bot.getName() + ": " + (bot.isRunning() ? "运行中" : bot.isInstalled() ? "已停止" : "未安装"), Toast.LENGTH_SHORT).show();
-            }
+            Toast.makeText(this, bot.getName() + ": " + (bot.isRunning() ? "运行中" : bot.isInstalled() ? "已停止" : "未安装"), Toast.LENGTH_SHORT).show();
         });
         mNavPermissionsButton.setOnClickListener(v -> {
             Intent intent = new Intent(this, PermissionsActivity.class);

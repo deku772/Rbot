@@ -6,7 +6,7 @@ import android.os.Looper;
 
 /**
  * Abstract base class for bot engine adapters.
- * Each supported bot (AstrBot, Hermes Agent) implements this interface.
+ * Each supported bot implements this interface.
  *
  * Design: Abstract class instead of interface to provide common infrastructure
  * (Handler, Context) and avoid duplicate boilerplate across implementations.
@@ -14,7 +14,6 @@ import android.os.Looper;
 public abstract class BotAdapter {
 
     public static final String ID_ASTRBOT = "astrbot";
-    public static final String ID_HERMES = "hermes";
 
     protected final Context mContext;
     protected final Handler mHandler;
@@ -26,13 +25,13 @@ public abstract class BotAdapter {
 
     // ─── Identity ───
 
-    /** Unique string ID for this bot (e.g. "astrbot", "hermes") */
+    /** Unique string ID for this bot (e.g. "astrbot") */
     public abstract String getId();
 
-    /** Human-readable display name (e.g. "AstrBot", "Hermes Agent") */
+    /** Human-readable display name (e.g. "AstrBot") */
     public abstract String getName();
 
-    /** Human-readable short label for status cards (e.g. "ASTRBOT", "HERMES") */
+    /** Human-readable short label for status cards (e.g. "ASTRBOT") */
     public abstract String getStatusLabel();
 
     // ─── Installation ───

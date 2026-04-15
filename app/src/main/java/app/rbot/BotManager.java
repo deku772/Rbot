@@ -34,7 +34,6 @@ public class BotManager {
         // Register all known adapters
         mAdapters = new HashMap<>();
         registerAdapter(new AstrBotAdapter(context));
-        registerAdapter(new HermesAdapter(context));
     }
 
     /** Get the singleton instance */

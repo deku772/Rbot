@@ -57,3 +57,10 @@ keystore/
 
 # Skill TypeScript build output
 app/src/main/assets/skills/botdrop-u2/dist/
+
+# SSH keys and build logs (should not be committed)
+*_ssh_key*
+id_rbot
+rbot_key*
+build_out*.txt
+build_output.txt

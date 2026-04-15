@@ -344,12 +344,7 @@ public class RbotActivity extends Activity {
         // All ready — route to the active bot's management panel
         Log.i(TAG, "All ready, routing to " + activeBot.getName() + " panel");
         mStatusText.setText(R.string.rbot_starting_status);
-        Intent intent;
-        if (activeBot.getId().equals(BotAdapter.ID_HERMES)) {
-            intent = new Intent(this, HermesManagementActivity.class);
-        } else {
-            intent = new Intent(this, MainActivity.class);
-        }
+        Intent intent = new Intent(this, MainActivity.class);
         startActivity(intent);
         finish();
     }

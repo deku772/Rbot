@@ -315,7 +315,35 @@ public final class ChrootManager {
         ensureGpgv(callback);
         // Switch to Chinese mirror early so all apt operations are fast
         switchToChineseMirror(callback);
+        // Set default SSH password early (during rootfs setup, not runtime)
+        setDefaultSshPassword(callback);
         return false;  // setupChrootDevices doesn't return failure
+    }
+
+    /** Set default SSH password during rootfs installation (most reliable time) */
+    private static void setDefaultSshPassword(ProgressCallback callback) {
+        if (callback != null) callback.onProgress("配置 SSH 访问...");
+        
+        String password = RbotConstants.DEFAULT_SSH_PASSWORD;
+        
+        // Use openssl to generate password hash, then set it directly in shadow file
+        // This is the most reliable method - no interactive prompts, no PAM issues
+        CommandResult result = execInChroot(
+            "HASH=$(openssl passwd -6 -salt rbotsalt '" + password + "') && " +
+            "mkdir -p /root && " +
+            "if grep -q '^root:' /etc/shadow; then " +
+            "  sed -i \"s|^root:[^:]*:|root:$HASH:|\" /etc/shadow; " +
+            "else " +
+            "  echo \"root:$HASH:19000:0:99999:7:::\" >> /etc/shadow; " +
+            "fi && " +
+            "chmod 600 /etc/shadow && " +
+            "echo 'Password set successfully'", 15);
+        
+        if (result.success() && result.stdout().contains("Password set successfully")) {
+            if (callback != null) callback.onProgress("✅ SSH 密码已设置: " + password);
+        } else {
+            if (callback != null) callback.onProgress("⚠️ SSH 密码配置失败: " + result.stderr());
+        }
     }
 
     /** Fix /dev/null — common issue after rootfs extract where /dev/null is a regular file with wrong permissions */
@@ -881,14 +909,11 @@ public final class ChrootManager {
      * Password is shell-escaped via replace(':', '\\:') to prevent field injection.
      */
     public static CommandResult setSshPassword(String password) {
-        // Escape colons and backslashes first (field delimiters in /etc/shadow),
-        // then escape single quotes using the standard shell '' approach.
-        String escaped = password
-            .replace("\\", "\\\\")
-            .replace(":", "\\:")
-            .replace("'", "'\"'\"'");
+        // Use openssl to generate password hash, then use usermod to set it
+        // This is more reliable than passwd or chpasswd in non-interactive environments
         String chrootCmd =
-            "echo 'root:" + escaped + "' | chpasswd && " +
+            "HASH=$(openssl passwd -6 " + shellQuote(password) + ") && " +
+            "usermod -p \"$HASH\" root && " +
             "chmod 600 /etc/shadow && " +
             "echo PASSWORD_SET_OK";
         return execInChroot(chrootCmd, 20);
@@ -937,171 +962,13 @@ public final class ChrootManager {
     /** Set root password in chroot */
     public static boolean setRootPassword(String password) {
         if (password == null || password.isEmpty()) return false;
-        // Save to file for app to read
+        // Save to file for app to read - use printf to avoid escaping issues
         CommandResult saveResult = execInChroot(
-            "echo '" + password.replace("'", "'\"'\"'") + "' > /root/.rbot_pass && chmod 600 /root/.rbot_pass", 5);
-        // Set actual system password
+            "printf '%s' " + shellQuote(password) + " > /root/.rbot_pass && chmod 600 /root/.rbot_pass", 5);
+        // Set actual system password using openssl + usermod (most reliable method)
         CommandResult passResult = execInChroot(
-            "echo 'root:" + password.replace("'", "'\"'\"'") + "' | chpasswd", 5);
+            "HASH=$(openssl passwd -6 " + shellQuote(password) + ") && usermod -p \"$HASH\" root", 5);
         return saveResult.success() && passResult.success();
-    }
-
-    // ─── Hermes Agent ───────────────────────────────────────────────────────────
-
-    private static final String HERMES_VENV_BIN = RbotConstants.HERMES_HOME + "/venv/bin";
-
-    /** Find the actual hermes binary wherever the official script placed it */
-    private static String findHermesBinary() {
-        String[] candidates = {
-            HERMES_VENV_BIN + "/hermes",
-            "/root/.local/bin/hermes",
-            "/data/data/com.termux/files/usr/bin/hermes",
-            "/usr/local/bin/hermes",
-        };
-        for (String c : candidates) {
-            if (new File(c).exists()) return c;
-        }
-        return HERMES_VENV_BIN + "/hermes";
-    }
-
-    /** Check if Hermes is installed (looks in all possible locations) */
-    public static boolean isHermesInstalled() {
-        if (new File(RbotConstants.HERMES_MARKER).exists()) return true;
-        return !findHermesBinary().equals(HERMES_VENV_BIN + "/hermes") || new File(HERMES_VENV_BIN + "/hermes").exists();
-    }
-
-    /** Check if Hermes gateway is running */
-    public static boolean isHermesRunning() {
-        // Always verify with pgrep - the PID file may be stale after process crash
-        CommandResult pgResult = execInChroot(
-            "pgrep -f 'hermes gateway' >/dev/null 2>&1 && echo running || echo stopped", 5);
-        boolean pgrepRunning = pgResult.success() && "running".equals(pgResult.stdout().trim());
-
-        // Also check PID file as secondary (but only trust if pgrep agrees)
-        CommandResult pidResult = execRoot(
-            "cat " + RbotConstants.HERMES_PID_FILE + " 2>/dev/null || echo ''", 5);
-        String pid = pidResult.success() ? pidResult.stdout().trim() : "";
-        if (!pid.isEmpty()) {
-            CommandResult check = execRoot(
-                "kill -0 " + pid + " 2>/dev/null && echo running || echo dead", 5);
-            boolean pidRunning = check.success() && "running".equals(check.stdout().trim());
-            // Only trust PID file if pgrep also agrees
-            if (pidRunning && pgrepRunning) return true;
-        }
-
-        return pgrepRunning;
-    }
-
-    /** Install Hermes Agent via official install script */
-    public static boolean installHermes(ProgressCallback callback) {
-        if (isHermesInstalled()) {
-            if (callback != null) callback.onProgress("Hermes 已安装，跳过");
-            return false;
-        }
-
-        if (callback != null) callback.onProgress("下载 Hermes Agent...");
-        String installCmd =
-            "ANDROID_API_LEVEL=$(getprop ro.build.version.sdk 2>/dev/null || echo 29) && " +
-            "mkdir -p " + RbotConstants.HERMES_HOME + " && " +
-            "cd /tmp && " +
-            "curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh " +
-            "  -o install_hermes.sh && " +
-            "chmod +x install_hermes.sh && " +
-            "cd " + RbotConstants.HERMES_HOME + " && " +
-            "bash /tmp/install_hermes.sh 2>&1 | tee " + RbotConstants.HERMES_HOME + "/install.log";
-
-        CommandResult r = execInChrootWithProgress(installCmd, 600, callback);
-        if (r == null || !r.success()) {
-            if (callback != null) callback.onError("Hermes 安装失败: " + (r != null ? r.stderr() : ""));
-            return true;
-        }
-
-        // Probe for hermes binary in all possible locations
-        String hermesBin = findHermesBinary();
-        if (!hermesBin.equals(HERMES_VENV_BIN + "/hermes") || new File(HERMES_VENV_BIN + "/hermes").exists()) {
-            // Mark installed
-            execRoot("touch " + RbotConstants.HERMES_MARKER);
-            if (callback != null) callback.onProgress("Hermes 安装完成: " + hermesBin);
-        } else {
-            if (callback != null) callback.onError("Hermes 未找到，安装可能被中断: " + hermesBin);
-            return true;
-        }
-
-        // Mark installed
-        execRoot("touch " + RbotConstants.HERMES_MARKER);
-        if (callback != null) callback.onProgress("Hermes 安装完成");
-        return false;
-    }
-
-    /** Start Hermes gateway */
-    public static CommandResult startHermes() {
-        synchronized (sChrootLock) {
-            setupChrootDevices(null);
-            if (isHermesRunning()) {
-                return new CommandResult(true, "already running", "", 0);
-            }
-
-            // Find actual hermes binary location
-            String hermesBin = findHermesBinary();
-            boolean isVenv = hermesBin.contains("/venv/");
-            // Derive venv/bin path from binary location (normalize to /data/rbot/hermes/.hermes path)
-            String venvBin;
-            if (isVenv) {
-                int idx = hermesBin.indexOf("/venv/");
-                venvBin = hermesBin.substring(0, idx) + "/venv/bin";
-            } else {
-                venvBin = hermesBin.substring(0, hermesBin.lastIndexOf("/"));
-            }
-            String execLine = venvBin + "/python -m hermes gateway start";
-
-            // Always use fixed paths for PID/log, create .hermes dir there
-            String startCmd =
-                "source /etc/profile 2>/dev/null; " +
-                "rm -f " + RbotConstants.HERMES_PID_FILE + "; " +
-                "mkdir -p " + RbotConstants.HERMES_HOME + "/.hermes; " +
-                "cd /root; " +
-                "env -i " +
-                  "HOME=/root " +
-                  "USER=root " +
-                  "LANG=C.UTF-8 " +
-                  "TERM=xterm-256color " +
-                  "TMPDIR=/tmp " +
-                  "ANDROID_API_LEVEL=$(getprop ro.build.version.sdk 2>/dev/null || echo 29) " +
-                  "VIRTUAL_ENV=" + venvBin.substring(0, venvBin.lastIndexOf("/bin")) + " " +
-                  "PATH=" + venvBin + ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin " +
-                  "HERMES_HOME=" + RbotConstants.HERMES_HOME + " " +
-                  execLine + " >> " + RbotConstants.HERMES_LOG_FILE + " 2>&1 & " +
-                "echo $! > " + RbotConstants.HERMES_PID_FILE + "; " +
-                "sleep 5; " +
-                "PID=$(cat " + RbotConstants.HERMES_PID_FILE + " 2>/dev/null) && " +
-                "[ -n \"$PID\" ] && kill -0 $PID 2>/dev/null && echo OK || " +
-                "{ echo FAIL; cat " + RbotConstants.HERMES_LOG_FILE + " | tail -20; }";
-
-            return execInChroot(startCmd, 30);
-        }
-    }
-
-    /** Stop Hermes gateway */
-    public static CommandResult stopHermes() {
-        // First: kill from outside chroot using PID file
-        CommandResult r1 = execRoot(
-            "PIDFILE=" + RbotConstants.HERMES_PID_FILE + "; " +
-            "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
-            "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
-            "fi; " +
-            "rm -f $PIDFILE; " +
-            "echo host_done", 10);
-
-        // Then: pkill from inside chroot (catches any stray processes)
-        String stopCmd =
-            "source /etc/profile 2>/dev/null; " +
-            "pkill -9 -f 'hermes gateway' 2>/dev/null; " +
-            "pkill -9 -f 'hermes-agent' 2>/dev/null; " +
-            "pkill -9 -f 'python.*hermes' 2>/dev/null; " +
-            "rm -f " + RbotConstants.HERMES_PID_FILE + "; " +
-            "echo stopped";
-        return execInChroot(stopCmd, 15);
     }
 
     // ─── Progress callback ───

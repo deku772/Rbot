@@ -94,29 +94,19 @@ public class SetupActivity extends AppCompatActivity {
 
         // Bot engine selection — always visible (radio group moved out of reinstall_options)
         android.view.View botEngineSection = findViewById(R.id.bot_engine_section);
-        botEngineSection.setVisibility(View.VISIBLE);
+        botEngineSection.setVisibility(View.GONE); // Hide bot selection since we only support AstrBot now
         mRgBotEngine = findViewById(R.id.rg_bot_engine);
         mPendingBot = mActiveBot; // default to current active bot
 
         // Set initial RadioGroup selection
-        if (mActiveBot.getId().equals(BotAdapter.ID_HERMES)) {
-            mRgBotEngine.check(R.id.rb_hermes);
-        } else {
-            mRgBotEngine.check(R.id.rb_astrbot);
-        }
+        mRgBotEngine.check(R.id.rb_astrbot);
 
         // Listen for engine changes
         mRgBotEngine.setOnCheckedChangeListener((group, checkedId) -> {
             BotManager bm = BotManager.getInstance(this);
-            if (checkedId == R.id.rb_hermes) {
-                mPendingBot = bm.getBot(BotAdapter.ID_HERMES);
-                mTitleText.setText("安装 Hermes Agent");
-                mCbReinstallBot.setText("重装 Hermes Agent（重新克隆 + 安装依赖）");
-            } else {
-                mPendingBot = bm.getBot(BotAdapter.ID_ASTRBOT);
-                mTitleText.setText("安装 AstrBot");
-                mCbReinstallBot.setText("重装 AstrBot（重新克隆 + 安装依赖）");
-            }
+            mPendingBot = bm.getBot(BotAdapter.ID_ASTRBOT);
+            mTitleText.setText("安装 AstrBot");
+            mCbReinstallBot.setText("重装 AstrBot（重新克隆 + 安装依赖）");
             // Refresh status UI to show correct state for the newly selected bot
             updateStatusUI();
         });
@@ -198,11 +188,8 @@ public class SetupActivity extends AppCompatActivity {
         }
         if (reinstallBot) {
             // Remove bot-specific marker
-            if (mPendingBot.getId().equals(BotAdapter.ID_ASTRBOT)) {
-                ChrootManager.execRoot("rm -f " + RbotConstants.ASTRBOT_MARKER);
-            }
-            ChrootManager.execInChroot("rm -rf " + mPendingBot.getHomePath() + " " +
-                (mPendingBot.getId().equals(BotAdapter.ID_HERMES) ? "/root/.local/bin/hermes /root/.local/share/hermes /root/.cache/hermes /root/.config/hermes" : ""), 30);
+            ChrootManager.execRoot("rm -f " + RbotConstants.ASTRBOT_MARKER);
+            ChrootManager.execInChroot("rm -rf " + mPendingBot.getHomePath(), 30);
         }
 
         boolean needRootfs = !ChrootManager.isRootfsReady() || reinstallRootfs;
@@ -604,13 +591,7 @@ public class SetupActivity extends AppCompatActivity {
             mActionButton.setTextColor(0xFF1A1A1A);
 
             appendLog("➡️ 正在跳转到主界面...");
-            Class<?> targetActivity;
-            if (mPendingBot.getId().equals(BotAdapter.ID_HERMES)) {
-                targetActivity = HermesManagementActivity.class;
-            } else {
-                targetActivity = MainActivity.class;
-            }
-            Intent intent = new Intent(SetupActivity.this, targetActivity);
+            Intent intent = new Intent(SetupActivity.this, MainActivity.class);
             intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             startActivity(intent);
             finish();

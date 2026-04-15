@@ -29,20 +29,6 @@ public final class RbotConstants {
     /** Marker file indicating AstrBot is installed (at chroot root so app process can read it) */
     public static final String ASTRBOT_MARKER = CHROOT_DIR + "/.rbot-astrbot-ready";
 
-    // ─── Hermes Agent ───────────────────────────────────────────────────────────
-
-    /** Hermes home inside chroot */
-    public static final String HERMES_HOME = CHROOT_DIR + "/hermes";
-
-    /** Hermes gateway PID file */
-    public static final String HERMES_PID_FILE = HERMES_HOME + "/.hermes/gateway.pid";
-
-    /** Hermes gateway log */
-    public static final String HERMES_LOG_FILE = HERMES_HOME + "/gateway.log";
-
-    /** Marker file indicating Hermes is installed */
-    public static final String HERMES_MARKER = CHROOT_DIR + "/.rbot-hermes-ready";
-
     /** sdcard data directory */
     public static final String SDCARD_DIR = "/storage/emulated/0/rbot";
 
@@ -78,4 +64,10 @@ public final class RbotConstants {
 
     /** Operation log file — records all app-initiated actions (install, start, SSH, etc.) */
     public static final String OP_LOG_FILE = CHROOT_DIR + "/.rbot-op-log";
+
+    // ─── SSH Configuration ──────────────────────────────────────────────────────
+
+    /** Default SSH password (set during rootfs installation) */
+    public static final String DEFAULT_SSH_PASSWORD = "rbot123";
+
 }
