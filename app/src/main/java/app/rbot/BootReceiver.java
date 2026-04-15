@@ -20,14 +20,29 @@ public class BootReceiver extends BroadcastReceiver {
             return;
         }
 
-        // Only auto-start if an active bot is installed
         BotAdapter activeBot = BotManager.getInstance(context).getActiveBot();
         if (!activeBot.isInstalled()) {
             Log.i(TAG, activeBot.getName() + " not installed, skipping auto-start");
+            // Still start service to show "Stopped" status
+            startServiceAndShow(context);
             return;
         }
 
-        Log.i(TAG, "Boot completed, starting GatewayMonitorService");
+        // Start the bot once now
+        Log.i(TAG, "Boot completed, starting " + activeBot.getName());
+        new Thread(() -> {
+            ChrootManager.CommandResult result = activeBot.start();
+            if (result.success()) {
+                Log.i(TAG, activeBot.getName() + " started on boot");
+            } else {
+                Log.e(TAG, "Failed to start " + activeBot.getName() + " on boot: " + result.stderr());
+            }
+            // Then start the foreground service
+            startServiceAndShow(context);
+        }).start();
+    }
+
+    private void startServiceAndShow(Context context) {
         Intent serviceIntent = new Intent(context, GatewayMonitorService.class);
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

@@ -1,6 +1,5 @@
 package app.rbot;
 
-import android.app.AlarmManager;
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -14,7 +13,6 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
-import android.os.PowerManager;
 import android.text.TextUtils;
 import android.util.Log;
 
@@ -24,39 +22,21 @@ import androidx.core.app.NotificationCompat;
 import app.rbot.R;
 
 /**
- * Foreground service that monitors and keeps the active bot chroot process alive.
+ * Foreground service for the active bot.
  *
- * Battery-optimized architecture (2026-04 refactor):
+ * Responsibilities:
+ * 1. Persistent notification showing bot status (Running/Stopped)
+ * 2. Manual start/stop/restart from UI
+ * 3. Background app update check (every 6h)
  *
- * OLD (removed):
- * - Permanent WifiLock (WIFI_MODE_FULL_LOW_LATENCY) — kept WiFi射频 24/7 at full power
- * - Permanent WakeLock (PARTIAL_WAKE_LOCK, 15min timeout, 10min reacquire) — CPU never slept
- * - Handler.postDelayed every 30s — required WakeLock to fire at all
- *
-     * NEW:
-     * - No WifiLock — isAstrBotRunning() is a fast PID file check, needs no persistent network
-     * - No permanent WakeLock — a 10s one is only acquired in MonitorAlarmReceiver during the check
-     * - AlarmManager.setExactAndAllowWhileIdle (~30s) — precise timing, reliable in Doze
- * - Foreground service persists only to show the notification and keep app alive for user interactions
- *
- * The foreground service stays running (START_STICKY) because:
- * 1. Users need a persistent notification showing AstrBot status
- * 2. The app UI needs the service to be available for start/stop/restart commands
- * 3. START_STICKY ensures Android restarts it if killed (e.g., after app update)
- *
- * Monitoring logic lives in MonitorAlarmReceiver instead — it wakes the device briefly,
- * does the check (~1-2s), updates the notification, then the device sleeps again.
- *
- * App update checks (every 6h) still run inside this service via Handler (infrequent, low impact).
+ * No periodic health checks — bot state is only checked on user action.
+ * The service is START_STICKY so Android restarts it if killed.
  */
 public class GatewayMonitorService extends Service {
 
     private static final String TAG = "GatewayMonitorService";
     private static final int NOTIFICATION_ID = 1001;
     private static final int APP_UPDATE_NOTIFICATION_ID = 1002;
-    private static final int MONITOR_INTERVAL_MS = 30_000; // 30 seconds
-    private static final int RESTART_DELAY_MS = 5_000; // 5 seconds
-    private static final int MAX_RESTART_ATTEMPTS = 5;
     private static final long APP_UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L; // 6 hours
     private static final String APP_UPDATE_PREFS_NAME = "rbot_update";
     private static final String KEY_BG_LAST_APP_UPDATE_CHECK = "bg_last_app_update_check_time";
@@ -67,12 +47,8 @@ public class GatewayMonitorService extends Service {
     private static String sCurrentStatus = "Starting...";
     private static NotificationManager sNotificationManager;
 
-    // App update check — infrequent, use Handler (low impact)
     private Handler mHandler = new Handler(Looper.getMainLooper());
     private Runnable mAppUpdateCheckRunnable;
-
-    private boolean mIsMonitoring = false;
-    private int mRestartAttempts = 0;
     private boolean mRestartInFlight = false;
 
     @Override
@@ -86,23 +62,16 @@ public class GatewayMonitorService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         Log.i(TAG, "GatewayMonitorService started");
-        Notification notification = buildNotification("Rbot 正在运行");
-        startForeground(NOTIFICATION_ID, notification);
-
-        if (!mIsMonitoring) {
-            startMonitoring();
-        }
-
+        startForeground(NOTIFICATION_ID, buildNotification("Rbot 正在运行"));
+        startAppUpdateChecking();
         return START_STICKY;
     }
 
     @Override
     public void onDestroy() {
         super.onDestroy();
-        stopMonitoring();
+        stopAppUpdateChecking();
         mHandler.removeCallbacksAndMessages(null);
-        // Cancel scheduled alarm when service is permanently stopped
-        MonitorAlarmReceiver.cancelAlarm(this);
         Log.i(TAG, "GatewayMonitorService destroyed");
     }
 
@@ -110,34 +79,6 @@ public class GatewayMonitorService extends Service {
     @Override
     public IBinder onBind(Intent intent) {
         return null;
-    }
-
-    // ─── Monitoring ───────────────────────────────────────────────────────────
-
-    /**
-     * Start periodic monitoring via AlarmManager.
-     * MonitorAlarmReceiver handles each tick and updates the notification.
-     *
-     * The old Handler-based approach with permanent WakeLock is removed.
-     */
-    private void startMonitoring() {
-        if (mIsMonitoring) return;
-        mIsMonitoring = true;
-
-        Log.i(TAG, "Starting bot monitoring (AlarmManager-based, no WakeLock/WifiLock)");
-
-        // Schedule periodic alarms
-        MonitorAlarmReceiver.scheduleNextAlarm(this);
-
-        // Also start app update check (every 6 hours, infrequent, Handler is fine)
-        startAppUpdateChecking();
-    }
-
-    private void stopMonitoring() {
-        if (!mIsMonitoring) return;
-        mIsMonitoring = false;
-        MonitorAlarmReceiver.cancelAlarm(this);
-        stopAppUpdateChecking();
     }
 
     // ─── App update check ──────────────────────────────────────────────────────
@@ -225,8 +166,6 @@ public class GatewayMonitorService extends Service {
      */
     public void manualStartBot() {
         if (mRestartInFlight) return;
-
-        mRestartAttempts = 0;
         mRestartInFlight = true;
         updateStatusInternal("Starting...");
 
@@ -238,7 +177,6 @@ public class GatewayMonitorService extends Service {
 
                 if (result.success()) {
                     Log.i(TAG, activeBot.getName() + " started successfully via manualStart");
-                    mRestartAttempts = 0;
                     mHandler.post(() -> updateStatusInternal("Running"));
                 } else {
                     Log.e(TAG, "Failed to start " + activeBot.getName() + ": " + result.stderr());
@@ -252,15 +190,10 @@ public class GatewayMonitorService extends Service {
         }).start();
     }
 
-    /**
-     * Manually stop the active bot from UI button.
-     * Called by MainActivity when user taps "停止".
-     */
     public void manualStopBot() {
         BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
         activeBot.stop();
         updateStatusInternal("Stopped");
-        mRestartAttempts = 0;
     }
 
     /**
@@ -288,46 +221,6 @@ public class GatewayMonitorService extends Service {
                 mHandler.post(() -> updateStatusInternal("Failed"));
             }
         }).start();
-    }
-
-    // ─── Status update ─────────────────────────────────────────────────────────
-
-    /**
-     * Called by MonitorAlarmReceiver to update the foreground notification.
-     * This is static so the receiver doesn't need a service instance.
-     */
-    public static void updateNotificationStatus(Context context, String status) {
-        sCurrentStatus = status;
-        NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
-        if (manager == null) return;
-
-        // Get active bot name for dynamic notification
-        String botName = BotManager.getInstance(context).getActiveBot().getName();
-
-        Intent notificationIntent = new Intent(context, MainActivity.class);
-        notificationIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-
-        int flags = PendingIntent.FLAG_UPDATE_CURRENT;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            flags |= PendingIntent.FLAG_IMMUTABLE;
-        }
-        PendingIntent pendingIntent = PendingIntent.getActivity(context, 0, notificationIntent, flags);
-
-        Notification notification = new NotificationCompat.Builder(context, MainActivity.NOTIFICATION_CHANNEL_ID)
-            .setContentTitle("Rbot")
-            .setContentText(botName + ": " + status)
-            .setSmallIcon(R.drawable.ic_service_notification)
-            .setContentIntent(pendingIntent)
-            .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setShowWhen(false)
-            .build();
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            notification.extras.putInt("android.foregroundServiceBehavior", NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
-        }
-
-        manager.notify(NOTIFICATION_ID, notification);
     }
 
     private void updateStatusInternal(String status) {

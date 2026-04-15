@@ -6,7 +6,7 @@ plugins {
 
 // Auto-increment version based on local counter — MUST be before android {}
 int computedVersionCode = 1
-String computedVersionName = "1.0.1"
+String computedVersionName = "2.0.0"
 
 try {
     def propsFile = new File(rootProject.rootDir, "version.properties")
@@ -19,8 +19,8 @@ try {
     props.setProperty("localVersionCode", String.valueOf(next))
     props.store(new FileOutputStream(propsFile), "Local build counter")
     computedVersionCode = next
-    computedVersionName = "1.0." + next
-    println "[VERSION] versionCode=" + next + ", versionName=1.0." + next
+    computedVersionName = "2.0.0"
+    println "[VERSION] versionCode=" + next + ", versionName=2.0.0"
 } catch (Exception e) {
     println "[VERSION] Exception: " + e.getMessage()
 }
@@ -37,8 +37,8 @@ android {
         targetSdkVersion project.properties.targetSdkVersion.toInteger()
         // Auto-increment version code based on local build counter
         versionCode computedVersionCode
-        // Version name: MAJOR.MINOR.BUILD_NUMBER
-        versionName "1.1.1"
+        // Version name: MAJOR.MINOR.PATCH
+        versionName "2.0.0"
 
         manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.rbot"
         manifestPlaceholders.TERMUX_APP_NAME = "Rbot"

@@ -646,82 +646,81 @@ public final class ChrootManager {
             // Kill any existing process first
             stopAstrBot();
 
-        // Use venv python if available (PEP 668 on Ubuntu 24.04), fallback to system python3
-        // Use setsid so the Python process becomes a proper daemon and $! gives
-        // the Python PID (not nohup's PID, which would exit immediately).
-        String pythonBin = "python3"; // fallback
-        CommandResult venvCheck = execInChroot("test -f /root/astrbot/venv/bin/python3 && echo venv_ok", 5);
-        if (venvCheck.success() && venvCheck.stdout().trim().equals("venv_ok")) {
-            pythonBin = "/root/astrbot/venv/bin/python3";
-        }
+            // Use venv python if available (PEP 668 on Ubuntu 24.04), fallback to system python3
+            String pythonBin = "python3";
+            CommandResult venvCheck = execInChroot("test -f /root/astrbot/venv/bin/python3 && echo venv_ok", 5);
+            if (venvCheck.success() && venvCheck.stdout().trim().equals("venv_ok")) {
+                pythonBin = "/root/astrbot/venv/bin/python3";
+            }
 
-        String chrootBashCmd =
-            "cd /root/astrbot && " +
-            "setsid " + pythonBin + " main.py > /root/astrbot/astrbot.log 2>&1 & " +
-            "echo $! > /root/astrbot/astrbot.pid && " +
-            "sleep 5 && " +
-            "if kill -0 $(cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
-            "  echo started; " +
-            "else " +
-            "  cat /root/astrbot/astrbot.log 2>/dev/null; " +
-            "  echo 'AstrBot failed to start'; exit 1; " +
-            "fi";
+            // Single execInChroot call: launch, save PID, wait, verify
+            // Using setsid so the process survives the shell exit
+            String startCmd =
+                "cd /root/astrbot && " +
+                "rm -f /root/astrbot/astrbot.pid && " +
+                "setsid " + pythonBin + " main.py >> /root/astrbot/astrbot.log 2>&1 & " +
+                "echo $! > /root/astrbot/astrbot.pid && " +
+                "/bin/sleep 3 && " +
+                "PID=$(cat /root/astrbot/astrbot.pid 2>/dev/null) && " +
+                "if [ -n \"$PID\" ] && kill -0 \"$PID\" 2>/dev/null; then " +
+                "  echo started_$PID; " +
+                "else " +
+                "  echo 'FAIL:' $(tail -5 /root/astrbot/astrbot.log 2>/dev/null); exit 1; " +
+                "fi";
 
-            return execInChroot(chrootBashCmd, 30);
+            CommandResult result = execInChroot(startCmd, 20);
+            boolean started = result.success() && result.stdout().contains("started_");
+            Log.d(TAG, "[startAstrBot] stdout=" + result.stdout().trim() + " stderr=" + result.stderr().trim());
+            return new CommandResult(started, result.stdout(), result.stderr(), started ? 0 : 1);
         }
     }
 
     /** Stop AstrBot - kills from both inside and outside chroot */
     public static CommandResult stopAstrBot() {
-        // First try to stop from outside chroot (in case chroot is broken)
-        // Kill by PID file content (read from outside)
-        execRoot(
-            "PIDFILE=" + RbotConstants.CHROOT_DIR + "/root/astrbot/astrbot.pid; " +
+        StringBuilder sb = new StringBuilder();
+
+        // Step 1: Kill by PID file (most reliable - we wrote this PID ourselves)
+        CommandResult r1 = execRoot(
+            "PIDFILE=" + RbotConstants.ASTRBOT_PID_FILE + "; " +
             "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
-            "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
+            "  PID=$(cat $PIDFILE 2>/dev/null); " +
+            "  if [ -n \"$PID\" ]; then kill -9 $PID 2>/dev/null && echo pid_killed_$PID || echo pid_gone_$PID; fi; " +
             "  rm -f $PIDFILE; " +
             "fi; " +
-            "echo host_killed", 10);
+            "echo pid_done", 10);
+        sb.append("PID: ").append(r1.stdout().trim());
 
-        // Also try pkill from host side
-        execRoot("pkill -9 -f 'python3.*main.py' 2>/dev/null || true; echo pkill_done", 5);
+        // Step 2: pkill by pattern - catches any stragglers
+        CommandResult r2 = execRoot(
+            "pkill -9 -f 'python.*main\\.py' 2>/dev/null && echo pkill_ok || echo pkill_none; " +
+            "echo pkill_done", 5);
+        sb.append(", PKill: ").append(r2.stdout().trim());
 
-        // Then try from inside chroot as backup
-        String stopCmd =
-            "PIDFILE=/root/astrbot/astrbot.pid; " +
-            "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
-            "  [ -n \"$SPECPID\" ] && kill -9 $SPECPID 2>/dev/null; " +
-            "  rm -f $PIDFILE; " +
-            "fi; " +
-            "if which pkill >/dev/null 2>&1; then " +
-            "  pkill -9 -f 'python3.*main.py' 2>/dev/null || true; " +
-            "else " +
-            "  for pid in $(ps -eo pid,cmd 2>/dev/null | grep 'python3.*main.py' | grep -v grep | awk '{print $1}'); do " +
-            "    kill -9 $pid 2>/dev/null || true; " +
-            "  done; " +
-            "fi; " +
-            "sleep 1; " +
-            "echo stopped";
-        return execInChroot(stopCmd, 15);
+        // Step 3: Chroot-side pkill as last resort
+        CommandResult r3 = execInChroot(
+            "pkill -9 -f 'python.*main\\.py' 2>/dev/null && echo chroot_ok || echo chroot_none; " +
+            "rm -f /root/astrbot/astrbot.pid; " +
+            "echo chroot_done", 10);
+        sb.append(", Chroot: ").append(r3.stdout().trim());
+
+        Log.d(TAG, "[stopAstrBot] " + sb);
+        return new CommandResult(true, sb.toString(), "", 0);
     }
 
-    /** Check if AstrBot is running */
+    /** Check if AstrBot is running (host-side only, no chroot needed) */
     public static boolean isAstrBotRunning() {
-        CommandResult result = execInChroot(
-            "PIDFILE=/root/astrbot/astrbot.pid; " +
+        // Primary: check PID file
+        CommandResult r1 = execRoot(
+            "PIDFILE=" + RbotConstants.ASTRBOT_PID_FILE + "; " +
             "if [ -f \"$PIDFILE\" ]; then " +
-            "  SPECPID=$(cat $PIDFILE 2>/dev/null); " +
-            "  [ -n \"$SPECPID\" ] && kill -0 $SPECPID 2>/dev/null && { echo running; exit 0; }; " +
+            "  PID=$(cat $PIDFILE 2>/dev/null); " +
+            "  [ -n \"$PID\" ] && kill -0 $PID 2>/dev/null && echo running && exit 0; " +
             "fi; " +
-            "if which pgrep >/dev/null 2>&1; then " +
-            "  pgrep -f 'python3.*main.py' >/dev/null 2>&1 && { echo running; exit 0; }; " +
-            "else " +
-            "  ps -eo pid,cmd 2>/dev/null | grep 'python3.*main.py' | grep -v grep >/dev/null 2>&1 && { echo running; exit 0; }; " +
-            "fi; " +
-            "echo stopped", 10);
-        return result.success() && result.stdout().trim().equals("running");
+            // Fallback: pgrep
+            "pgrep -f 'python.*main\\.py' >/dev/null 2>&1 && echo running || echo stopped", 10);
+        boolean running = r1.success() && r1.stdout().trim().equals("running");
+        Log.d(TAG, "[isAstrBotRunning] running=" + running + " stdout='" + r1.stdout().trim() + "'");
+        return running;
     }
 
     /**
@@ -754,14 +753,13 @@ public final class ChrootManager {
         boolean astrBotInstalled = isAstrBotInstalled();
         boolean astrBotRunning = false;
         if (rootfsReady && astrBotInstalled) {
-            CommandResult runningResult = execInChroot(
-                "if [ -f /root/astrbot/astrbot.pid ] && kill -0 $(cat /root/astrbot/astrbot.pid) 2>/dev/null; then " +
-                "  echo running; " +
-                "elif pgrep -f 'python3 main.py' >/dev/null 2>&1; then " +
-                "  echo running; " +
-                "else " +
-                "  echo stopped; " +
-                "fi", 10);
+            CommandResult runningResult = execRoot(
+                "PIDFILE=" + RbotConstants.ASTRBOT_PID_FILE + "; " +
+                "if [ -f \"$PIDFILE\" ]; then " +
+                "  PID=$(cat $PIDFILE 2>/dev/null); " +
+                "  [ -n \"$PID\" ] && kill -0 $PID 2>/dev/null && echo running && exit 0; " +
+                "fi; " +
+                "pgrep -f 'python.*main\\.py' >/dev/null 2>&1 && echo running || echo stopped", 10);
             astrBotRunning = runningResult.success() && runningResult.stdout().trim().equals("running");
         }
         return new FullStatus(rootAvailable, rootfsReady, chrootMounted, astrBotInstalled, astrBotRunning);

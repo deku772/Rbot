@@ -129,7 +129,7 @@ public class AstrBotAdapter extends BotAdapter {
 
     @Override
     public String getStartCommand() {
-        return "python -m astrbot";
+        return "python main.py";
     }
 
     @Override

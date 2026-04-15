@@ -131,12 +131,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- Monitor alarm receiver: handles periodic status checks via AlarmManager
-             Replaces the old Handler + WakeLock + WifiLock approach for battery efficiency. -->
-        <receiver
-            android:name="app.rbot.MonitorAlarmReceiver"
-            android:exported="false" />
-
         <!-- Clipboard receiver for rbot-u2 skill -->
         <receiver
             android:name="app.rbot.ClipboardReceiver"

@@ -373,6 +373,9 @@ public class MainActivity extends AppCompatActivity {
     private void startGateway() {
         mStartButton.setEnabled(false);
         mStatusText.setText("🔄 启动中...");
+        
+        // Log the operation
+        OpLog.log("🚀 启动 AstrBot...");
 
         // Start foreground monitor service
         Intent monitorIntent = new Intent(this, GatewayMonitorService.class);
@@ -386,10 +389,26 @@ public class MainActivity extends AppCompatActivity {
         BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
         new Thread(() -> {
             ChrootManager.CommandResult result = activeBot.start();
+            
+            if (result.success()) {
+                OpLog.log("✅ AstrBot 启动成功");
+            } else {
+                OpLog.log("❌ AstrBot 启动失败: " + result.stderr());
+            }
+            
+            // Wait a bit for the process to fully start
+            try {
+                Thread.sleep(2000);
+            } catch (InterruptedException e) {
+                // ignore
+            }
+            
             refreshStatusOffThread();
             mHandler.post(() -> {
                 if (!result.success()) {
                     android.widget.Toast.makeText(this, "启动失败: " + result.stderr(), android.widget.Toast.LENGTH_LONG).show();
+                } else {
+                    android.widget.Toast.makeText(this, "AstrBot 启动成功", android.widget.Toast.LENGTH_SHORT).show();
                 }
             });
         }).start();
@@ -398,28 +417,57 @@ public class MainActivity extends AppCompatActivity {
     private void stopGateway() {
         mStopButton.setEnabled(false);
         mStatusText.setText("🔄 停止中...");
+        
+        // Log the operation
+        OpLog.log("🛑 停止 AstrBot...");
 
-        // Stop monitor service
+        // Stop monitor service first
         stopService(new Intent(this, GatewayMonitorService.class));
 
         BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
         new Thread(() -> {
-            // Kill active bot
-            activeBot.stop();
-
-            // Verify it's dead - wait up to 3 seconds
-            for (int i = 0; i < 6; i++) {
-                try {
-                    Thread.sleep(500);
-                } catch (InterruptedException e) {}
-                if (!activeBot.isRunning()) {
-                    break;
-                }
-                // If still running, kill again
+            // Kill active bot - call stop once
+            ChrootManager.CommandResult result = activeBot.stop();
+            
+            OpLog.log("停止命令输出: " + result.stdout());
+            if (!result.stderr().isEmpty()) {
+                OpLog.log("停止命令错误: " + result.stderr());
+            }
+            
+            // Wait a moment for process to die
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {}
+            
+            // Check if it's really stopped
+            boolean stillRunning = activeBot.isRunning();
+            
+            if (!stillRunning) {
+                OpLog.log("✅ AstrBot 已停止");
+            } else {
+                OpLog.log("⚠️ AstrBot 可能仍在运行，尝试强制停止...");
+                // Try one more time with force
                 activeBot.stop();
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {}
+                stillRunning = activeBot.isRunning();
+                if (!stillRunning) {
+                    OpLog.log("✅ 强制停止成功");
+                } else {
+                    OpLog.log("❌ 无法停止 AstrBot，请尝试重启应用");
+                }
             }
 
             refreshStatusOffThread();
+            final boolean finalStillRunning = stillRunning;
+            mHandler.post(() -> {
+                if (!finalStillRunning) {
+                    android.widget.Toast.makeText(this, "AstrBot 已停止", android.widget.Toast.LENGTH_SHORT).show();
+                } else {
+                    android.widget.Toast.makeText(this, "AstrBot 可能仍在运行，请查看日志", android.widget.Toast.LENGTH_LONG).show();
+                }
+            });
         }).start();
     }
 
