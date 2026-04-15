@@ -94,12 +94,16 @@ public class AstrBotAdapter extends BotAdapter {
 
     @Override
     public String getLogFile() {
-        return RbotConstants.ASTRBOT_LOG_FILE;
+        // Return chroot-relative path (e.g. "/root/astrbot/astrbot.log")
+        // Callers prepend CHROOT_DIR to get the host path.
+        // ASTRBOT_LOG_FILE is already a host path, so strip the CHROOT_DIR prefix.
+        return RbotConstants.ASTRBOT_LOG_FILE.substring(RbotConstants.CHROOT_DIR.length());
     }
 
     @Override
     public String getPidFile() {
-        return RbotConstants.ASTRBOT_PID_FILE;
+        // Return chroot-relative path — strip CHROOT_DIR prefix
+        return RbotConstants.ASTRBOT_PID_FILE.substring(RbotConstants.CHROOT_DIR.length());
     }
 
     @Override

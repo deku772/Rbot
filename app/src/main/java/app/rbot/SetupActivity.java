@@ -117,6 +117,8 @@ public class SetupActivity extends AppCompatActivity {
                 mTitleText.setText("安装 AstrBot");
                 mCbReinstallBot.setText("重装 AstrBot（重新克隆 + 安装依赖）");
             }
+            // Refresh status UI to show correct state for the newly selected bot
+            updateStatusUI();
         });
 
         updateStatusUI();
@@ -124,7 +126,8 @@ public class SetupActivity extends AppCompatActivity {
 
     private void updateStatusUI() {
         boolean rootfsReady = ChrootManager.isRootfsReady();
-        boolean botInstalled = mActiveBot.isInstalled();
+        // Use mPendingBot so status reflects the user's current selection, not saved preference
+        boolean botInstalled = mPendingBot.isInstalled();
 
         if (!rootfsReady && !botInstalled) {
             mReinstallOptions.setVisibility(View.GONE);
@@ -134,12 +137,17 @@ public class SetupActivity extends AppCompatActivity {
             mReinstallOptions.setVisibility(View.VISIBLE);
             mStepText.setText(
                 "系统镜像: " + (rootfsReady ? "✅" : "❌") + "  " +
-                mActiveBot.getName() + ": " + (botInstalled ? "✅" : "❌"));
+                mPendingBot.getName() + ": " + (botInstalled ? "✅" : "❌"));
 
             if (!rootfsReady) mCbReinstallRootfs.setChecked(true);
             if (!botInstalled) mCbReinstallBot.setChecked(true);
 
-            mActionButton.setText("执行选中的步骤");
+            // If both are ready, show "完成" button instead of "执行选中的步骤"
+            if (rootfsReady && botInstalled) {
+                mActionButton.setText("完成");
+            } else {
+                mActionButton.setText("执行选中的步骤");
+            }
         }
     }
 
@@ -150,6 +158,17 @@ public class SetupActivity extends AppCompatActivity {
     private void startInstallation() {
         if (mInstalling) return;
         mInstalling = true;
+
+        // If button says "完成", jump directly to MainActivity
+        if (mActionButton.getText().toString().equals("完成")) {
+            BotManager.getInstance(this).switchTo(mPendingBot.getId());
+            Toast.makeText(this, "切换到 " + mPendingBot.getName(), Toast.LENGTH_SHORT).show();
+            Intent intent = new Intent(SetupActivity.this, MainActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+            return;
+        }
 
         mActionButton.setEnabled(true);
         mActionButton.setText("安装中...");
@@ -183,7 +202,7 @@ public class SetupActivity extends AppCompatActivity {
                 ChrootManager.execRoot("rm -f " + RbotConstants.ASTRBOT_MARKER);
             }
             ChrootManager.execInChroot("rm -rf " + mPendingBot.getHomePath() + " " +
-                (mPendingBot.getId().equals(BotAdapter.ID_HERMES) ? "/root/hermes /root/hermes-agent-src" : ""), 30);
+                (mPendingBot.getId().equals(BotAdapter.ID_HERMES) ? "/root/.local/bin/hermes /root/.local/share/hermes /root/.cache/hermes /root/.config/hermes" : ""), 30);
         }
 
         boolean needRootfs = !ChrootManager.isRootfsReady() || reinstallRootfs;
@@ -676,6 +695,14 @@ public class SetupActivity extends AppCompatActivity {
 
     private void appendLog(String message) {
         if (mDestroyed) return;
+        // Also write to OpLog so LogActivity can see it
+        if (message.startsWith("  ") || message.startsWith("❌") || message.startsWith("⚠️")) {
+            OpLog.progress(message.trim());
+        } else if (message.contains("失败")) {
+            OpLog.error(message.trim());
+        } else {
+            OpLog.log(message.trim());
+        }
         runOnUiThread(() -> {
             if (mDestroyed) return;
             String oldText = mLogText.getText().toString();

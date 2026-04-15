@@ -53,7 +53,8 @@ public class MonitorAlarmReceiver extends BroadcastReceiver {
 
         try {
             // Do the actual status check — this is a fast ~1-2s shell command
-            boolean isRunning = ChrootManager.isAstrBotRunning();
+            BotAdapter activeBot = BotManager.getInstance(context).getActiveBot();
+            boolean isRunning = activeBot.isRunning();
             String status = isRunning ? "Running" : "Stopped";
 
             // Update the foreground notification with current status

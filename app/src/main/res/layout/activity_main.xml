@@ -328,7 +328,7 @@
 
                     android:orientation="vertical">
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ASTRBOT" android:textSize="10sp" android:textColor="@color/rbot_secondary_text" />
+                    <TextView android:id="@+id/label_astrbot" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ASTRBOT" android:textSize="10sp" android:textColor="@color/rbot_secondary_text" />
 
                     <TextView android:id="@+id/status_astrbot" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="检查中..." android:textSize="12sp" android:textColor="@color/rbot_on_background" />
 

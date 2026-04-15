@@ -2,9 +2,11 @@ package app.rbot;
 
 import android.annotation.SuppressLint;
 import android.os.Build;
+import android.util.Base64;
 import android.util.Log;
 
 import java.io.BufferedReader;
+import java.io.FileOutputStream;
 import java.io.InputStreamReader;
 import java.io.File;
 import java.util.concurrent.TimeUnit;
@@ -873,37 +875,23 @@ public final class ChrootManager {
         return execInChroot(setupCmd, 20);
     }
 
-    /** Set root password by writing a Python script file then executing it — avoids all shell quoting issues */
+    /**
+     * Set root password for the chroot environment.
+     * Uses chpasswd which is the standard system tool — handles shadow file correctly.
+     * Password is shell-escaped via replace(':', '\\:') to prevent field injection.
+     */
     public static CommandResult setSshPassword(String password) {
-        // Escape backslashes and quotes for Python string literal
-        String pwd = password.replace("\\", "\\\\").replace("'", "\\'");
-        String script =
-            "import hashlib, os, binascii, stat\n" +
-            "passwd = '" + pwd + "'\n" +
-            "salt = os.urandom(16)\n" +
-            "h = hashlib.pbkdf2_hmac('sha512', passwd.encode('utf-8'), salt, 100000)\n" +
-            "salt_b64 = binascii.b2a_base64(salt).decode().rstrip()\n" +
-            "h_b64 = binascii.b2a_base64(h).decode().rstrip()\n" +
-            "shadow_line = 'root:$6$' + salt_b64 + '$' + h_b64 + ':19700:0:99999:7:::\n'\n" +
-            "try:\n" +
-            "    with open('/etc/shadow', 'r') as f:\n" +
-            "        lines = f.readlines()\n" +
-            "    new_lines = [l for l in lines if not l.startswith('root:')]\n" +
-            "    new_lines.append(shadow_line)\n" +
-            "    with open('/etc/shadow', 'w') as f:\n" +
-            "        f.writelines(new_lines)\n" +
-            "    os.chmod('/etc/shadow', stat.S_IRUSR | stat.S_IWUSR)\n" +
-            "    print('PASSWORD_SET_OK')\n" +
-            "except Exception as e:\n" +
-            "    print('PASSWORD_SET_ERR:' + str(e))\n";
-
-        String scriptPath = "/tmp/setpass.py";
-        String scriptLines = script.replace("'", "'\"'\"'");
-        String writeCmd =
-            "python3 -c \"import os; f=open('" + scriptPath + "','w'); f.write('" + scriptLines + "'); f.close(); os.chmod('" + scriptPath + "', 0o700)\" && " +
-            "python3 " + scriptPath + " && rm -f " + scriptPath;
-
-        return execInChroot(writeCmd, 20);
+        // Escape colons and backslashes first (field delimiters in /etc/shadow),
+        // then escape single quotes using the standard shell '' approach.
+        String escaped = password
+            .replace("\\", "\\\\")
+            .replace(":", "\\:")
+            .replace("'", "'\"'\"'");
+        String chrootCmd =
+            "echo 'root:" + escaped + "' | chpasswd && " +
+            "chmod 600 /etc/shadow && " +
+            "echo PASSWORD_SET_OK";
+        return execInChroot(chrootCmd, 20);
     }
 
     /** Stop SSH service */

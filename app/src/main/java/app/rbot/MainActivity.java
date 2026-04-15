@@ -73,6 +73,7 @@ public class MainActivity extends AppCompatActivity {
     private View mDotBootstrap;
     private TextView mStatusAstrbot;
     private View mDotAstrbot;
+    private TextView mLabelAstrbot;
 
     private Handler mHandler = new Handler(Looper.getMainLooper());
     private RbotService mService;
@@ -129,6 +130,7 @@ public class MainActivity extends AppCompatActivity {
         mDotBootstrap = findViewById(R.id.dot_bootstrap);
         mStatusAstrbot = findViewById(R.id.status_astrbot);
         mDotAstrbot = findViewById(R.id.dot_astrbot);
+        mLabelAstrbot = findViewById(R.id.label_astrbot);
 
         createNotificationChannel();
 
@@ -207,11 +209,15 @@ public class MainActivity extends AppCompatActivity {
     /** Refresh status — must be called off the main thread (runs root commands) */
     private void refreshStatusOffThread() {
         ChrootManager.FullStatus status = ChrootManager.getFullStatus();
-        mHandler.post(() -> updateStatusUI(status));
+        // Also check active bot status off-thread (may run root commands)
+        BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+        boolean botInstalled = activeBot.isInstalled();
+        boolean botRunning = activeBot.isRunning();
+        mHandler.post(() -> updateStatusUI(status, botInstalled, botRunning));
     }
 
     /** Update UI based on status — must be called on main thread */
-    private void updateStatusUI(ChrootManager.FullStatus status) {
+    private void updateStatusUI(ChrootManager.FullStatus status, boolean botInstalled, boolean botRunning) {
         boolean rootAvailable = status.rootAvailable();
         boolean rootfsReady = status.rootfsReady();
         boolean chrootMounted = status.chrootMounted();
@@ -233,17 +239,22 @@ public class MainActivity extends AppCompatActivity {
             mWebuiPanel.setVisibility(View.GONE);
             mSshInfoPanel.setVisibility(View.GONE);
         } else {
-            // Show dual status: Ubuntu + AstrBot
+            // Show status based on active bot engine
+            BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
             String ubuntuStatus = chrootMounted ? "🐧 Ubuntu: 运行中" : "🐧 Ubuntu: 未挂载";
-            String astrbotStatus = astrBotRunning ? "🤖 AstrBot: 运行中" : "🤖 AstrBot: 已停止";
-            mStatusText.setText(ubuntuStatus + "\n" + astrbotStatus);
 
-            mStartButton.setEnabled(!astrBotRunning);
-            mStopButton.setEnabled(astrBotRunning);
+            String botStatus = botRunning
+                ? "🤖 " + activeBot.getName() + ": 运行中"
+                : "🤖 " + activeBot.getName() + ": 已停止";
+            mStatusText.setText(ubuntuStatus + "\n" + botStatus);
+
+            mStartButton.setEnabled(!botRunning);
+            mStopButton.setEnabled(botRunning);
 
             mSetupButton.setVisibility(View.GONE);
 
-            if (astrBotRunning) {
+            // Show WebUI only for AstrBot when running
+            if ("astrbot".equals(activeBot.getId()) && astrBotRunning) {
                 String webuiUrl = detectLanIp();
                 mWebuiUrl.setText(webuiUrl);
                 mWebuiPanel.setVisibility(View.VISIBLE);
@@ -257,7 +268,7 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // Update the component status dashboard
-        updateComponentStatusUI(status);
+        updateComponentStatusUI(status, botInstalled, botRunning);
     }
 
     /**
@@ -265,7 +276,16 @@ public class MainActivity extends AppCompatActivity {
      * BotPocket-style status cards: shows ready/not_ready/warning/error per component.
      * Called on main thread from updateStatusUI.
      */
-    private void updateComponentStatusUI(ChrootManager.FullStatus status) {
+    /**
+     * Update the 2x2 component status dashboard (BINARIES / ROOTFS / BOOTSTRAP / BOT).
+     * The 4th card dynamically shows the active bot engine name and status.
+     */
+    private void updateComponentStatusUI(ChrootManager.FullStatus status, boolean botInstalled, boolean botRunning) {
+        BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
+        // Update the 4th card label to match active bot
+        if (mLabelAstrbot != null) {
+            mLabelAstrbot.setText(activeBot.getName().toUpperCase());
+        }
         // BINARIES: root shell access (su works)
         if (status.rootAvailable()) {
             mStatusBinaries.setText("已就绪");
@@ -304,12 +324,12 @@ public class MainActivity extends AppCompatActivity {
             mDotBootstrap.setBackgroundResource(R.drawable.ic_status_not_ready);
         }
 
-        // ASTRBOT: installed + running status
-        if (status.astrBotInstalled() && status.astrBotRunning()) {
+        // BOT (4th card): installed + running status — based on active bot engine
+        if (botInstalled && botRunning) {
             mStatusAstrbot.setText("运行中");
             mStatusAstrbot.setTextColor(getColor(R.color.status_connected));
             mDotAstrbot.setBackgroundResource(R.drawable.ic_status_ready);
-        } else if (status.astrBotInstalled()) {
+        } else if (botInstalled) {
             mStatusAstrbot.setText("已安装");
             mStatusAstrbot.setTextColor(getColor(R.color.status_warning));
             mDotAstrbot.setBackgroundResource(R.drawable.ic_status_warning);
@@ -367,9 +387,10 @@ public class MainActivity extends AppCompatActivity {
             startService(monitorIntent);
         }
 
-        // Also start via ChrootManager directly
+        // Start active bot engine
+        BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
         new Thread(() -> {
-            ChrootManager.CommandResult result = ChrootManager.startAstrBot();
+            ChrootManager.CommandResult result = activeBot.start();
             refreshStatusOffThread();
             mHandler.post(() -> {
                 if (!result.success()) {
@@ -386,20 +407,21 @@ public class MainActivity extends AppCompatActivity {
         // Stop monitor service
         stopService(new Intent(this, GatewayMonitorService.class));
 
+        BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
         new Thread(() -> {
-            // Kill AstrBot
-            ChrootManager.stopAstrBot();
+            // Kill active bot
+            activeBot.stop();
 
             // Verify it's dead - wait up to 3 seconds
             for (int i = 0; i < 6; i++) {
                 try {
                     Thread.sleep(500);
                 } catch (InterruptedException e) {}
-                if (!ChrootManager.isAstrBotRunning()) {
+                if (!activeBot.isRunning()) {
                     break;
                 }
                 // If still running, kill again
-                ChrootManager.stopAstrBot();
+                activeBot.stop();
             }
 
             refreshStatusOffThread();

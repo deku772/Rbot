@@ -86,7 +86,7 @@ public class PermissionsActivity extends AppCompatActivity {
             mDisableBatteryOptButton.setText("已优化");
             mDisableBatteryOptButton.setEnabled(false);
         } else {
-            mBatteryStatus.setText("未关闭 — AstrBot 可能被系统自动停止");
+            mBatteryStatus.setText("未关闭 — 服务可能被系统自动停止");
             mDisableBatteryOptButton.setText("优化电池设置");
             mDisableBatteryOptButton.setEnabled(true);
         }

@@ -75,4 +75,7 @@ public final class RbotConstants {
 
     /** AstrBot data directory inside chroot (relative to ASTRBOT_HOME) */
     public static final String ASTRBOT_DATA_DIR = "data";
+
+    /** Operation log file — records all app-initiated actions (install, start, SSH, etc.) */
+    public static final String OP_LOG_FILE = CHROOT_DIR + "/.rbot-op-log";
 }

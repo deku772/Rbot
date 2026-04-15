@@ -64,6 +64,70 @@
                 android:background="@drawable/ic_status_not_ready" />
         </LinearLayout>
 
+        <!-- 操作日志面板（终端风格） -->
+        <LinearLayout
+            android:id="@+id/log_panel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/rbot_terminal_bg"
+            android:padding="12dp"
+            android:layout_marginBottom="12dp"
+            android:visibility="visible">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginBottom="6dp">
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="⬡ 操作日志"
+                    android:textSize="12sp"
+                    android:textColor="#58A6FF"
+                    android:textStyle="bold" />
+                <Button
+                    android:id="@+id/btn_copy_log"
+                    android:layout_width="56dp"
+                    android:layout_height="26dp"
+                    android:text="复制"
+                    android:textSize="11sp"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:layout_marginEnd="6dp"
+                    android:background="@drawable/rbot_button_outline_bg"
+                    android:textColor="#58A6FF" />
+                <Button
+                    android:id="@+id/btn_clear_log"
+                    android:layout_width="56dp"
+                    android:layout_height="26dp"
+                    android:text="清除"
+                    android:textSize="11sp"
+                    android:paddingStart="6dp"
+                    android:paddingEnd="6dp"
+                    android:background="@drawable/rbot_button_outline_bg"
+                    android:textColor="#58A6FF" />
+            </LinearLayout>
+            <ScrollView
+                android:id="@+id/log_scroll"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxHeight="160dp"
+                android:fillViewport="true">
+                <TextView
+                    android:id="@+id/tv_operation_log"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="11sp"
+                    android:textColor="#C9D1D9"
+                    android:fontFamily="monospace"
+                    android:lineSpacingExtra="2dp" />
+            </ScrollView>
+        </LinearLayout>
+
         <!-- Platform Info Card -->
         <LinearLayout
             android:layout_width="match_parent"
