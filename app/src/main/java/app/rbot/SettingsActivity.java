@@ -356,7 +356,8 @@ public class SettingsActivity extends AppCompatActivity {
             "⚠️ 注意：手动安装的额外包（非默认依赖）将丢失。";
         if (!hasLocalCache) {
             message += "\n\n❌ 未找到本地镜像缓存，请先将 ubuntu24_rbot.tar.gz 放到:\n" +
-                RbotConstants.SDCARD_ROOTFS_CACHE;
+                RbotConstants.SDCARD_ROOTFS_CACHE +
+                "\n\n或先通过安装流程自动下载。";
         }
         new androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle("💿 重装 rootfs")

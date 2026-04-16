@@ -35,14 +35,11 @@ public final class RbotConstants {
     /** sdcard cache directory — rootfs download cache, preserved across reinstalls */
     public static final String SDCARD_CACHE_DIR = SDCARD_DIR + "/cache";
 
-    /** Local rootfs source (Tier 1) */
-    public static final String LOCAL_ROOTFS_SRC = "/storage/emulated/0/rbot/cache/ubuntu24_rbot.tar.gz";
-
-    /** sdcard cached rootfs (Tier 2) */
+    /** Local rootfs path — check this first before downloading */
     public static final String SDCARD_ROOTFS_CACHE = SDCARD_CACHE_DIR + "/ubuntu24_rbot.tar.gz";
 
-    /** GitHub rootfs download URL (Tier 3) */
-    public static final String GITHUB_ROOTFS_URL = "https://github.com/TermuxCHN/rootfs/releases/download/ubuntu2204/rootfs.tar.xz";
+    /** GitHub release download URL (used when local cache not found) */
+    public static final String GITHUB_ROOTFS_URL = "https://github.com/deku772/rbot/releases/download/rootfs-v1/ubuntu24_rbot.tar.gz";
 
     /** App package name */
     public static final String PACKAGE_NAME = "app.rbot";

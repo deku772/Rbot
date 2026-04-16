@@ -126,7 +126,7 @@ public class RbotService extends Service {
             String tarballPath = findRootfsTarball();
             if (tarballPath == null) {
                 // Try downloading from GitHub
-                mHandler.post(() -> callback.onStepStart(1, "下载系统镜像中（首次需下载约 200MB）..."));
+                mHandler.post(() -> callback.onStepStart(1, "下载系统镜像中（约 458MB）..."));
                 tarballPath = downloadRootfs();
                 if (tarballPath == null) {
                     mHandler.post(() -> callback.onError("系统镜像下载失败，请检查网络连接"));
@@ -240,22 +240,18 @@ public class RbotService extends Service {
     // ─── Internal helpers ───
 
     private String findRootfsTarball() {
-        if (new java.io.File(RbotConstants.LOCAL_ROOTFS_SRC).exists()) {
-            Log.i(TAG, "Found local rootfs: " + RbotConstants.LOCAL_ROOTFS_SRC);
-            cacheRootfsIfNeeded(RbotConstants.LOCAL_ROOTFS_SRC);
-            return RbotConstants.LOCAL_ROOTFS_SRC;
+        String cachePath = RbotConstants.SDCARD_ROOTFS_CACHE;
+        if (new java.io.File(cachePath).exists()) {
+            Log.i(TAG, "Found local rootfs: " + cachePath);
+            return cachePath;
         }
-        if (new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
-            Log.i(TAG, "Found cached rootfs: " + RbotConstants.SDCARD_ROOTFS_CACHE);
-            return RbotConstants.SDCARD_ROOTFS_CACHE;
-        }
+        Log.i(TAG, "No local rootfs found at: " + cachePath);
         return null;
     }
 
     private String downloadRootfs() {
         ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR);
 
-        // Use proxy for GitHub download
         String downloadUrl = GitHubProxyManager.buildUrl(RbotConstants.GITHUB_ROOTFS_URL);
 
         ChrootManager.CommandResult result = ChrootManager.execRoot(
@@ -271,15 +267,6 @@ public class RbotService extends Service {
 
         ChrootManager.execRoot("rm -f " + RbotConstants.SDCARD_ROOTFS_CACHE);
         return null;
-    }
-
-    private void cacheRootfsIfNeeded(String srcPath) {
-        java.io.File cached = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE);
-        if (!cached.exists()) {
-            Log.i(TAG, "Caching rootfs to sdcard for future use");
-            ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR +
-                " && cp '" + srcPath + "' " + RbotConstants.SDCARD_ROOTFS_CACHE);
-        }
     }
 
     private boolean safeExecute(ExecutorService executor, Runnable task) {

@@ -292,7 +292,7 @@ public class SetupActivity extends AppCompatActivity {
             appendLog("📦 查找系统镜像...");
             String tarballPath = findRootfsTarball();
             if (tarballPath == null) {
-                appendLog("⬇️ 下载系统镜像中（首次需下载约 480MB）...");
+                appendLog("⬇️ 本地无镜像，从 GitHub 下载中（约 458MB）...");
                 runOnUiThread(() -> mStepText.setText("下载系统镜像..."));
                 tarballPath = downloadRootfs();
                 if (tarballPath == null) {
@@ -601,15 +601,13 @@ public class SetupActivity extends AppCompatActivity {
     // ─── Rootfs tarball finding ───
 
     private String findRootfsTarball() {
-        if (new java.io.File(RbotConstants.LOCAL_ROOTFS_SRC).exists()) {
-            appendLog("  使用本地镜像: " + RbotConstants.LOCAL_ROOTFS_SRC);
-            cacheRootfsIfNeeded(RbotConstants.LOCAL_ROOTFS_SRC);
-            return RbotConstants.LOCAL_ROOTFS_SRC;
+        String cachePath = RbotConstants.SDCARD_ROOTFS_CACHE;
+        if (new java.io.File(cachePath).exists()) {
+            appendLog("  ✅ 找到本地镜像: " + cachePath);
+            return cachePath;
         }
-        if (new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
-            appendLog("  使用缓存镜像: " + RbotConstants.SDCARD_ROOTFS_CACHE);
-            return RbotConstants.SDCARD_ROOTFS_CACHE;
-        }
+        appendLog("  本地未找到镜像，检测路径: " + cachePath);
+        appendLog("  你可以手动放置 ubuntu24_rbot.tar.gz 到该路径跳过下载");
         return null;
     }
 
@@ -617,6 +615,7 @@ public class SetupActivity extends AppCompatActivity {
         ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR);
 
         String downloadUrl = GitHubProxyManager.buildUrl(RbotConstants.GITHUB_ROOTFS_URL, mSelectedProxyIndex);
+        appendLog("  从 GitHub 下载中（约 458MB）...");
 
         ChrootManager.CommandResult result = ChrootManager.execRoot(
             "curl -L --progress-bar -o " + RbotConstants.SDCARD_ROOTFS_CACHE +
@@ -631,14 +630,6 @@ public class SetupActivity extends AppCompatActivity {
 
         ChrootManager.execRoot("rm -f " + RbotConstants.SDCARD_ROOTFS_CACHE);
         return null;
-    }
-
-    private void cacheRootfsIfNeeded(String srcPath) {
-        java.io.File cached = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE);
-        if (!cached.exists()) {
-            ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR +
-                " && cp '" + srcPath + "' " + RbotConstants.SDCARD_ROOTFS_CACHE);
-        }
     }
 
     // ─── UI helpers ───
