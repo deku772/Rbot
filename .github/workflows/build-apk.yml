@@ -3,6 +3,7 @@ name: Build Release APK
 on:
   push:
     branches:
+      - root
       - main
       - master
     tags:
@@ -17,12 +18,6 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      BOTDROP_QQBOT_VERSION: '1.5.4'
-    strategy:
-      fail-fast: false
-      matrix:
-        package_variant: [ apt-android-7 ]
 
     steps:
       - name: Clone repository
@@ -36,85 +31,39 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Download bootstrap archives
+      - name: Download bootstrap archive
         run: |
-          echo "Downloading bootstrap archives from botdrop-packages latest release..."
+          echo "Downloading bootstrap archive..."
           cd app/src/main/cpp
-          url="https://github.com/zhixianio/botdrop-packages/releases/download/bootstrap-latest/bootstrap-aarch64.zip"
-          echo "Downloading ${url}..."
-          curl -fsSL -L -o "bootstrap-aarch64.zip" "$url"
+          curl -fsSL -L -o "bootstrap-aarch64.zip" \
+            "https://github.com/zhixianio/botdrop-packages/releases/download/bootstrap-latest/bootstrap-aarch64.zip"
           echo "Downloaded bootstrap-aarch64.zip ($(stat --printf='%s' bootstrap-aarch64.zip) bytes)"
 
       - name: Decode signing key
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
         run: |
+          if [ -z "$SIGNING_KEY" ]; then
+            echo "::warning::No SIGNING_KEY secret found, skipping release signing"
+            exit 0
+          fi
           echo "$SIGNING_KEY" | base64 -d > app/release-key.jks
 
-      - name: Restore google-services.json from GitHub Secrets
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Build Release APK
         env:
-          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
-        run: |
-          if [ -z "$GOOGLE_SERVICES_JSON_B64" ]; then
-            echo "::error::Missing secret GOOGLE_SERVICES_JSON_B64"
-            exit 1
-          fi
-          echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > app/google-services.json
-
-      - name: Build offline OpenClaw bundle assets
-        shell: bash {0}
-        run: |
-          set -euo pipefail
-
-          BUNDLED_OPENCLAW_VERSION="$(
-            sed -n 's/^def bundledOpenclawVersion = System.getenv("BOTDROP_BUNDLED_OPENCLAW_VERSION") ?: "\(.*\)"$/\1/p' app/build.gradle | head -n 1
-          )"
-          if [ -z "$BUNDLED_OPENCLAW_VERSION" ]; then
-            echo "::error::Failed to resolve bundled OpenClaw version from app/build.gradle"
-            exit 1
-          fi
-
-          ./scripts/build-openclaw-bundle.sh "$BUNDLED_OPENCLAW_VERSION"
-          ./scripts/build-qqbot-plugin-bundle.sh "$BOTDROP_QQBOT_VERSION"
-
-          BOTDROP_OPENCLAW_BUNDLE_TGZ="$PWD/build/openclaw-bundles/openclaw-runtime-${BUNDLED_OPENCLAW_VERSION}.tar"
-          BOTDROP_QQBOT_PLUGIN_DIR="$PWD/build/openclaw-bundles/qqbot-sliverp-qqbot-${BOTDROP_QQBOT_VERSION}/package"
-
-          test -f "$BOTDROP_OPENCLAW_BUNDLE_TGZ"
-          test -d "$BOTDROP_QQBOT_PLUGIN_DIR"
-
-          {
-            echo "BOTDROP_BUNDLED_OPENCLAW_VERSION=$BUNDLED_OPENCLAW_VERSION"
-            echo "BOTDROP_OPENCLAW_BUNDLE_TGZ=$BOTDROP_OPENCLAW_BUNDLE_TGZ"
-            echo "BOTDROP_QQBOT_PLUGIN_DIR=$BOTDROP_QQBOT_PLUGIN_DIR"
-          } >> "$GITHUB_ENV"
-
-      - name: Build Release APKs
-        shell: bash {0}
-        env:
-          PACKAGE_VARIANT: ${{ matrix.package_variant }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
         run: |
           set -e
 
-          echo "Setting build variables..."
-
-          # Get version info
-          CURRENT_VERSION_NAME_REGEX='\s+versionName "([^"]+)"$'
-          CURRENT_VERSION_NAME="$(grep -m 1 -E "$CURRENT_VERSION_NAME_REGEX" ./app/build.gradle | sed -r "s/$CURRENT_VERSION_NAME_REGEX/\1/")"
-
-          # Add version suffix if provided
+          # Resolve version
+          CURRENT_VERSION_NAME="2.0.0"
           VERSION_SUFFIX="${{ github.event.inputs.version_suffix }}"
+
           if [ -n "$VERSION_SUFFIX" ]; then
             RELEASE_VERSION_NAME="v${CURRENT_VERSION_NAME}-${VERSION_SUFFIX}+${GITHUB_SHA:0:7}"
           else
@@ -122,27 +71,21 @@ jobs:
           fi
 
           APK_DIR_PATH="./app/build/outputs/apk/release"
-          APK_VERSION_TAG="$RELEASE_VERSION_NAME-${{ env.PACKAGE_VARIANT }}-release"
-          APK_BASENAME_PREFIX="botdrop-app_$APK_VERSION_TAG"
-
           echo "APK_DIR_PATH=$APK_DIR_PATH" >> $GITHUB_ENV
-          echo "APK_VERSION_TAG=$APK_VERSION_TAG" >> $GITHUB_ENV
-          echo "APK_BASENAME_PREFIX=$APK_BASENAME_PREFIX" >> $GITHUB_ENV
           echo "RELEASE_VERSION_NAME=$RELEASE_VERSION_NAME" >> $GITHUB_ENV
 
-          echo "Building Release APKs for version $RELEASE_VERSION_NAME..."
+          echo "Building Release APK: $RELEASE_VERSION_NAME"
 
-          export TERMUX_APP_VERSION_NAME="${RELEASE_VERSION_NAME/v/}"
-          export TERMUX_APK_VERSION_TAG="$APK_VERSION_TAG"
-          export TERMUX_PACKAGE_VARIANT="${{ env.PACKAGE_VARIANT }}"
-          export TERMUX_SPLIT_APKS_FOR_RELEASE_BUILDS=1
-
-          # Build release APK with signing
-          ./gradlew assembleRelease \
-            -Pandroid.injected.signing.store.file=$(pwd)/app/release-key.jks \
-            -Pandroid.injected.signing.store.password="$SIGNING_KEY_PASSWORD" \
-            -Pandroid.injected.signing.key.alias="$SIGNING_KEY_ALIAS" \
-            -Pandroid.injected.signing.key.password="$SIGNING_KEY_PASSWORD"
+          if [ -f "app/release-key.jks" ] && [ -n "$SIGNING_KEY_ALIAS" ]; then
+            ./gradlew assembleRelease \
+              -Pandroid.injected.signing.store.file=$(pwd)/app/release-key.jks \
+              -Pandroid.injected.signing.store.password="$SIGNING_KEY_PASSWORD" \
+              -Pandroid.injected.signing.key.alias="$SIGNING_KEY_ALIAS" \
+              -Pandroid.injected.signing.key.password="$SIGNING_KEY_PASSWORD"
+          else
+            echo "No signing key configured, building unsigned release APK"
+            ./gradlew assembleRelease
+          fi
 
           echo "Validating APKs..."
           ls -la "$APK_DIR_PATH/"
@@ -152,25 +95,12 @@ jobs:
           sha256sum *.apk > sha256sums.txt
           cat sha256sums.txt
 
-      - name: Upload Universal APK
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_universal
+          name: rbot-${{ env.RELEASE_VERSION_NAME }}
           path: |
-            ${{ env.APK_DIR_PATH }}/*universal*.apk
-
-      - name: Upload arm64-v8a APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_arm64-v8a
-          path: |
-            ${{ env.APK_DIR_PATH }}/*arm64-v8a*.apk
-
-      - name: Upload SHA256 checksums
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ env.APK_BASENAME_PREFIX }}_sha256sums
-          path: |
+            ${{ env.APK_DIR_PATH }}/*.apk
             ${{ env.APK_DIR_PATH }}/sha256sums.txt
 
       - name: Restore annotated tag
@@ -181,7 +111,6 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         id: release_channel
         run: |
-          set -e
           tag_name="${{ github.ref_name }}"
           tag_message=""
           if git for-each-ref "refs/tags/$tag_name" >/dev/null 2>&1; then
@@ -190,7 +119,7 @@ jobs:
               tag_message="$(git for-each-ref --format='%(contents)' "refs/tags/$tag_name")"
             fi
           fi
-          if [[ "$tag_message" == *"[botdrop:draft]"* ]]; then
+          if [[ "$tag_message" == *"[rbot:draft]"* ]]; then
             echo "is_draft=true" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
@@ -198,9 +127,9 @@ jobs:
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Create Release (on tag push)
+      - name: Create GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             ${{ env.APK_DIR_PATH }}/*.apk
@@ -210,7 +139,3 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Purge version API cache
-        if: startsWith(github.ref, 'refs/tags/') && steps.release_channel.outputs.is_draft != 'true'
-        run: curl -sf "https://api.botdrop.app/purge" || echo "Cache purge failed (non-fatal)"
