@@ -64,7 +64,7 @@ jobs:
           cat sha256sums.txt
 
       - name: Upload Debug APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rbot-debug-${{ env.RELEASE_VERSION_NAME }}
           path: |
