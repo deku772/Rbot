@@ -41,6 +41,9 @@ public final class RbotConstants {
     /** GitHub release download URL (used when local cache not found) */
     public static final String GITHUB_ROOTFS_URL = "https://github.com/deku772/rbot/releases/download/rootfs-v1/ubuntu24_rbot.tar.gz";
 
+    /** Expected MD5 of the rootfs tarball — used to verify download completeness */
+    public static final String ROOTFS_MD5 = "e70b463477f8c5a66568211b84fbc3fe";
+
     /** App package name */
     public static final String PACKAGE_NAME = "app.rbot";
 

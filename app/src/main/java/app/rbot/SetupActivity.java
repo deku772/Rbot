@@ -15,6 +15,8 @@ import android.widget.Spinner;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.security.MessageDigest;
+
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -603,8 +605,13 @@ public class SetupActivity extends AppCompatActivity {
     private String findRootfsTarball() {
         String cachePath = RbotConstants.SDCARD_ROOTFS_CACHE;
         if (new java.io.File(cachePath).exists()) {
-            appendLog("  ✅ 找到本地镜像: " + cachePath);
-            return cachePath;
+            appendLog("  校验本地镜像...");
+            if (verifyRootfsMd5(cachePath)) {
+                appendLog("  ✅ 找到本地镜像: " + cachePath);
+                return cachePath;
+            }
+            appendLog("  ⚠️ 本地镜像校验失败（可能下载不完整），将重新下载");
+            ChrootManager.execRoot("rm -f " + cachePath);
         }
         appendLog("  本地未找到镜像，检测路径: " + cachePath);
         appendLog("  你可以手动放置 ubuntu24_rbot.tar.gz 到该路径跳过下载");
@@ -622,10 +629,11 @@ public class SetupActivity extends AppCompatActivity {
             " '" + downloadUrl + "'", 600);
 
         if (result.success() && new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
-            long size = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).length();
-            if (size > 10 * 1024 * 1024) {
+            appendLog("  校验下载文件...");
+            if (verifyRootfsMd5(RbotConstants.SDCARD_ROOTFS_CACHE)) {
                 return RbotConstants.SDCARD_ROOTFS_CACHE;
             }
+            appendLog("  ⚠️ 下载文件校验失败（可能不完整）");
         }
 
         ChrootManager.execRoot("rm -f " + RbotConstants.SDCARD_ROOTFS_CACHE);
@@ -692,5 +700,24 @@ public class SetupActivity extends AppCompatActivity {
             sb.append(chars.charAt(random.nextInt(chars.length())));
         }
         return sb.toString();
+    }
+
+    /** Verify rootfs tarball MD5 — detects incomplete/corrupted downloads */
+    private boolean verifyRootfsMd5(String path) {
+        try {
+            ChrootManager.CommandResult result = ChrootManager.execRoot("md5sum " + path, 30);
+            if (result.success()) {
+                String actual = result.stdout().trim().split("\\s+")[0];
+                boolean match = actual.equalsIgnoreCase(RbotConstants.ROOTFS_MD5);
+                if (!match) {
+                    appendLog("  MD5: 期望 " + RbotConstants.ROOTFS_MD5);
+                    appendLog("  MD5: 实际 " + actual);
+                }
+                return match;
+            }
+        } catch (Exception e) {
+            appendLog("  ⚠️ MD5校验异常: " + e.getMessage());
+        }
+        return false;
     }
 }

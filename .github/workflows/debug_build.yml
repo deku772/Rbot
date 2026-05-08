@@ -29,11 +29,17 @@ jobs:
 
       - name: Download bootstrap archive
         run: |
-          echo "Downloading bootstrap archive..."
+          echo "Downloading Termux official bootstrap archive..."
           cd app/src/main/cpp
           curl -fsSL -L -o "bootstrap-aarch64.zip" \
-            "https://github.com/zhixianio/botdrop-packages/releases/download/bootstrap-latest/bootstrap-aarch64.zip"
-          echo "Downloaded bootstrap-aarch64.zip ($(stat --printf='%s' bootstrap-aarch64.zip) bytes)"
+            "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.04.05-r1+apt.android-7/bootstrap-aarch64.zip"
+          SIZE=$(stat --printf='%s' bootstrap-aarch64.zip)
+          echo "Downloaded bootstrap-aarch64.zip ($SIZE bytes)"
+          # Sanity check: official bootstrap is ~29MB, bloated ones are 100MB+
+          if [ "$SIZE" -gt 50000000 ]; then
+            echo "::error::bootstrap-aarch64.zip is ${SIZE} bytes (>50MB), expected ~29MB from official Termux"
+            exit 1
+          fi
 
       - name: Build Debug APK
         run: |

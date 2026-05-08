@@ -139,9 +139,9 @@ public final class ChrootManager {
         // Clean staging AND chroot dir (chroot may have partial files from a previous failed run)
         execRoot("rm -rf " + stagingDir + " && rm -rf " + RbotConstants.CHROOT_DIR + " && mkdir -p " + RbotConstants.CHROOT_DIR + " " + stagingDir);
 
-        // Step 1: extract to staging — run silently via execRoot, no read thread overhead.
-        // The user doesn't need tar verbose output; they care about pip/git logs later.
-        CommandResult result = execRoot(tarCmd);
+        // Step 1: extract to staging.
+        // 458MB tar.gz on phone needs 3-5 min; use 600s timeout (maxWallTime=30min).
+        CommandResult result = execRoot(tarCmd, 600);
         if (!result.success) {
             if (callback != null) callback.onError("解压失败: " + result.stderr);
             execRoot("rm -rf " + stagingDir);
@@ -1241,7 +1241,8 @@ public final class ChrootManager {
 
     /**
      * Build the appropriate tar extract command based on the tarball's
-     * actual compression format (detected via `file` command).
+     * compression format. Tries `file` command first; falls back to filename
+     * extension (Android toybox often lacks `file`).
      * Uses -v (verbose) for progress since Android toybox tar lacks --checkpoint.
      */
     private static String buildTarExtractCommand(String tarballPath, String stagingDir) {
@@ -1256,12 +1257,19 @@ public final class ChrootManager {
         } else if (info.contains("zstd")) {
             tarBase = "tar -I zstd -xf '" + tarballPath + "'";
         } else {
-            tarBase = "tar -xf '" + tarballPath + "'";
+            // `file` command unavailable — guess by extension
+            String lower = tarballPath.toLowerCase();
+            if (lower.endsWith(".tar.gz") || lower.endsWith(".tgz")) {
+                tarBase = "tar -xzf '" + tarballPath + "'";
+            } else if (lower.endsWith(".tar.xz") || lower.endsWith(".txz")) {
+                tarBase = "tar -xf '" + tarballPath + "'";
+            } else if (lower.endsWith(".tar.zst")) {
+                tarBase = "tar -I zstd -xf '" + tarballPath + "'";
+            } else {
+                tarBase = "tar -xf '" + tarballPath + "'";
+            }
         }
 
-        // -v: verbose file listing. Lines are debounced in execRootWithProgress
-        // (flushed at most every 10s), so no UI flooding — user still sees the
-        // file list for debug, at a readable pace.
         return tarBase + " -v -C " + stagingDir;
     }
 }

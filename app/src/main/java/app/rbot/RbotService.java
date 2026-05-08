@@ -242,8 +242,12 @@ public class RbotService extends Service {
     private String findRootfsTarball() {
         String cachePath = RbotConstants.SDCARD_ROOTFS_CACHE;
         if (new java.io.File(cachePath).exists()) {
-            Log.i(TAG, "Found local rootfs: " + cachePath);
-            return cachePath;
+            if (verifyRootfsMd5(cachePath)) {
+                Log.i(TAG, "Found local rootfs: " + cachePath);
+                return cachePath;
+            }
+            Log.w(TAG, "Local rootfs MD5 mismatch, removing corrupted file");
+            ChrootManager.execRoot("rm -f " + cachePath);
         }
         Log.i(TAG, "No local rootfs found at: " + cachePath);
         return null;
@@ -259,14 +263,28 @@ public class RbotService extends Service {
             " '" + downloadUrl + "'", 600);
 
         if (result.success() && new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
-            long size = new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).length();
-            if (size > 10 * 1024 * 1024) {
+            if (verifyRootfsMd5(RbotConstants.SDCARD_ROOTFS_CACHE)) {
                 return RbotConstants.SDCARD_ROOTFS_CACHE;
             }
+            Log.w(TAG, "Downloaded rootfs MD5 mismatch");
         }
 
         ChrootManager.execRoot("rm -f " + RbotConstants.SDCARD_ROOTFS_CACHE);
         return null;
+    }
+
+    /** Verify rootfs tarball MD5 */
+    private boolean verifyRootfsMd5(String path) {
+        try {
+            ChrootManager.CommandResult result = ChrootManager.execRoot("md5sum " + path, 30);
+            if (result.success()) {
+                String actual = result.stdout().trim().split("\\s+")[0];
+                return actual.equalsIgnoreCase(RbotConstants.ROOTFS_MD5);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "MD5 check failed: " + e.getMessage());
+        }
+        return false;
     }
 
     private boolean safeExecute(ExecutorService executor, Runnable task) {
