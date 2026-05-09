@@ -89,6 +89,8 @@ echo "  -> 配置 SSH..."
 mkdir -p /run/sshd
 sed -i "s/#PermitRootLogin.*/PermitRootLogin yes/" /etc/ssh/sshd_config
 sed -i "s/#PasswordAuthentication.*/PasswordAuthentication yes/" /etc/ssh/sshd_config
+sed -i "s/UsePAM yes/UsePAM no/" /etc/ssh/sshd_config
+echo "StrictModes no" >> /etc/ssh/sshd_config
 
 echo "  -> 设置 root 密码..."
 echo "root:rbot" | chpasswd

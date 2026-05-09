@@ -340,6 +340,9 @@ public final class ChrootManager {
             "echo 'Password set successfully'", 15);
         
         if (result.success() && result.stdout().contains("Password set successfully")) {
+            // Also save password to .rbot_pass so the app can display it
+            execInChroot(
+                "printf '%s' " + shellQuote(password) + " > /root/.rbot_pass && chmod 600 /root/.rbot_pass", 5);
             if (callback != null) callback.onProgress("✅ SSH 密码已设置: " + password);
         } else {
             if (callback != null) callback.onProgress("⚠️ SSH 密码配置失败: " + result.stderr());
@@ -530,7 +533,9 @@ public final class ChrootManager {
         execInChroot(
             "mkdir -p /run/sshd && " +
             "sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && " +
-            "sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config", 15);
+            "sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && " +
+            "sed -i 's/UsePAM yes/UsePAM no/' /etc/ssh/sshd_config && " +
+            "grep -q '^StrictModes' /etc/ssh/sshd_config || echo 'StrictModes no' >> /etc/ssh/sshd_config", 15);
 
         if (callback != null) callback.onProgress("依赖安装完成 (Python 3.12+)");
         return false;
@@ -867,38 +872,48 @@ public final class ChrootManager {
 
     // ─── SSH Service ───
 
-    /** Start SSH service in chroot */
+    /** Start SSH service in chroot — uses dropbear (lightweight, no privsep issues) */
     public static CommandResult startSshService() {
-        // SSH config lines we need — appended only if absent (idempotent)
-        String[] neededLines = {
-            "Port 8022",
-            "ListenAddress 0.0.0.0",
-            "PermitRootLogin yes",
-            "PasswordAuthentication yes",
-            "PubkeyAuthentication no"
-        };
-        StringBuilder ensureConfig = new StringBuilder();
-        for (String line : neededLines) {
-            String key = line.split(" ")[0];
-            ensureConfig.append(
-                "grep -q '^" + key + " ' /etc/ssh/sshd_config && " +
-                "  sed -i 's/^" + key + " .*/" + line + "/' /etc/ssh/sshd_config || " +
-                "  echo '" + line + "' >> /etc/ssh/sshd_config && ");
+        // Ensure chroot devices are mounted
+        setupChrootDevices(null);
+
+        // Ensure root password is set — if .rbot_pass missing, set default password
+        CommandResult passCheck = execInChroot(
+            "[ -f /root/.rbot_pass ] && echo has_pass || echo no_pass", 5);
+        if (passCheck.success() && passCheck.stdout().trim().equals("no_pass")) {
+            setRootPassword(RbotConstants.DEFAULT_SSH_PASSWORD);
+            Log.d(TAG, "[startSshService] Set default SSH password: " + RbotConstants.DEFAULT_SSH_PASSWORD);
         }
 
-        String setupCmd =
-            // Generate host keys if missing — sshd fails without them
-            "[ -f /etc/ssh/ssh_host_rsa_key ] || ssh-keygen -t rsa -f /etc/ssh/ssh_host_rsa_key -N '' 2>/dev/null; " +
-            "[ -f /etc/ssh/ssh_host_ecdsa_key ] || ssh-keygen -t ecdsa -f /etc/ssh/ssh_host_ecdsa_key -N '' 2>/dev/null; " +
-            "[ -f /etc/ssh/ssh_host_ed25519_key ] || ssh-keygen -t ed25519 -f /etc/ssh/ssh_host_ed25519_key -N '' 2>/dev/null; " +
-            "chmod 600 /etc/ssh/ssh_host_*_key 2>/dev/null; " +
-            "mkdir -p /var/run/sshd && " +
-            ensureConfig.toString() +
-            "pkill -x sshd 2>/dev/null; sleep 1; " +
-            "/usr/sbin/sshd && echo sshd_started; " +
-            "netstat -tlnp 2>/dev/null | grep 8022 || ss -tlnp 2>/dev/null | grep 8022";
+        // Install dropbear if not present
+        execInChroot(
+            "which dropbear >/dev/null 2>&1 || apt-get install -y dropbear-bin >/dev/null 2>&1", 60);
 
-        return execInChroot(setupCmd, 20);
+        // Use dropbear instead of openssh-server — no privsep/seccomp issues in chroot
+        String setupCmd =
+            "mkdir -p /etc/dropbear && " +
+            "[ -f /etc/dropbear/dropbear_rsa_host_key ] || dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key 2>/dev/null; " +
+            "[ -f /etc/dropbear/dropbear_ecdsa_host_key ] || dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key 2>/dev/null; " +
+            "[ -f /etc/dropbear/dropbear_ed25519_host_key ] || dropbearkey -t ed25519 -f /etc/dropbear/dropbear_ed25519_host_key 2>/dev/null; " +
+            "pkill -x dropbear 2>/dev/null; pkill -x sshd 2>/dev/null; sleep 1; " +
+            "dropbear -r /etc/dropbear/dropbear_rsa_host_key " +
+            "-r /etc/dropbear/dropbear_ecdsa_host_key " +
+            "-r /etc/dropbear/dropbear_ed25519_host_key " +
+            "-p 22 -R -B && echo dropbear_started; " +
+            "ss -tlnp 2>/dev/null | grep ':22 ' || netstat -tlnp 2>/dev/null | grep ':22 '";
+
+        CommandResult chrootResult = execInChroot(setupCmd, 20);
+
+        // Add iptables rule to allow incoming connections on port 22
+        String D = RbotConstants.CHROOT_DIR;
+        execRoot(
+            "iptables -C INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || " +
+            "iptables -I INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null; " +
+            "ip6tables -C INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null || " +
+            "ip6tables -I INPUT -p tcp --dport 22 -j ACCEPT 2>/dev/null; " +
+            "echo iptables_done", 10);
+
+        return chrootResult;
     }
 
     /**
@@ -919,13 +934,13 @@ public final class ChrootManager {
 
     /** Stop SSH service */
     public static CommandResult stopSshService() {
-        String stopCmd = "if pgrep -x sshd >/dev/null 2>&1; then pkill -x sshd && echo stopped; else echo not_running; fi";
+        String stopCmd = "pkill -x dropbear 2>/dev/null; pkill -x sshd 2>/dev/null; echo stopped";
         return execInChroot(stopCmd, 10);
     }
 
     /** Check if SSH service is running */
     public static boolean isSshRunning() {
-        CommandResult result = execInChroot("pgrep -x sshd >/dev/null 2>&1 && echo running || echo stopped", 5);
+        CommandResult result = execInChroot("pgrep -x dropbear >/dev/null 2>&1 && echo running || echo stopped", 5);
         return result.success && result.stdout.trim().equals("running");
     }
 
@@ -948,7 +963,7 @@ public final class ChrootManager {
             }
         }
 
-        return "root@" + ip;
+        return "ssh root@" + ip;
     }
 
     /** Get root password from chroot (stored in /root/.rbot_pass) */

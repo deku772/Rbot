@@ -68,6 +68,6 @@ public final class RbotConstants {
     // ─── SSH Configuration ──────────────────────────────────────────────────────
 
     /** Default SSH password (set during rootfs installation) */
-    public static final String DEFAULT_SSH_PASSWORD = "rbot123";
+    public static final String DEFAULT_SSH_PASSWORD = "rbot";
 
 }
