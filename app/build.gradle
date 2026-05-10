@@ -82,11 +82,14 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    externalNativeBuild {
-        ndkBuild {
-            path "src/main/cpp/Android.mk"
-        }
-    }
+    // externalNativeBuild disabled — bootstrap-aarch64.zip is NOT used by Rbot
+    // (getZip() is never called; rootfs is downloaded at runtime instead)
+    // Keeping the cpp/ dir but skipping NDK build saves ~106MB in the APK.
+    // externalNativeBuild {
+    //     ndkBuild {
+    //         path "src/main/cpp/Android.mk"
+    //     }
+    // }
 
     lint {
         disable 'ProtectedPermissions'
@@ -104,6 +107,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        aidl = true
     }
 }
 
@@ -122,6 +126,10 @@ dependencies {
 
     // Terminal emulator for in-app interactive shell (chroot PTY)
     implementation project(":terminal-view")
+
+    // Shizuku API — alternative root access via Shizuku/Sui (no su binary needed)
+    implementation "dev.rikka.shizuku:api:13.1.5"
+    implementation "dev.rikka.shizuku:provider:13.1.5"
 
     testImplementation "junit:junit:4.13.2"
     testImplementation "org.robolectric:robolectric:4.10"

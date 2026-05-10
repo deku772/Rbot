@@ -38,6 +38,11 @@
     <!-- Boot receiver -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Shizuku permission for dual-auth (root + Shizuku/Sui) -->
+    <permission
+        android:name="${applicationId}.permission.API_V23"
+        android:protectionLevel="signature" />
+
     <application
         android:name="app.rbot.RbotApplication"
         android:allowBackup="false"
@@ -139,6 +144,15 @@
                 <action android:name="app.rbot.SET_CLIPBOARD" />
             </intent-filter>
         </receiver>
+
+        <!-- Shizuku provider — enables Shizuku/Sui binder connection -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true"
+            android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
 
         <!-- Samsung DeX / multi-window support -->
         <meta-data

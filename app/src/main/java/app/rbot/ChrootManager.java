@@ -15,7 +15,12 @@ import java.util.concurrent.TimeUnit;
  * Manages chroot lifecycle for Rbot: root command execution,
  * rootfs extraction, AstrBot installation, and chroot command execution.
  *
- * All shell commands go through `su -c` for root access.
+ * Supports two auth modes:
+ * - ROOT: executes via `su -c` (Magisk/KernelSU/APatch)
+ * - SHIZUKU: executes via Shizuku UserService (Sui/Shizuku app with root)
+ *
+ * The active mode is set by AuthManager and applies transparently
+ * to all execRoot/execRootWithProgress calls.
  */
 @SuppressWarnings({"SpellCustomInspection", "unused"})
 public final class ChrootManager {
@@ -24,6 +29,9 @@ public final class ChrootManager {
     private static final int DEFAULT_TIMEOUT_SEC = 60;
     /** Reentrant lock to prevent concurrent chroot device setup / AstrBot start */
     private static final Object sChrootLock = new Object();
+
+    /** When true, execRoot routes through Shizuku UserService instead of su -c */
+    private static boolean sUseShizuku = false;
 
     /** Package-private accessor for the chroot lock — used by BotAdapter implementations */
     static Object getChrootLock() {
@@ -52,6 +60,9 @@ public final class ChrootManager {
                 // Explicit PATH so all commands (nohup, python3, pkill, pgrep, etc.)
                 // are found regardless of what the chroot's /etc/profile sets.
                 "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+                // Set HOME explicitly — su -c inherits Android's HOME=/ which causes
+                // git/npm/pip to look in /.gitconfig, /.npmrc, etc.
+                "export HOME=/root && " +
                 // Unset ANDROID_ROOT so Python platformdirs doesn't think
                 // we're in an Android app environment (it would try jnius
                 // and crash with "Cannot find path to android app folder").
@@ -74,21 +85,40 @@ public final class ChrootManager {
         return execRoot(command, DEFAULT_TIMEOUT_SEC);
     }
 
-    /** Execute a command as root with custom timeout */
+    /** Execute a command as root with custom timeout — routes through su or Shizuku */
     public static CommandResult execRoot(String command, int timeoutSec) {
+        if (sUseShizuku) {
+            return AuthManager.getInstance().execViaShizuku(command, timeoutSec);
+        }
         return exec(new String[]{"su", "-c", command}, timeoutSec);
+    }
+
+    // ─── Auth mode switching ───
+
+    /** Called by AuthManager when auth mode changes */
+    static void setAuthMode(boolean useShizuku) {
+        sUseShizuku = useShizuku;
+        Log.i(TAG, "Auth mode → " + (useShizuku ? "SHIZUKU" : "ROOT"));
     }
 
     // ─── Root access check ───
 
-    /** Check if root (su) is available */
+    /** Check if root (su) is available — tests su binary directly */
     public static boolean isRootAvailable() {
         try {
-            CommandResult result = execRoot("id", 5);
+            // Always test su directly (not via execRoot which might use Shizuku)
+            CommandResult result = exec(new String[]{"su", "-c", "id"}, 5);
             return result.success && result.stdout.contains("uid=0");
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** Check if any privileged access is available (root OR Shizuku with UID 0) */
+    public static boolean isPrivilegedAccessAvailable() {
+        if (isRootAvailable()) return true;
+        AuthManager am = AuthManager.getInstance();
+        return am.isShizukuReady();
     }
 
     // ─── Rootfs management ───
@@ -739,6 +769,7 @@ public final class ChrootManager {
      */
     public record FullStatus(
         boolean rootAvailable,
+        boolean shizukuAvailable,
         boolean rootfsReady,
         boolean chrootMounted,
         boolean astrBotInstalled,
@@ -754,26 +785,33 @@ public final class ChrootManager {
     }
 
     /**
-     * Get all status values in a single su call.
+     * Get all status values.
+     * rootAvailable = su works (classic root)
+     * shizukuAvailable = Shizuku/Sui running as root and connected
      */
     public static FullStatus getFullStatus() {
-        CommandResult idResult = execRoot("id", 5);
-        boolean rootAvailable = idResult.success() && idResult.stdout().contains("uid=0");
+        boolean rootAvailable = isRootAvailable();
+        boolean shizukuAvailable = AuthManager.getInstance().isShizukuReady();
         boolean rootfsReady = isRootfsReady();
-        boolean chrootMounted = isChrootMounted();
+        boolean chrootMounted = false;
         boolean astrBotInstalled = isAstrBotInstalled();
         boolean astrBotRunning = false;
-        if (rootfsReady && astrBotInstalled) {
-            CommandResult runningResult = execRoot(
-                "PIDFILE=" + RbotConstants.ASTRBOT_PID_FILE + "; " +
-                "if [ -f \"$PIDFILE\" ]; then " +
-                "  PID=$(cat $PIDFILE 2>/dev/null); " +
-                "  [ -n \"$PID\" ] && kill -0 $PID 2>/dev/null && echo running && exit 0; " +
-                "fi; " +
-                "pgrep -f 'python.*main\\.py' >/dev/null 2>&1 && echo running || echo stopped", 10);
-            astrBotRunning = runningResult.success() && runningResult.stdout().trim().equals("running");
+
+        // Only check mounted/running if we have privileged access
+        if (rootAvailable || shizukuAvailable) {
+            chrootMounted = isChrootMounted();
+            if (rootfsReady && astrBotInstalled) {
+                CommandResult runningResult = execRoot(
+                    "PIDFILE=" + RbotConstants.ASTRBOT_PID_FILE + "; " +
+                    "if [ -f \"$PIDFILE\" ]; then " +
+                    "  PID=$(cat $PIDFILE 2>/dev/null); " +
+                    "  [ -n \"$PID\" ] && kill -0 $PID 2>/dev/null && echo running && exit 0; " +
+                    "fi; " +
+                    "pgrep -f 'python.*main\\.py' >/dev/null 2>&1 && echo running || echo stopped", 10);
+                astrBotRunning = runningResult.success() && runningResult.stdout().trim().equals("running");
+            }
         }
-        return new FullStatus(rootAvailable, rootfsReady, chrootMounted, astrBotInstalled, astrBotRunning);
+        return new FullStatus(rootAvailable, shizukuAvailable, rootfsReady, chrootMounted, astrBotInstalled, astrBotRunning);
     }
 
     // ─── Backup & Restore ───
@@ -1098,6 +1136,29 @@ public final class ChrootManager {
     private static final long PROGRESS_DEBOUNCE_MS = 10_000; // 10s — flush buffered lines at most this often
 
     private static CommandResult execRootWithProgress(String command, int timeoutSec, ProgressCallback callback) {
+        // Shizuku path: no real-time progress streaming via AIDL,
+        // but the command still executes with full timeout support.
+        if (sUseShizuku) {
+            if (callback != null) callback.onProgress("执行中（Shizuku 模式）...");
+            CommandResult result = AuthManager.getInstance().execViaShizuku(command, timeoutSec);
+            // Push final output as progress so the UI shows something
+            if (callback != null && result.success && !result.stdout.trim().isEmpty()) {
+                // Show last few lines of output as progress
+                String[] lines = result.stdout.trim().split("\n");
+                int show = Math.min(lines.length, 3);
+                StringBuilder sb = new StringBuilder();
+                for (int i = lines.length - show; i < lines.length; i++) {
+                    if (sb.length() > 0) sb.append("\n");
+                    sb.append(lines[i].trim());
+                }
+                callback.onProgress(sb.toString());
+            }
+            if (callback != null && !result.success && !result.stderr.trim().isEmpty()) {
+                callback.onError(result.stderr.trim());
+            }
+            return result;
+        }
+
         StringBuilder stdout = new StringBuilder();
         StringBuilder stderr = new StringBuilder();
 
@@ -1228,6 +1289,7 @@ public final class ChrootManager {
             " /bin/bash -c " +
             shellQuote(
                 "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+                "export HOME=/root && " +
                 "unset ANDROID_ROOT && " +
                 "export TMPDIR=/tmp && " +
                 "export TEMP=/tmp && " +
