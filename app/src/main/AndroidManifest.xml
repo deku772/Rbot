@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:installLocation="internalOnly">
+
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+    <uses-feature
+        android:name="android.software.leanback"
+        android:required="false" />
+
+    <!-- Network -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Storage: needed for rootfs cache on sdcard -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
+
+    <!-- Foreground service + notification -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Battery optimization bypass -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- Exact alarm scheduling (Android 12+ requires explicit grant, falls back gracefully) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+
+    <!-- Boot receiver -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application
+        android:name="app.rbot.RbotApplication"
+        android:allowBackup="false"
+        android:banner="@drawable/banner"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/application_name"
+        android:requestLegacyExternalStorage="true"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="false"
+        android:theme="@style/Theme.TermuxApp.DayNight.DarkActionBar"
+        android:networkSecurityConfig="@xml/network_security_config"
+        tools:targetApi="m">
+
+        <!-- Launcher -->
+        <activity
+            android:name="app.rbot.MainActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Setup wizard -->
+        <activity
+            android:name="app.rbot.SetupActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Settings page: environment management, backup/restore, danger zone -->
+        <activity
+            android:name="app.rbot.SettingsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Permissions page: battery optimization, storage, root, notification -->
+        <activity
+            android:name="app.rbot.PermissionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Log page: full-screen log viewer -->
+        <activity
+            android:name="app.rbot.LogActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Hermes Agent management panel -->
+        <activity
+            android:name="app.rbot.HermesManagementActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Interactive shell for chroot commands (hermes setup etc.) -->
+        <activity
+            android:name="app.rbot.ShellActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/Theme.TermuxApp.DayNight.NoActionBar" />
+
+        <!-- Core service: chroot management + command execution -->
+        <service
+            android:name="app.rbot.RbotService"
+            android:exported="false" />
+
+        <!-- Foreground service: keep AstrBot alive + notifications -->
+        <service
+            android:name="app.rbot.GatewayMonitorService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keep AstrBot chroot process alive" />
+        </service>
+
+        <!-- Boot receiver: auto-start gateway on device boot -->
+        <receiver
+            android:name="app.rbot.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Clipboard receiver for rbot-u2 skill -->
+        <receiver
+            android:name="app.rbot.ClipboardReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="app.rbot.SET_CLIPBOARD" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Samsung DeX / multi-window support -->
+        <meta-data
+            android:name="android.max_aspect"
+            android:value="10.0" />
+        <meta-data
+            android:name="com.samsung.android.keepalive.density"
+            android:value="true" />
+        <meta-data
+            android:name="com.samsung.android.multidisplay.keep_process_alive"
+            android:value="true" />
+        <meta-data
+            android:name="com.sec.android.support.multiwindow"
+            android:value="true" />
+
+    </application>
+
+</manifest>

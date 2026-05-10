@@ -1,0 +1,26 @@
+plugins {
+    id('com.android.library')
+}
+
+android {
+    namespace 'rikka.shizuku.aidl'
+    buildFeatures {
+        buildConfig false
+        aidl true
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+}
+
+ext {
+    publishLibrary = true
+    POM_NAME = "Shizuku API - aidl"
+    POM_DESCRIPTION = "Low level aidl of Shizuku and Sui."
+}

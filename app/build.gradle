@@ -1,0 +1,135 @@
+import org.gradle.api.file.RelativePath
+
+plugins {
+    id "com.android.application"
+}
+
+// Auto-increment version based on local counter — MUST be before android {}
+int computedVersionCode = 1
+String computedVersionName = "2.0.0"
+
+try {
+    def propsFile = new File(rootProject.rootDir, "version.properties")
+    def props = new Properties()
+    if (propsFile.exists()) {
+        props.load(new FileInputStream(propsFile))
+    }
+    int current = Integer.parseInt(props.getProperty("localVersionCode", "1"))
+    int next = current + 1
+    props.setProperty("localVersionCode", String.valueOf(next))
+    props.store(new FileOutputStream(propsFile), "Local build counter")
+    computedVersionCode = next
+    computedVersionName = "2.0.0"
+    println "[VERSION] versionCode=" + next + ", versionName=2.0.0"
+} catch (Exception e) {
+    println "[VERSION] Exception: " + e.getMessage()
+}
+
+android {
+    namespace = "app.rbot"
+
+    compileSdkVersion project.properties.compileSdkVersion.toInteger()
+    ndkVersion = System.getenv("JITPACK_NDK_VERSION") ?: project.properties.ndkVersion
+
+    defaultConfig {
+        applicationId "app.rbot"
+        minSdkVersion project.properties.minSdkVersion.toInteger()
+        targetSdkVersion project.properties.targetSdkVersion.toInteger()
+        // Auto-increment version code based on local build counter
+        versionCode computedVersionCode
+        // Version name: MAJOR.MINOR.PATCH
+        versionName "2.0.0"
+
+        manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.rbot"
+        manifestPlaceholders.TERMUX_APP_NAME = "Rbot"
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file('testkey_untrusted.jks')
+            keyAlias 'alias'
+            storePassword 'xrj45yWGLbsO7W0v'
+            keyPassword 'xrj45yWGLbsO7W0v'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled = true
+            shrinkResources = false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+        debug {
+            signingConfig = signingConfigs.debug
+        }
+    }
+
+    // Explicitly disable APK splits to prevent Android Studio from
+    // misinterpreting ndk.abiFilters as a split configuration.
+    splits {
+        abi {
+            enable false
+        }
+    }
+
+    compileOptions {
+        coreLibraryDesugaringEnabled = true
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    externalNativeBuild {
+        ndkBuild {
+            path "src/main/cpp/Android.mk"
+        }
+    }
+
+    lint {
+        disable 'ProtectedPermissions'
+    }
+
+    tasks.withType(JavaCompile) {
+        options.compilerArgs << "-Xlint:deprecation"
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    buildFeatures {
+        buildConfig = true
+    }
+}
+
+dependencies {
+    implementation "androidx.annotation:annotation:1.9.0"
+    implementation "androidx.core:core:1.13.1"
+    implementation "androidx.drawerlayout:drawerlayout:1.2.0"
+    implementation "androidx.preference:preference:1.2.1"
+    implementation "androidx.viewpager:viewpager:1.0.0"
+    implementation "androidx.viewpager2:viewpager2:1.0.0"
+    implementation "com.google.android.material:material:1.12.0"
+    implementation "io.noties.markwon:core:$markwonVersion"
+    implementation "io.noties.markwon:ext-strikethrough:$markwonVersion"
+    implementation "io.noties.markwon:linkify:$markwonVersion"
+    implementation "io.noties.markwon:recycler:$markwonVersion"
+
+    // Terminal emulator for in-app interactive shell (chroot PTY)
+    implementation project(":terminal-view")
+
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.robolectric:robolectric:4.10"
+    coreLibraryDesugaring "com.android.tools:desugar_jdk_libs:1.1.5"
+}
+
+tasks.register('versionName') {
+    doLast {
+        println computedVersionName
+    }
+}

@@ -1,0 +1,46 @@
+plugins {
+    id('com.android.library')
+}
+
+android {
+    namespace 'rikka.rish'
+    defaultConfig {
+        minSdk 21
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=none', '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+            }
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildFeatures {
+        prefab true
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+    externalNativeBuild {
+        cmake {
+            path 'src/main/cpp/CMakeLists.txt'
+            version "3.31.0+"
+        }
+    }
+}
+
+dependencies {
+    implementation project(':api')
+
+    implementation 'androidx.annotation:annotation:1.3.0'
+    implementation 'org.lsposed.libcxx:libcxx:27.0.12077973'
+}
+
+ext {
+    publishLibrary = false
+    POM_NAME = "RISH"
+    POM_DESCRIPTION = "RISH"
+}
