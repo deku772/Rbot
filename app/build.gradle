@@ -19,8 +19,8 @@ try {
     props.setProperty("localVersionCode", String.valueOf(next))
     props.store(new FileOutputStream(propsFile), "Local build counter")
     computedVersionCode = next
-    computedVersionName = "2.1.0"
-    println "[VERSION] versionCode=" + next + ", versionName=2.1.0"
+    computedVersionName = "2.1.1"
+    println "[VERSION] versionCode=" + next + ", versionName=2.1.1"
 } catch (Exception e) {
     println "[VERSION] Exception: " + e.getMessage()
 }
@@ -38,7 +38,7 @@ android {
         // Auto-increment version code based on local build counter
         versionCode computedVersionCode
         // Version name: MAJOR.MINOR.PATCH
-        versionName "2.1.0"
+        versionName "2.1.1"
 
         manifestPlaceholders.TERMUX_PACKAGE_NAME = "app.rbot"
         manifestPlaceholders.TERMUX_APP_NAME = "Rbot"
