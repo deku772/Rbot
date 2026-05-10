@@ -286,9 +286,15 @@ public final class ChrootManager {
         execRoot(
             "rm -f " + D + "/etc/resolv.conf 2>/dev/null; " +
             "cp /etc/resolv.conf " + D + "/etc/resolv.conf 2>/dev/null || " +
-            "echo 'nameserver 223.5.5.5' > " + D + "/etc/resolv.conf; " + 
+            "echo 'nameserver 223.5.5.5' > " + D + "/etc/resolv.conf; " +
             "echo 'nameserver 8.8.8.8' >> " + D + "/etc/resolv.conf; " +
             "echo dns_done", 10);
+
+        // Step 7: Ensure /root/.hushlogin exists to suppress sudo hint (avoids "groups: command not found")
+        execRoot(
+            "mkdir -p " + D + "/root; " +
+            "touch " + D + "/root/.hushlogin; " +
+            "echo hushlogin_done", 5);
 
         if (callback != null) {
             callback.onProgress("chroot 环境初始化完成");

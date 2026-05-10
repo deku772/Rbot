@@ -51,6 +51,7 @@ public class MainActivity extends AppCompatActivity {
     private TextView mSshStatus;
     private TextView mSshPassword;
     private Button mSshToggleButton;
+    private Button mShellButton;
     private boolean mSshStarting = false;
 
     private CardView mWebuiPanel;
@@ -113,6 +114,7 @@ public class MainActivity extends AppCompatActivity {
         mSshStatus = findViewById(R.id.ssh_status);
         mSshPassword = findViewById(R.id.ssh_password);
         mSshToggleButton = findViewById(R.id.btn_ssh_toggle);
+        mShellButton = findViewById(R.id.btn_open_shell);
 
         // Navigation buttons
         mNavHomeButton = findViewById(R.id.btn_nav_home);
@@ -147,6 +149,10 @@ public class MainActivity extends AppCompatActivity {
             startActivity(browserIntent);
         });
         mSshToggleButton.setOnClickListener(v -> toggleSshService());
+        mShellButton.setOnClickListener(v -> {
+            Intent intent = new Intent(this, ShellActivity.class);
+            startActivity(intent);
+        });
 
 
         // Navigation buttons
