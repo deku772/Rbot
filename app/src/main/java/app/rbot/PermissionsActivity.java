@@ -20,7 +20,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 /**
- * Permissions page — dedicated to battery optimization, storage, root, and notification permissions.
+ * Permissions page — battery, storage, root, Shizuku, and notification permissions.
  * BotPocket-style: each permission has its own card with status and action button.
  */
 public class PermissionsActivity extends AppCompatActivity {
@@ -33,6 +33,9 @@ public class PermissionsActivity extends AppCompatActivity {
     private TextView mStorageStatus;
     private Button mGrantStorageButton;
     private TextView mRootStatus;
+    private CardView mShizukuCard;
+    private TextView mShizukuStatus;
+    private Button mGrantShizukuButton;
     private CardView mNotificationCard;
     private TextView mNotificationStatus;
     private Button mGrantNotificationButton;
@@ -47,12 +50,16 @@ public class PermissionsActivity extends AppCompatActivity {
         mStorageStatus = findViewById(R.id.storage_status);
         mGrantStorageButton = findViewById(R.id.btn_grant_storage);
         mRootStatus = findViewById(R.id.root_status);
+        mShizukuCard = findViewById(R.id.shizuku_card);
+        mShizukuStatus = findViewById(R.id.shizuku_status);
+        mGrantShizukuButton = findViewById(R.id.btn_grant_shizuku);
         mNotificationCard = findViewById(R.id.notification_card);
         mNotificationStatus = findViewById(R.id.notification_status);
         mGrantNotificationButton = findViewById(R.id.btn_grant_notification);
 
         mDisableBatteryOptButton.setOnClickListener(v -> requestIgnoreBatteryOptimizations());
         mGrantStorageButton.setOnClickListener(v -> requestStoragePermission());
+        mGrantShizukuButton.setOnClickListener(v -> requestShizukuPermission());
         mGrantNotificationButton.setOnClickListener(v -> requestNotificationPermission());
 
         // Show notification card only on Android 13+
@@ -71,6 +78,7 @@ public class PermissionsActivity extends AppCompatActivity {
         refreshBatteryStatus();
         refreshStorageStatus();
         refreshRootStatus();
+        refreshShizukuStatus();
         refreshNotificationStatus();
     }
 
@@ -125,12 +133,62 @@ public class PermissionsActivity extends AppCompatActivity {
     }
 
     private void refreshRootStatus() {
-        // Check if root is available by checking ChrootManager
-        ChrootManager.FullStatus status = ChrootManager.getFullStatus();
-        if (status.rootAvailable()) {
+        boolean rootAvailable = ChrootManager.isRootAvailable();
+        if (rootAvailable) {
             mRootStatus.setText("可用 ✅");
         } else {
-            mRootStatus.setText("不可用 — 请确保设备已 Root");
+            mRootStatus.setText("不可用 — 可使用下方 Shizuku 授权");
+        }
+    }
+
+    private void refreshShizukuStatus() {
+        AuthManager am = AuthManager.getInstance();
+        boolean shizukuAvailable = am.isShizukuAvailable();
+        boolean shizukuReady = am.isShizukuReady();
+        boolean permissionGranted = am.isShizukuPermissionGranted();
+
+        if (shizukuReady) {
+            // Shizuku is connected and running as root
+            mShizukuStatus.setText("已授权 ✅（Root 模式）");
+            mGrantShizukuButton.setText("已授权");
+            mGrantShizukuButton.setEnabled(false);
+        } else if (shizukuAvailable && !permissionGranted) {
+            // Shizuku running as root but permission not granted yet
+            mShizukuStatus.setText("Shizuku 已运行 — 需要授权");
+            mGrantShizukuButton.setText("授予 Shizuku 权限");
+            mGrantShizukuButton.setEnabled(true);
+        } else if (shizukuAvailable) {
+            // Shizuku available but UID != 0 (ADB mode)
+            mShizukuStatus.setText("Shizuku 运行中但为 ADB 模式 ⚠️\nADB 权限不足以执行 chroot，需要 Root 模式");
+            mGrantShizukuButton.setText("请切换到 Root 模式");
+            mGrantShizukuButton.setEnabled(false);
+        } else {
+            // Shizuku not detected — offer download options
+            mShizukuStatus.setText("未安装 Shizuku — 点击按钮下载");
+            mGrantShizukuButton.setText("下载 Shizuku");
+            mGrantShizukuButton.setEnabled(true);
+        }
+    }
+
+    private void requestShizukuPermission() {
+        AuthManager am = AuthManager.getInstance();
+        if (am.isShizukuAvailable()) {
+            // Shizuku is running — request permission or bind service
+            am.requestShizukuPermission();
+        } else {
+            // Shizuku not installed — open GitHub Releases for direct download
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setData(Uri.parse("https://github.com/RikkaApps/Shizuku/releases"));
+                startActivity(intent);
+            } catch (Exception e) {
+                // Fallback to Play Store
+                try {
+                    Intent intent = new Intent(Intent.ACTION_VIEW);
+                    intent.setData(Uri.parse("market://details?id=moe.shizuku.privileged.api"));
+                    startActivity(intent);
+                } catch (Exception ignored) {}
+            }
         }
     }
 

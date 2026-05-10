@@ -56,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
 
     private CardView mWebuiPanel;
     private TextView mWebuiUrl;
+    private TextView mWebuiStatus;
     private Button mOpenWebuiButton;
 
     // Navigation buttons
@@ -108,6 +109,7 @@ public class MainActivity extends AppCompatActivity {
         mSetupButton = findViewById(R.id.btn_setup);
         mWebuiPanel = findViewById(R.id.webui_panel);
         mWebuiUrl = findViewById(R.id.webui_url);
+        mWebuiStatus = findViewById(R.id.webui_status);
         mOpenWebuiButton = findViewById(R.id.btn_open_webui);
         mSshInfoPanel = findViewById(R.id.ssh_info_panel);
         mSshInfo = findViewById(R.id.ssh_info);
@@ -220,19 +222,22 @@ public class MainActivity extends AppCompatActivity {
     /** Update UI based on status — must be called on main thread */
     private void updateStatusUI(ChrootManager.FullStatus status, boolean botInstalled, boolean botRunning) {
         boolean rootAvailable = status.rootAvailable();
+        boolean shizukuAvailable = status.shizukuAvailable();
+        boolean hasPrivilegedAccess = rootAvailable || shizukuAvailable;
         boolean rootfsReady = status.rootfsReady();
         boolean chrootMounted = status.chrootMounted();
         boolean astrBotInstalled = status.astrBotInstalled();
         boolean astrBotRunning = status.astrBotRunning();
-        if (!rootAvailable) {
-            mStatusText.setText("⚠ 需要 Root 权限");
+        if (!hasPrivilegedAccess) {
+            mStatusText.setText("⚠ 需要 Root 或 Shizuku 权限");
             mStartButton.setEnabled(false);
             mStopButton.setEnabled(false);
             mSetupButton.setVisibility(View.GONE);
             mWebuiPanel.setVisibility(View.GONE);
             mSshInfoPanel.setVisibility(View.GONE);
         } else if (!rootfsReady || !astrBotInstalled) {
-            mStatusText.setText("📦 需要安装");
+            String authMode = rootAvailable ? "Root" : "Shizuku";
+            mStatusText.setText("📦 需要安装（" + authMode + " 模式）");
             mStartButton.setEnabled(false);
             mStopButton.setEnabled(false);
             mSetupButton.setVisibility(View.VISIBLE);
@@ -254,17 +259,20 @@ public class MainActivity extends AppCompatActivity {
 
             mSetupButton.setVisibility(View.GONE);
 
-            // Show WebUI only for AstrBot when running
+            // WebUI panel: always visible after installation, update status text
+            String webuiUrl = detectLanIp();
+            mWebuiUrl.setText(webuiUrl);
+            mWebuiPanel.setVisibility(View.VISIBLE);
             if ("astrbot".equals(activeBot.getId()) && astrBotRunning) {
-                String webuiUrl = detectLanIp();
-                mWebuiUrl.setText(webuiUrl);
-                mWebuiPanel.setVisibility(View.VISIBLE);
+                mWebuiStatus.setText("运行中");
+                mWebuiStatus.setTextColor(getColor(android.R.color.holo_green_light));
             } else {
-                mWebuiPanel.setVisibility(View.GONE);
+                mWebuiStatus.setText("未运行");
+                mWebuiStatus.setTextColor(getColor(android.R.color.holo_red_light));
             }
 
+            // SSH panel: always visible after installation
             mSshInfoPanel.setVisibility(View.VISIBLE);
-            // Update SSH panel
             updateSshPanel();
         }
 
@@ -287,9 +295,13 @@ public class MainActivity extends AppCompatActivity {
         if (mLabelAstrbot != null) {
             mLabelAstrbot.setText(activeBot.getName().toUpperCase());
         }
-        // BINARIES: root shell access (su works)
+        // BINARIES: root shell access (su or Shizuku)
         if (status.rootAvailable()) {
-            mStatusBinaries.setText("已就绪");
+            mStatusBinaries.setText("Root 已就绪");
+            mStatusBinaries.setTextColor(getColor(R.color.status_connected));
+            mDotBinaries.setBackgroundResource(R.drawable.ic_status_ready);
+        } else if (status.shizukuAvailable()) {
+            mStatusBinaries.setText("Shizuku 已就绪");
             mStatusBinaries.setTextColor(getColor(R.color.status_connected));
             mDotBinaries.setBackgroundResource(R.drawable.ic_status_ready);
         } else {
