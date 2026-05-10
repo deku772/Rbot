@@ -844,8 +844,7 @@ public final class ChrootManager {
     public static String backupAstrBotData(ProgressCallback callback) {
         if (callback != null) callback.onProgress("准备备份...");
 
-        // Ensure chroot environment is set up (mounts /dev, /dev/pts, /proc, /sys, /tmp)
-        setupChrootEnvironment(callback);
+        // No need to setup chroot — host-side tar reads ext4 paths directly with root
 
         // Ensure backup directory exists
         CommandResult mkdirResult = execRoot("mkdir -p " + RbotConstants.BACKUP_DIR);
