@@ -1,0 +1,67 @@
+# From https://gist.github.com/iainconnor/8605514
+# with the addition of the /captures below.
+/captures
+
+# Built application files
+build/
+release/
+*.apk
+*.so
+.externalNativeBuild
+.cxx
+*.zip
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Local build counter - auto-incremented, not synced across machines
+version.properties
+
+# Firebase
+app/google-services.json
+
+# Gradle generated files
+.gradle/
+.gradle-cache/
+
+# Signing files
+.signing/
+
+# Intellij
+.idea/
+*.iml
+
+# Vim
+*.swo
+*.swp
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.swp
+ehthumbs.db
+Thumbs.db
+keystore/
+
+# Worktrees
+.worktrees/
+
+# Kotlin compiler sessions
+.kotlin/
+
+# WorkBuddy AI memory
+.workbuddy/
+
+# Skill TypeScript build output
+app/src/main/assets/skills/botdrop-u2/dist/
+
+# SSH keys and build logs (should not be committed)
+*_ssh_key*
+id_rbot
+rbot_key*
+build_out*.txt
+build_output.txt
+*.txt

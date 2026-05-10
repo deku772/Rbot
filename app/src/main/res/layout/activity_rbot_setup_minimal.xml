@@ -1,0 +1,205 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/rbot_background"
+    android:padding="24dp"
+    android:gravity="center_horizontal">
+
+    <!-- Title -->
+    <ImageView
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:src="@drawable/rbot_logo"
+        android:contentDescription="@string/application_name"
+        android:layout_marginTop="16dp"
+        android:layout_marginBottom="12dp" />
+
+    <TextView
+        android:id="@+id/setup_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="安装 Rbot"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="@color/rbot_on_background"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/setup_step_text"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="准备安装..."
+        android:textSize="14sp"
+        android:textColor="@color/rbot_secondary_text"
+        android:layout_marginBottom="12dp" />
+
+    <!-- Bot engine selection — always visible so user can choose on first install -->
+    <LinearLayout
+        android:id="@+id/bot_engine_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="12dp"
+        android:background="#0D000000"
+        android:padding="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="选择 Bot 引擎"
+            android:textSize="13sp"
+            android:textColor="@color/rbot_secondary_text"
+            android:layout_marginBottom="8dp" />
+
+        <RadioGroup
+            android:id="@+id/rg_bot_engine"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rb_astrbot"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="AstrBot"
+                android:textSize="13sp"
+                android:textColor="@color/rbot_on_background"
+                android:buttonTint="@color/rbot_accent" />
+
+            <RadioButton
+                android:id="@+id/rb_hermes"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Hermes Agent"
+                android:textSize="13sp"
+                android:textColor="@color/rbot_on_background"
+                android:buttonTint="@color/rbot_accent" />
+
+        </RadioGroup>
+
+    </LinearLayout>
+
+    <!-- Reinstall options (shown only when something is already installed) -->
+    <LinearLayout
+        android:id="@+id/reinstall_options"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:layout_marginBottom="12dp"
+        android:background="#0D000000"
+        android:padding="12dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="选择要重装的步骤（未勾选则跳过）："
+            android:textSize="13sp"
+            android:textColor="@color/rbot_secondary_text"
+            android:layout_marginBottom="8dp" />
+
+        <CheckBox
+            android:id="@+id/cb_reinstall_rootfs"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="重装系统镜像（清除并重新解压 rootfs）"
+            android:textSize="13sp"
+            android:textColor="@color/rbot_on_background" />
+
+        <CheckBox
+            android:id="@+id/cb_reinstall_deps"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="重装系统依赖（apt update + install）"
+            android:textSize="13sp"
+            android:textColor="@color/rbot_on_background" />
+
+        <CheckBox
+            android:id="@+id/cb_reinstall_bot"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="重装 Bot 引擎（重新克隆 + 安装依赖）"
+            android:textSize="13sp"
+            android:textColor="@color/rbot_on_background" />
+
+        <!-- Custom proxy input -->
+        <LinearLayout
+            android:id="@+id/proxy_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginTop="8dp"
+            android:visibility="gone">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="自定义 GitHub 代理地址："
+                android:textSize="12sp"
+                android:textColor="@color/rbot_secondary_text" />
+
+            <EditText
+                android:id="@+id/et_custom_proxy"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:hint="例如: https://gh-proxy.com/"
+                android:textSize="13sp"
+                android:inputType="textUri"
+                android:background="#0D000000"
+                android:padding="8dp"
+                android:layout_marginTop="4dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Progress -->
+    <ProgressBar
+        android:id="@+id/setup_progress"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:indeterminate="true"
+        android:indeterminateTint="@color/rbot_accent"
+        android:layout_marginBottom="12dp"
+        android:visibility="gone" />
+
+    <!-- Log area -->
+    <ScrollView
+        android:id="@+id/setup_log_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:background="#1A1A1A"
+        android:padding="8dp"
+        android:layout_marginBottom="16dp"
+        android:scrollbars="vertical"
+        android:fadeScrollbars="false"
+        android:scrollbarStyle="insideOverlay">
+
+        <TextView
+            android:id="@+id/setup_log_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textSize="12sp"
+            android:textColor="#B0B0B0"
+            android:fontFamily="monospace"
+            android:textIsSelectable="true" />
+
+    </ScrollView>
+
+    <!-- Action button -->
+    <Button
+        android:id="@+id/setup_action_button"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:text="开始安装"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="#1A1A1A"
+        android:background="@drawable/rbot_button_bg" />
+
+</LinearLayout>

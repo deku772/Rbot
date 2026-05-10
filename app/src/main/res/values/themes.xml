@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!--
+     Rbot BaseActivity themes — self-contained, no termux-shared dependency.
+    -->
+
+    <!-- BaseActivity Light DarkActionBar theme -->
+    <style name="Theme.BaseActivity.Light.DarkActionBar" parent="Theme.MaterialComponents.Light.DarkActionBar">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/rbot_surface</item>
+        <item name="colorPrimaryVariant">#111111</item>
+        <item name="colorOnPrimary">@color/rbot_on_background</item>
+
+        <!-- Secondary brand color -->
+        <item name="colorSecondary">@color/rbot_accent</item>
+        <item name="colorSecondaryVariant">@color/rbot_accent_dark</item>
+        <item name="colorOnSecondary">@color/rbot_background</item>
+
+        <!-- Status bar color -->
+        <item name="android:statusBarColor" tools:targetApi="l">#111111</item>
+        <item name="colorPrimaryDark" tools:targetApi="l">@color/rbot_surface</item>
+
+        <!-- Text color -->
+        <item name="android:textColorPrimary">@color/rbot_on_background</item>
+    </style>
+
+    <!-- BaseActivity Light NoActionBar theme -->
+    <style name="Theme.BaseActivity.Light.NoActionBar" parent="Theme.BaseActivity.Light.DarkActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- BaseActivity DayNight DarkActionBar theme -->
+    <style name="Theme.BaseActivity.DayNight.DarkActionBar" parent="Theme.MaterialComponents">
+        <!-- Primary brand color -->
+        <item name="colorPrimary">@color/rbot_surface</item>
+        <item name="colorPrimaryVariant">#111111</item>
+        <item name="colorOnPrimary">@color/rbot_on_background</item>
+
+        <!-- Secondary brand color -->
+        <item name="colorSecondary">@color/rbot_accent</item>
+        <item name="colorSecondaryVariant">@color/rbot_accent_dark</item>
+        <item name="colorOnSecondary">@color/rbot_background</item>
+
+        <!-- Status bar color -->
+        <item name="android:statusBarColor" tools:targetApi="l">#111111</item>
+        <item name="colorPrimaryDark" tools:targetApi="l">@color/rbot_surface</item>
+    </style>
+
+    <!-- BaseActivity DayNight NoActionBar theme -->
+    <style name="Theme.BaseActivity.DayNight.NoActionBar" parent="Theme.BaseActivity.DayNight.DarkActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- ──── TermuxApp themes (child of BaseActivity) ──── -->
+
+    <!-- TermuxApp Light DarkActionBar theme -->
+    <style name="Theme.TermuxApp.Light.DarkActionBar" parent="Theme.BaseActivity.Light.DarkActionBar"/>
+    <!-- TermuxApp Light NoActionBar theme -->
+    <style name="Theme.TermuxApp.Light.NoActionBar" parent="Theme.BaseActivity.Light.NoActionBar"/>
+
+    <!-- TermuxApp DayNight DarkActionBar theme -->
+    <style name="Theme.TermuxApp.DayNight.DarkActionBar" parent="Theme.BaseActivity.DayNight.DarkActionBar"/>
+    <!-- TermuxApp DayNight NoActionBar theme -->
+    <style name="Theme.TermuxApp.DayNight.NoActionBar" parent="Theme.BaseActivity.DayNight.NoActionBar"/>
+
+    <!-- TermuxActivity DayNight NoActionBar theme -->
+    <style name="Theme.TermuxActivity.DayNight.NoActionBar" parent="Theme.TermuxApp.DayNight.NoActionBar">
+        <!-- Rbot primary brand color -->
+        <item name="colorPrimary">@color/rbot_background</item>
+        <item name="colorPrimaryDark">#111111</item>
+        <item name="colorPrimaryVariant">@color/rbot_background</item>
+        <item name="colorAccent">@color/rbot_accent</item>
+
+        <item name="android:windowBackground">@color/rbot_background</item>
+        <item name="android:textColor">@color/rbot_on_background</item>
+        <item name="android:textColorPrimary">@color/rbot_on_background</item>
+        <item name="android:textColorSecondary">@color/rbot_secondary_text</item>
+        <item name="android:statusBarColor">#111111</item>
+        <item name="android:navigationBarColor">#111111</item>
+
+        <!-- Avoid action mode toolbar pushing down terminal content -->
+        <item name="android:windowActionModeOverlay">true</item>
+
+        <item name="android:windowTranslucentStatus">true</item>
+        <item name="android:windowTranslucentNavigation">true</item>
+
+        <item name="android:windowAllowReturnTransitionOverlap">true</item>
+        <item name="android:windowAllowEnterTransitionOverlap">true</item>
+
+        <!-- Left drawer -->
+        <item name="buttonBarButtonStyle">@style/TermuxActivity.Drawer.ButtonBarStyle.Dark</item>
+        <item name="termuxActivityDrawerBackground">@color/rbot_surface</item>
+        <item name="termuxActivityDrawerImageTint">@color/rbot_accent</item>
+
+        <!-- Extra keys colors -->
+        <item name="extraKeysButtonTextColor">@color/rbot_on_background</item>
+        <item name="extraKeysButtonActiveTextColor">@color/rbot_accent</item>
+        <item name="extraKeysButtonBackgroundColor">@color/rbot_surface</item>
+        <item name="extraKeysButtonActiveBackgroundColor">@color/rbot_accent_dark</item>
+    </style>
+
+</resources>

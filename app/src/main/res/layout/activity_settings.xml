@@ -1,0 +1,282 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/rbot_background"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <ImageView
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/rbot_logo"
+                android:contentDescription="@string/application_name"
+                android:layout_marginEnd="12dp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="设置"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:textColor="@color/rbot_on_background" />
+
+        </LinearLayout>
+
+        <!-- Bot 引擎切换 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bot 引擎"
+            android:textSize="14sp"
+            android:textColor="@color/rbot_secondary_text"
+            android:layout_marginBottom="8dp" />
+
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="2dp"
+            app:cardBackgroundColor="#1E1E1E">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="当前引擎"
+                            android:textSize="12sp"
+                            android:textColor="@color/rbot_secondary_text" />
+
+                        <TextView
+                            android:id="@+id/current_bot_name"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="AstrBot"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            android:textColor="@color/rbot_accent"
+                            android:layout_marginTop="2dp" />
+
+                        <TextView
+                            android:id="@+id/current_bot_status"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="已安装 · 已停止"
+                            android:textSize="12sp"
+                            android:textColor="@color/rbot_secondary_text"
+                            android:layout_marginTop="2dp" />
+
+                        <TextView
+                            android:id="@+id/current_bot_platforms"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="支持: QQ（原生）"
+                            android:textSize="11sp"
+                            android:textColor="#666666"
+                            android:layout_marginTop="4dp" />
+
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/btn_switch_bot"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:text="切换引擎"
+                        android:textSize="13sp"
+                        android:textColor="#FFFFFF"
+                        android:background="@drawable/rbot_button_green_bg"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </androidx.cardview.widget.CardView>
+
+        <!-- 环境管理 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="环境管理"
+            android:textSize="14sp"
+            android:textColor="@color/rbot_secondary_text"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btn_reinstall_deps"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginBottom="8dp"
+            android:text="🔄 重装系统依赖"
+            android:textSize="13sp"
+            android:textColor="@color/rbot_on_background"
+            android:background="@drawable/rbot_button_outline_bg" />
+
+        <Button
+            android:id="@+id/btn_reinstall_bot"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginBottom="8dp"
+            android:text="🤖 重装当前 Bot 引擎"
+            android:textSize="13sp"
+            android:textColor="@color/rbot_on_background"
+            android:background="@drawable/rbot_button_outline_bg" />
+
+        <Button
+            android:id="@+id/btn_reinstall_rootfs"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginBottom="8dp"
+            android:text="💿 重装 rootfs（保留 AstrBot 数据）"
+            android:textSize="13sp"
+            android:textColor="@color/rbot_on_background"
+            android:background="@drawable/rbot_button_outline_bg" />
+
+        <Button
+            android:id="@+id/btn_repair_env"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginBottom="8dp"
+            android:text="🛠️ 修复环境"
+            android:textSize="13sp"
+            android:textColor="@color/rbot_on_background"
+            android:background="@drawable/rbot_button_outline_bg" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#333333"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp" />
+
+        <!-- 账户安全 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="账户安全"
+            android:textSize="14sp"
+            android:textColor="@color/rbot_secondary_text"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btn_reset_password"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:layout_marginBottom="8dp"
+            android:text="🔐 重置 root 密码"
+            android:textSize="13sp"
+            android:textColor="@color/rbot_on_background"
+            android:background="@drawable/rbot_button_outline_bg" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#333333"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="8dp" />
+
+        <!-- 备份与恢复 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="备份与恢复"
+            android:textSize="14sp"
+            android:textColor="@color/rbot_secondary_text"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <Button
+                android:id="@+id/btn_backup"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="6dp"
+                android:text="📦 备份数据"
+                android:textSize="13sp"
+                android:textColor="@color/rbot_on_background"
+                android:background="@drawable/rbot_button_outline_bg" />
+
+            <Button
+                android:id="@+id/btn_restore"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:layout_marginStart="6dp"
+                android:text="📂 导入备份"
+                android:textSize="13sp"
+                android:textColor="@color/rbot_on_background"
+                android:background="@drawable/rbot_button_outline_bg" />
+
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#333333"
+            android:layout_marginTop="8dp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- 危险操作 -->
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="危险操作"
+            android:textSize="14sp"
+            android:textColor="#FF6B6B"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btn_clean_install"
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:text="⚠️ 完全重装（清除所有数据）"
+            android:textSize="13sp"
+            android:textColor="#FF6B6B"
+            android:background="@drawable/rbot_button_outline_bg" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="24dp" />
+
+    </LinearLayout>
+
+</ScrollView>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <attr name="homeCardStyle" format="reference" />
+    <attr name="appColorPrimary" format="reference" />
+    <attr name="textColorOnSurfaceHighEmphasis" format="reference|color" />
+    <attr name="simpleMenuPreferenceStyle" format="reference" />
+    <attr name="popupBackgroundRadius" format="dimension" />
+
+    <declare-styleable name="SimpleMenuPreference">
+        <attr name="android:popupMenuStyle" />
+        <attr name="android:popupTheme" />
+        <attr name="popupBackgroundRadius" />
+    </declare-styleable>
+</resources>

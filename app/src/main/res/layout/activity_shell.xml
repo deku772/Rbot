@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="#000000">
+
+    <!-- Title bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:background="#1A1A2E"
+        android:paddingStart="6dp"
+        android:paddingEnd="6dp">
+
+        <ImageButton
+            android:id="@+id/btn_back"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:src="@android:drawable/ic_menu_revert"
+            android:contentDescription="Back"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF" />
+
+        <TextView
+            android:id="@+id/tv_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="root@localhost"
+            android:textColor="#AAAAAA"
+            android:textSize="13sp"
+            android:paddingStart="8dp"
+            android:singleLine="true"
+            android:fontFamily="monospace" />
+
+        <ImageButton
+            android:id="@+id/btn_paste"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:src="@android:drawable/ic_menu_agenda"
+            android:contentDescription="Paste"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF" />
+
+        <ImageButton
+            android:id="@+id/btn_keyboard_toggle"
+            android:layout_width="34dp"
+            android:layout_height="34dp"
+            android:src="@android:drawable/ic_menu_manage"
+            android:contentDescription="Toggle keyboard"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
+            android:tint="#FFFFFF" />
+    </LinearLayout>
+
+    <!-- Terminal view fills remaining space -->
+    <com.termux.view.TerminalView
+        android:id="@+id/terminal_view"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:focusable="true"
+        android:focusableInTouchMode="true" />
+
+    <!-- Extra keys: 2-row 7-column grid, matching ZeroTermux style -->
+    <LinearLayout
+        android:id="@+id/extra_keys_container"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:background="#1A1A2E">
+
+        <!-- Row 1: ESC  /  -  HOME  UP  END  PGUP -->
+        <LinearLayout
+            android:id="@+id/extra_keys_row1"
+            android:layout_width="match_parent"
+            android:layout_height="38dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical" />
+
+        <!-- Row 2: TAB  CTRL  ALT  LEFT  DOWN  RIGHT  PGDN -->
+        <LinearLayout
+            android:id="@+id/extra_keys_row2"
+            android:layout_width="match_parent"
+            android:layout_height="38dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical" />
+    </LinearLayout>
+
+</LinearLayout>

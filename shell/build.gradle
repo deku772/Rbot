@@ -1,0 +1,78 @@
+plugins {
+    id 'com.android.application'
+    id 'dev.rikka.tools.refine'
+}
+
+android {
+    namespace 'rikka.shizuku.shell'
+    defaultConfig {
+        minSdk 21
+        def projectVersionCode = rootProject.findProperty('versionCode')
+        versionCode projectVersionCode != null ? projectVersionCode.toInteger() : 1
+        versionName rootProject.findProperty('versionName') ?: '0.1.0'
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    buildTypes {
+        debug {
+            multiDexEnabled false
+        }
+        release {
+            // Shizuku bootstrap is loaded via native entry and shell-name based reflection.
+            // Keep it byte-for-byte in release to avoid startup regressions.
+            minifyEnabled false
+        }
+    }
+    dependenciesInfo {
+        includeInApk false
+    }
+    lint {
+        checkReleaseBuilds false
+    }
+    buildFeatures {
+        buildConfig = true
+    }
+}
+
+// Disable install tasks — this module is only used to produce rish_shizuku.dex,
+// it should never be installed as a standalone app on a device.
+tasks.configureEach { task ->
+    if (task.name.startsWith('install') || task.name.startsWith('uninstall')) {
+        task.enabled = false
+    }
+}
+
+android.applicationVariants.all { variant ->
+    variant.outputs.all {
+        def outDir = new File(rootDir, "out")
+        def mappingPath = new File(outDir, "mapping").absolutePath
+        def dexPath = "${rootProject.rootDir.path}/manager/src/main/assets"
+        variant.assembleProvider.get().doLast {
+            if (variant.getBuildType().isMinifyEnabled()) {
+                copy {
+                    from variant.mappingFileProvider.get()
+                    into mappingPath
+                    rename { String fileName ->
+                        mappingPath + File.separator + "cmd-v${variant.versionName}.txt"
+                    }
+                }
+            }
+            copy {
+                def file = zipTree(file(outputFile)).matching { include 'classes*.dex' }.singleFile
+
+                from file
+                into dexPath
+                rename { String fileName ->
+                    fileName.replace(file.getName(), "rish_shizuku.dex")
+                }
+            }
+        }
+    }
+}
+
+dependencies {
+    implementation libs.hidden.compat
+    compileOnly libs.hidden.stub
+}
