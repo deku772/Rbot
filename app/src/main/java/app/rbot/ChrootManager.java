@@ -694,22 +694,24 @@ public final class ChrootManager {
                 pythonBin = "/root/astrbot/venv/bin/python3";
             }
 
-            // Single execInChroot call: launch, save PID, wait, verify
-            // Using setsid so the process survives the shell exit
+            // Launch AstrBot in background with nohup (not setsid — setsid forks a child
+            // process so $! gets the setsid PID which exits immediately, not python's PID).
+            // Save PID, wait briefly, then verify.
             String startCmd =
                 "cd /root/astrbot && " +
                 "rm -f /root/astrbot/astrbot.pid && " +
-                "setsid " + pythonBin + " main.py >> /root/astrbot/astrbot.log 2>&1 & " +
+                "nohup " + pythonBin + " main.py >> /root/astrbot/astrbot.log 2>&1 & " +
+                "disown && " +
                 "echo $! > /root/astrbot/astrbot.pid && " +
-                "/bin/sleep 3 && " +
+                "/bin/sleep 5 && " +
                 "PID=$(cat /root/astrbot/astrbot.pid 2>/dev/null) && " +
                 "if [ -n \"$PID\" ] && kill -0 \"$PID\" 2>/dev/null; then " +
                 "  echo started_$PID; " +
                 "else " +
-                "  echo 'FAIL:' $(tail -5 /root/astrbot/astrbot.log 2>/dev/null); exit 1; " +
+                "  echo 'FAIL_PID='$PID': ' $(tail -5 /root/astrbot/astrbot.log 2>/dev/null); exit 1; " +
                 "fi";
 
-            CommandResult result = execInChroot(startCmd, 20);
+            CommandResult result = execInChroot(startCmd, 30);
             boolean started = result.success() && result.stdout().contains("started_");
             Log.d(TAG, "[startAstrBot] stdout=" + result.stdout().trim() + " stderr=" + result.stderr().trim());
             return new CommandResult(started, result.stdout(), result.stderr(), started ? 0 : 1);
