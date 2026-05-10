@@ -161,9 +161,12 @@ public final class ChrootManager {
         boolean hasAstrBotData = dataCheck.success && dataCheck.stdout.trim().equals("yes");
         if (hasAstrBotData) {
             if (callback != null) callback.onProgress("检测到 AstrBot 数据，正在备份...");
-            execRoot("rm -rf " + RbotConstants.EXTERNAL_DATA_BACKUP);
-            execRoot("cp -r " + RbotConstants.CHROOT_DIR + "/root/astrbot/data " + RbotConstants.EXTERNAL_DATA_BACKUP);
-            if (callback != null) callback.onProgress("数据已备份到: " + RbotConstants.EXTERNAL_DATA_BACKUP);
+            String installBackupFile = RbotConstants.EXTERNAL_DATA_BACKUP + ".tar.gz";
+            execRoot("mkdir -p " + RbotConstants.BACKUP_DIR);
+            execRoot("cd " + RbotConstants.ASTRBOT_HOME + " && tar czf '" + installBackupFile + "' " +
+                "--exclude='./venv' --exclude='./__pycache__' --exclude='./.git' " +
+                "--exclude='./astrbot.log' --exclude='./astrbot-debug.log' --exclude='./astrbot.pid' .", 300);
+            if (callback != null) callback.onProgress("数据已备份到: " + installBackupFile);
         }
 
         // Clean staging AND chroot dir (chroot may have partial files from a previous failed run)
@@ -246,20 +249,33 @@ public final class ChrootManager {
 
     /** Restore AstrBot data from unified external storage backup */
     public static boolean restoreAstrBotData(ProgressCallback callback) {
-        // EXTERNAL_DATA_BACKUP itself IS the data directory
+        // Look for tar.gz backup first (new format), then fallback to directory (old format)
+        String tarBackup = RbotConstants.EXTERNAL_DATA_BACKUP + ".tar.gz";
+        CommandResult tarCheck = execRoot("test -f '" + tarBackup + "' && echo exists");
+
+        if (tarCheck.success && tarCheck.stdout.trim().equals("exists")) {
+            if (callback != null) callback.onProgress("正在从备份恢复 AstrBot 数据...");
+            execRoot("mkdir -p " + RbotConstants.ASTRBOT_HOME);
+            CommandResult result = execRoot(
+                "cd " + RbotConstants.ASTRBOT_HOME + " && tar xzf '" + tarBackup + "'", 300);
+            if (!result.success()) {
+                if (callback != null) callback.onError("恢复数据失败: " + result.stderr());
+                return true;
+            }
+            if (callback != null) callback.onProgress("AstrBot 数据已恢复");
+            return false;
+        }
+
+        // Fallback: old directory-based backup
         CommandResult checkResult = execRoot("test -d '" + RbotConstants.EXTERNAL_DATA_BACKUP + "' && echo exists");
         if (!checkResult.success || !checkResult.stdout.trim().equals("exists")) {
-            if (callback != null) callback.onError("未找到备份数据: " + RbotConstants.EXTERNAL_DATA_BACKUP);
+            if (callback != null) callback.onError("未找到备份数据: " + tarBackup);
             return true;
         }
 
         if (callback != null) callback.onProgress("正在从外部存储恢复 AstrBot 数据...");
-
-        // Ensure astrbot directory exists
-        execRoot("mkdir -p " + RbotConstants.CHROOT_DIR + "/root/astrbot");
-
-        // backupDir IS the data — remove old data and copy backup as new data
-        CommandResult result = execRoot("rm -rf " + RbotConstants.ASTRBOT_HOME + "/data && cp -r '" + RbotConstants.EXTERNAL_DATA_BACKUP + "' " + RbotConstants.ASTRBOT_HOME + "/data");
+        execRoot("mkdir -p " + RbotConstants.ASTRBOT_HOME);
+        CommandResult result = execRoot("cp -r '" + RbotConstants.EXTERNAL_DATA_BACKUP + "' " + RbotConstants.ASTRBOT_HOME + "/data", 300);
 
         if (!result.success()) {
             if (callback != null) callback.onError("恢复数据失败: " + result.stderr());
@@ -820,9 +836,10 @@ public final class ChrootManager {
 
     /**
      * Create a backup of AstrBot data directory.
-     * Backup: /sdcard/rbot/backups/astrbot_data_backup/{timestamp}/
+     * Uses tar to preserve symlinks and permissions (cp -r fails on sdcard due to vfat/FUSE).
+     * Backup: /sdcard/rbot/backups/astrbot_data_{timestamp}.tar.gz
      * @param callback Progress callback for UI updates
-     * @return Backup directory path on success, null on failure
+     * @return Backup file path on success, null on failure
      */
     public static String backupAstrBotData(ProgressCallback callback) {
         if (callback != null) callback.onProgress("准备备份...");
@@ -837,53 +854,83 @@ public final class ChrootManager {
             return null;
         }
 
-        // Generate timestamped backup directory
+        // Generate timestamped backup file
         String timestamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.getDefault())
             .format(new java.util.Date());
-        String backupDir = RbotConstants.BACKUP_DIR + "/astrbot_data_" + timestamp;
+        String backupFile = RbotConstants.BACKUP_DIR + "/astrbot_data_" + timestamp + ".tar.gz";
 
-        if (callback != null) callback.onProgress("正在复制 data 目录...");
+        if (callback != null) callback.onProgress("正在打包数据（排除虚拟环境和缓存）...");
 
-        // Direct cp -r from chroot data to backup dir (no tar compression)
-        CommandResult cpResult = execRoot(
-            "cp -r " + RbotConstants.ASTRBOT_HOME + "/data '" + backupDir + "'");
+        // Use tar to archive astrbot directory, excluding venv and __pycache__
+        // Must run inside chroot so symlinks are resolved correctly
+        CommandResult tarResult = execInChroot(
+            "cd /root/astrbot && tar czf - " +
+            "--exclude='./venv' " +
+            "--exclude='./__pycache__' " +
+            "--exclude='./.git' " +
+            "--exclude='./astrbot.log' " +
+            "--exclude='./astrbot-debug.log' " +
+            "--exclude='./astrbot.pid' " +
+            ". | cat > " + backupFile, 300);
 
-        if (!cpResult.success) {
-            if (callback != null) callback.onError("复制失败: " + cpResult.stderr);
+        if (!tarResult.success) {
+            // Fallback: try host-side tar if chroot-side pipe fails
+            if (callback != null) callback.onProgress("重试：使用主机端打包...");
+            CommandResult hostResult = execRoot(
+                "cd " + RbotConstants.ASTRBOT_HOME + " && tar czf '" + backupFile + "' " +
+                "--exclude='./venv' " +
+                "--exclude='./__pycache__' " +
+                "--exclude='./.git' " +
+                "--exclude='./astrbot.log' " +
+                "--exclude='./astrbot-debug.log' " +
+                "--exclude='./astrbot.pid' " +
+                ".", 300);
+            if (!hostResult.success) {
+                if (callback != null) callback.onError("打包失败: " + hostResult.stderr);
+                return null;
+            }
+        }
+
+        // Verify backup file was created and has content
+        CommandResult checkResult = execRoot(
+            "test -f '" + backupFile + "' && stat -c '%s' '" + backupFile + "' || echo missing", 5);
+        if (!checkResult.success || checkResult.stdout.trim().equals("missing") || checkResult.stdout.trim().equals("0")) {
+            if (callback != null) callback.onError("备份文件无效或为空");
             return null;
         }
 
-        if (callback != null) callback.onProgress("备份完成: " + backupDir);
-        return backupDir;
+        String sizeInfo = checkResult.stdout.trim();
+        if (callback != null) callback.onProgress("备份完成: " + backupFile + " (" + sizeInfo + " bytes)");
+        return backupFile;
     }
 
     /**
-     * Restore AstrBot data from a backup directory.
-     * @param backupDir Full path to the backup directory
+     * Restore AstrBot data from a backup tar.gz file.
+     * @param backupFile Full path to the backup .tar.gz file
      * @param callback Progress callback for UI updates
      * @return true on failure, false on success
      */
-    public static boolean restoreAstrBotData(String backupDir, ProgressCallback callback) {
+    public static boolean restoreAstrBotData(String backupFile, ProgressCallback callback) {
         if (callback != null) callback.onProgress("检查备份...");
 
-        // Verify backup directory exists
-        CommandResult checkResult = execRoot("test -d '" + backupDir + "' && echo exists");
+        // Verify backup file exists
+        CommandResult checkResult = execRoot("test -f '" + backupFile + "' && echo exists");
         if (!checkResult.success || !checkResult.stdout.trim().equals("exists")) {
-            if (callback != null) callback.onError("备份目录不存在");
+            if (callback != null) callback.onError("备份文件不存在");
             return true;
         }
 
         if (callback != null) callback.onProgress("停止 AstrBot...");
         stopAstrBot();
 
-        if (callback != null) callback.onProgress("正在恢复 data 目录...");
+        if (callback != null) callback.onProgress("正在恢复数据...");
 
-        // backupDir IS the data directory — copy its contents into ASTRBOT_HOME/data/
-        CommandResult cpResult = execRoot(
-            "rm -rf " + RbotConstants.ASTRBOT_HOME + "/data && cp -r -f '" + backupDir + "' " + RbotConstants.ASTRBOT_HOME + "/data");
+        // Extract tar.gz into astrbot directory (preserves symlinks)
+        CommandResult tarResult = execRoot(
+            "cd " + RbotConstants.ASTRBOT_HOME + " && tar xzf '" + backupFile + "'", 300);
 
-        if (!cpResult.success) {
-            if (callback != null) callback.onError("恢复失败: " + cpResult.stderr);
+        if (!tarResult.success) {
+            if (callback != null) callback.onError("恢复失败: " + tarResult.stderr);
             return true;
         }
 
@@ -892,12 +939,12 @@ public final class ChrootManager {
     }
 
     /**
-     * List all available backup directories.
-     * @return Array of backup directory paths, sorted by modification time (newest first)
+     * List all available backup files.
+     * @return Array of backup file paths, sorted by modification time (newest first)
      */
     public static String[] listBackups() {
         CommandResult result = execRoot(
-            "ls -1dt " + RbotConstants.BACKUP_DIR + "/astrbot_data_* 2>/dev/null || echo none");
+            "ls -1t " + RbotConstants.BACKUP_DIR + "/astrbot_data_*.tar.gz 2>/dev/null || echo none");
 
         if (!result.success || result.stdout.trim().equals("none")) {
             return new String[0];
