@@ -232,11 +232,32 @@ public final class PRootManager {
         } catch (Exception e) {
             // 32-bit loader is optional
         }
+        // Ensure libtalloc.so.2 exists (proot SONAME dependency).
+        // Android extracts lib*.so from jniLibs but proot needs libtalloc.so.2.
+        // We bundle libtalloc.so (matches extraction pattern) and create .2 copy at runtime.
+        setupLibTalloc();
         // LD_LIBRARY_PATH for proot itself (needs libtalloc.so.2)
         env.put("LD_LIBRARY_PATH", joinPaths(mConfigDir, mNativeLibDir, mNativeRuntimeDir));
         // NOTE: Do NOT set PROOT_NO_SECCOMP — seccomp BPF provides efficient syscall
         // interception AND proper fork/clone child process tracking
         return env;
+    }
+
+    /** Copy libtalloc.so → libtalloc.so.2 so proot can find it by SONAME */
+    private void setupLibTalloc() {
+        File source = new File(mNativeLibDir, "libtalloc.so");
+        File target = new File(mNativeLibDir, "libtalloc.so.2");
+        if (source.exists() && (!target.exists() || target.length() != source.length())) {
+            try {
+                java.nio.file.Files.copy(source.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                target.setExecutable(true);
+                target.setReadable(true, false);
+                Log.i(TAG, "libtalloc.so.2 prepared from libtalloc.so");
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to copy libtalloc.so → libtalloc.so.2: " + e.getMessage());
+            }
+        }
     }
 
     // ─── Fake /proc and DNS setup ───
