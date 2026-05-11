@@ -941,22 +941,48 @@ public final class PRootManager {
      * @return Lowercase hex MD5 string, or null on error
      */
     public static String computeMd5(String filePath) {
+        File file = new File(filePath);
+        if (!file.exists()) {
+            Log.w(TAG, "computeMd5: file not found: " + filePath);
+            return null;
+        }
+        if (!file.canRead()) {
+            Log.w(TAG, "computeMd5: file not readable: " + filePath);
+            return null;
+        }
+        
+        Log.i(TAG, "Computing MD5 for: " + filePath + " (size: " + file.length() + " bytes)");
+        long startTime = System.currentTimeMillis();
+        
         try {
             java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
             try (FileInputStream fis = new FileInputStream(filePath)) {
                 byte[] buffer = new byte[8192];
                 int bytesRead;
+                long totalBytes = 0;
                 while ((bytesRead = fis.read(buffer)) != -1) {
                     md.update(buffer, 0, bytesRead);
+                    totalBytes += bytesRead;
                 }
+                Log.i(TAG, "MD5 computed " + totalBytes + " bytes in " + 
+                    (System.currentTimeMillis() - startTime) + "ms");
             }
             byte[] digest = md.digest();
             StringBuilder sb = new StringBuilder();
             for (byte b : digest) {
                 sb.append(String.format("%02x", b));
             }
-            return sb.toString();
+            String result = sb.toString();
+            Log.i(TAG, "MD5 result: " + result);
+            return result;
+        } catch (java.io.FileNotFoundException e) {
+            Log.e(TAG, "computeMd5: file not found during read: " + filePath);
+            return null;
+        } catch (java.io.IOException e) {
+            Log.e(TAG, "computeMd5: IO error: " + e.getMessage());
+            return null;
         } catch (Exception e) {
+            Log.e(TAG, "computeMd5: unexpected error: " + e.getClass().getName() + ": " + e.getMessage());
             return null;
         }
     }

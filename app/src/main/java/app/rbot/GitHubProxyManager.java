@@ -52,9 +52,30 @@ public class GitHubProxyManager {
      * @return index into PROXY_TEMPLATES, or 0 (direct) if all fail
      */
     public static int testProxies() {
-        // Use a domestic CDN URL for proxy testing to avoid GitHub blocking issues
-        String testUrl = "https://registry.npmmirror.com/-/package/astro-blog-x-core/dist-tags";
-        return testProxies(testUrl);
+        // Use multiple test URLs for better reliability
+        // Try npm mirror first (fast in China), fallback to GitHub
+        String[] testUrls = {
+            "https://registry.npmmirror.com/-/package/astro-blog-x-core/dist-tags",
+            "https://mirrors.tuna.tsinghua.edu.cn/",
+            "https://api.github.com/zen"
+        };
+        
+        // Try each test URL until one works
+        for (String testUrl : testUrls) {
+            try {
+                int result = testProxies(testUrl);
+                if (result >= 0) {
+                    Log.i(TAG, "Proxy test succeeded with URL: " + testUrl);
+                    return result;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Proxy test failed with URL " + testUrl + ": " + e.getMessage());
+            }
+        }
+        
+        // All test URLs failed, return direct connection (index 0)
+        Log.w(TAG, "All proxy test URLs failed, using direct connection");
+        return 0;
     }
 
     /**
@@ -109,23 +130,19 @@ public class GitHubProxyManager {
      * Works in both Root and PRoot modes since it uses the app's own network stack.
      */
     private static int testWithCurl(String url) {
+        HttpURLConnection conn = null;
         try {
             long start = System.currentTimeMillis();
             java.net.URL u = new java.net.URL(url);
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
-            conn.setConnectTimeout(8000);
-            conn.setReadTimeout(15000);
+            conn = (java.net.HttpURLConnection) u.openConnection();
+            conn.setConnectTimeout(5000);  // 减少超时时间从 8s 到 5s
+            conn.setReadTimeout(10000);     // 减少超时时间从 15s 到 10s
             conn.setInstanceFollowRedirects(true);
-            conn.setRequestMethod("GET");
+            conn.setRequestMethod("HEAD");  // 使用 HEAD 请求更快
             conn.setRequestProperty("User-Agent", "rbot-proxy-test/1.0");
+            conn.setRequestProperty("Accept", "*/*");
 
             int responseCode = conn.getResponseCode();
-            // Read a small amount to ensure the connection is working
-            try (java.io.InputStream is = conn.getInputStream()) {
-                byte[] buf = new byte[512];
-                is.read(buf); // just need to open the stream
-            }
-            conn.disconnect();
 
             if (responseCode >= 200 && responseCode < 400) {
                 int elapsed = (int) (System.currentTimeMillis() - start);
@@ -135,9 +152,23 @@ public class GitHubProxyManager {
                 Log.w(TAG, "proxy test failed: HTTP " + responseCode + " for " + url);
                 return -1;
             }
-        } catch (Exception e) {
-            Log.w(TAG, "proxy test exception: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+        } catch (java.net.SocketTimeoutException e) {
+            Log.w(TAG, "proxy test timeout: " + url);
             return -1;
+        } catch (java.net.UnknownHostException e) {
+            Log.w(TAG, "proxy test DNS failed: " + url);
+            return -1;
+        } catch (Exception e) {
+            Log.w(TAG, "proxy test exception for " + url + ": " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            return -1;
+        } finally {
+            if (conn != null) {
+                try {
+                    conn.disconnect();
+                } catch (Exception e) {
+                    // ignore
+                }
+            }
         }
     }
 
