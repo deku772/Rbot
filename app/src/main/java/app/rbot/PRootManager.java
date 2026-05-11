@@ -140,23 +140,47 @@ public final class PRootManager {
         // Try nativeLibDir first (APK-installed .so)
         File direct = new File(mNativeLibDir, "libproot.so");
         if (direct.exists() && direct.length() > 0) {
+            ensureLibTalloc(); // Must be done before proot starts (linker needs it)
             return direct.getAbsolutePath();
         }
         // Try runtime dir (downloaded binary)
         File runtime = new File(mNativeRuntimeDir, "libproot.so");
         if (runtime.exists() && runtime.length() > 0) {
+            ensureLibTalloc();
             return runtime.getAbsolutePath();
         }
 
         // Binary not found — attempt runtime download
         Log.i(TAG, "PRoot binary not found, downloading at runtime...");
         if (ensureProotBinary()) {
+            ensureLibTalloc();
             return runtime.getAbsolutePath();
         }
 
         throw new IllegalStateException(
             "PRoot binary not found and download failed (checked "
             + direct.getAbsolutePath() + " and " + runtime.getAbsolutePath() + ")");
+    }
+
+    /** Ensure libtalloc.so.2 exists in nativeLibDir (proot SONAME dependency) */
+    private void ensureLibTalloc() {
+        File target = new File(mNativeLibDir, "libtalloc.so.2");
+        if (target.exists() && target.length() > 0) return;
+
+        File source = new File(mNativeLibDir, "libtalloc.so");
+        if (source.exists() && source.length() > 0) {
+            try {
+                java.nio.file.Files.copy(source.toPath(), target.toPath(),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                target.setExecutable(true);
+                target.setReadable(true, false);
+                Log.i(TAG, "libtalloc.so.2 prepared");
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to copy libtalloc: " + e.getMessage());
+            }
+        } else {
+            Log.w(TAG, "libtalloc.so not found in " + mNativeLibDir);
+        }
     }
 
     /**
@@ -232,10 +256,7 @@ public final class PRootManager {
         } catch (Exception e) {
             // 32-bit loader is optional
         }
-        // Ensure libtalloc.so.2 exists (proot SONAME dependency).
-        // Android extracts lib*.so from jniLibs but proot needs libtalloc.so.2.
-        // We bundle libtalloc.so (matches extraction pattern) and create .2 copy at runtime.
-        setupLibTalloc();
+        // libtalloc.so.2 is ensured by resolveProotPath() before proot binary is used
         // LD_LIBRARY_PATH for proot itself (needs libtalloc.so.2)
         env.put("LD_LIBRARY_PATH", joinPaths(mConfigDir, mNativeLibDir, mNativeRuntimeDir));
         // NOTE: Do NOT set PROOT_NO_SECCOMP — seccomp BPF provides efficient syscall
@@ -243,22 +264,6 @@ public final class PRootManager {
         return env;
     }
 
-    /** Copy libtalloc.so → libtalloc.so.2 so proot can find it by SONAME */
-    private void setupLibTalloc() {
-        File source = new File(mNativeLibDir, "libtalloc.so");
-        File target = new File(mNativeLibDir, "libtalloc.so.2");
-        if (source.exists() && (!target.exists() || target.length() != source.length())) {
-            try {
-                java.nio.file.Files.copy(source.toPath(), target.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                target.setExecutable(true);
-                target.setReadable(true, false);
-                Log.i(TAG, "libtalloc.so.2 prepared from libtalloc.so");
-            } catch (Exception e) {
-                Log.w(TAG, "Failed to copy libtalloc.so → libtalloc.so.2: " + e.getMessage());
-            }
-        }
-    }
 
     // ─── Fake /proc and DNS setup ───
 
