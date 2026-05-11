@@ -209,14 +209,41 @@ public class MainActivity extends AppCompatActivity {
 
     // ─── Status ───
 
-    /** Refresh status — must be called off the main thread (runs root commands) */
+    /** Refresh status — must be called off the main thread */
     private void refreshStatusOffThread() {
         ChrootManager.FullStatus status = ChrootManager.getFullStatus();
-        // Also check active bot status off-thread (may run root commands)
+        // Also check active bot status off-thread
         BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
         boolean botInstalled = activeBot.isInstalled();
         boolean botRunning = activeBot.isRunning();
-        mHandler.post(() -> updateStatusUI(status, botInstalled, botRunning));
+
+        // In PRoot mode, override status fields with PRoot equivalents
+        AuthManager am = AuthManager.getInstance();
+        final ChrootManager.FullStatus finalStatus;
+        final boolean finalBotInstalled;
+        final boolean finalBotRunning;
+
+        if (am.isProotMode()) {
+            PRootManager pm = PRootManager.getInstance(this);
+            boolean prootRootfsReady = pm.isRootfsReady();
+            boolean prootAstrBotInstalled = pm.isAstrBotInstalled();
+            boolean prootAstrBotRunning = pm.isAstrBotRunning();
+            finalStatus = new ChrootManager.FullStatus(
+                false, false,            // rootAvailable, shizukuAvailable
+                prootRootfsReady,        // rootfsReady
+                false,                   // chrootMounted (not applicable)
+                prootAstrBotInstalled,   // astrBotInstalled
+                prootAstrBotRunning      // astrBotRunning
+            );
+            finalBotInstalled = prootAstrBotInstalled;
+            finalBotRunning = prootAstrBotRunning;
+        } else {
+            finalStatus = status;
+            finalBotInstalled = botInstalled;
+            finalBotRunning = botRunning;
+        }
+
+        mHandler.post(() -> updateStatusUI(finalStatus, finalBotInstalled, finalBotRunning));
     }
 
     /** Update UI based on status — must be called on main thread */
@@ -229,12 +256,63 @@ public class MainActivity extends AppCompatActivity {
         boolean astrBotInstalled = status.astrBotInstalled();
         boolean astrBotRunning = status.astrBotRunning();
         if (!hasPrivilegedAccess) {
-            mStatusText.setText("⚠ 需要 Root 或 Shizuku 权限");
-            mStartButton.setEnabled(false);
-            mStopButton.setEnabled(false);
-            mSetupButton.setVisibility(View.GONE);
-            mWebuiPanel.setVisibility(View.GONE);
-            mSshInfoPanel.setVisibility(View.GONE);
+            AuthManager am = AuthManager.getInstance();
+            if (am.isProotMode()) {
+                // PRoot mode active — check if installed
+                if (rootfsReady && astrBotInstalled) {
+                    // Fully installed — show same UI as root mode
+                    String botStatus = botRunning
+                        ? "🤖 AstrBot: 运行中"
+                        : "🤖 AstrBot: 已停止";
+                    mStatusText.setText("🐧 PRoot 模式\n" + botStatus);
+                    mStartButton.setEnabled(!botRunning);
+                    mStopButton.setEnabled(botRunning);
+                    mSetupButton.setVisibility(View.GONE);
+                    mSshInfoPanel.setVisibility(View.VISIBLE);
+                    mWebuiPanel.setVisibility(View.VISIBLE);
+                    updateSshPanel();
+                } else {
+                    // Not yet installed
+                    mStatusText.setText("🐧 PRoot 模式（免 Root）\n📦 需要安装");
+                    mStartButton.setEnabled(false);
+                    mStopButton.setEnabled(false);
+                    mSetupButton.setVisibility(View.VISIBLE);
+                    mSetupButton.setEnabled(true);
+                    mSshInfoPanel.setVisibility(View.GONE);
+                    mWebuiPanel.setVisibility(View.GONE);
+                }
+            } else if (am.isShizukuAdbMode() || am.isShizukuBinderAlive()) {
+                // Shizuku ADB mode detected — offer PRoot
+                mStatusText.setText("⚠ Shizuku ADB 模式权限不足\n可使用 PRoot 免 Root 模式");
+                mStartButton.setEnabled(false);
+                mStopButton.setEnabled(false);
+                mSetupButton.setVisibility(View.VISIBLE);
+                mSetupButton.setEnabled(true);
+                mSetupButton.setText("使用 PRoot 模式");
+                mSetupButton.setOnClickListener(v -> {
+                    am.setForceProot(true);
+                    // Jump to setup
+                    Intent setupIntent = new Intent(this, SetupActivity.class);
+                    setupIntent.putExtra(SetupActivity.EXTRA_START_STEP, SetupActivity.STEP_INSTALL);
+                    startActivity(setupIntent);
+                });
+                mWebuiPanel.setVisibility(View.GONE);
+                mSshInfoPanel.setVisibility(View.GONE);
+            } else {
+                // No auth at all — guide to permissions page
+                mStatusText.setText("⚠ 需要 Root 或 Shizuku 权限\n点击下方「权限」按钮配置");
+                mStartButton.setEnabled(false);
+                mStopButton.setEnabled(false);
+                mSetupButton.setVisibility(View.VISIBLE);
+                mSetupButton.setEnabled(true);
+                mSetupButton.setText("前往权限设置");
+                mSetupButton.setOnClickListener(v -> {
+                    Intent permIntent = new Intent(this, PermissionsActivity.class);
+                    startActivity(permIntent);
+                });
+                mWebuiPanel.setVisibility(View.GONE);
+                mSshInfoPanel.setVisibility(View.GONE);
+            }
         } else if (!rootfsReady || !astrBotInstalled) {
             String authMode = rootAvailable ? "Root" : "Shizuku";
             mStatusText.setText("📦 需要安装（" + authMode + " 模式）");
@@ -358,10 +436,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void updateSshPanel() {
+        boolean useProot = AuthManager.getInstance().isProotMode();
         new Thread(() -> {
-            boolean isRunning = ChrootManager.isSshRunning();
-            String sshInfo = ChrootManager.getSshInfo();
-            String rootPassword = ChrootManager.getRootPassword();
+            boolean isRunning;
+            String sshInfo;
+            String rootPassword;
+            if (useProot) {
+                PRootManager pm = PRootManager.getInstance(MainActivity.this);
+                isRunning = pm.isSshRunning();
+                sshInfo = pm.getSshInfo();
+                rootPassword = RbotConstants.DEFAULT_SSH_PASSWORD;
+            } else {
+                isRunning = ChrootManager.isSshRunning();
+                sshInfo = ChrootManager.getSshInfo();
+                rootPassword = ChrootManager.getRootPassword();
+            }
             mHandler.post(() -> {
                 mSshInfo.setText(sshInfo);
                 mSshPassword.setText("密码: " + (rootPassword.isEmpty() ? "(未设置)" : rootPassword));
@@ -541,9 +630,12 @@ public class MainActivity extends AppCompatActivity {
 
     private void toggleSshService() {
         if (mSshStarting) return;
+        boolean useProot = AuthManager.getInstance().isProotMode();
 
         new Thread(() -> {
-            boolean isRunning = ChrootManager.isSshRunning();
+            boolean isRunning = useProot
+                ? PRootManager.getInstance(MainActivity.this).isSshRunning()
+                : ChrootManager.isSshRunning();
             mHandler.post(() -> {
                 if (isRunning) {
                     stopSshService();
@@ -557,18 +649,26 @@ public class MainActivity extends AppCompatActivity {
     private void startSshService() {
         mSshStarting = true;
         mSshToggleButton.setEnabled(false);
-        
-            android.widget.Toast.makeText(this, "🔌 正在启动 SSH 服务..", android.widget.Toast.LENGTH_SHORT).show();
+        boolean useProot = AuthManager.getInstance().isProotMode();
+
+        android.widget.Toast.makeText(this, "🔌 正在启动 SSH 服务..", android.widget.Toast.LENGTH_SHORT).show();
 
         new Thread(() -> {
-            ChrootManager.CommandResult result = ChrootManager.startSshService();
+            ChrootManager.CommandResult result;
+            String sshInfo;
+            if (useProot) {
+                result = PRootManager.getInstance(MainActivity.this).startSshService();
+                sshInfo = PRootManager.getInstance(MainActivity.this).getSshInfo();
+            } else {
+                result = ChrootManager.startSshService();
+                sshInfo = ChrootManager.getSshInfo();
+            }
             boolean success = result.success() && !result.stdout().contains("error");
 
             mHandler.post(() -> {
                 mSshStarting = false;
                 updateSshPanel();
                 if (success) {
-                    String sshInfo = ChrootManager.getSshInfo();
                     android.widget.Toast.makeText(this, "✅ SSH 服务已启动: " + sshInfo, android.widget.Toast.LENGTH_SHORT).show();
                 } else {
                     android.widget.Toast.makeText(this, "❌ SSH 启动失败: " + result.stderr(), android.widget.Toast.LENGTH_LONG).show();
@@ -581,11 +681,14 @@ public class MainActivity extends AppCompatActivity {
     private void stopSshService() {
         mSshStarting = true;
         mSshToggleButton.setEnabled(false);
-        
-            android.widget.Toast.makeText(this, "🔌 正在停止 SSH 服务..", android.widget.Toast.LENGTH_SHORT).show();
+        boolean useProot = AuthManager.getInstance().isProotMode();
+
+        android.widget.Toast.makeText(this, "🔌 正在停止 SSH 服务..", android.widget.Toast.LENGTH_SHORT).show();
 
         new Thread(() -> {
-            ChrootManager.CommandResult result = ChrootManager.stopSshService();
+            ChrootManager.CommandResult result = useProot
+                ? PRootManager.getInstance(MainActivity.this).stopSshService()
+                : ChrootManager.stopSshService();
             boolean stopped = result.success();
 
             mHandler.post(() -> {

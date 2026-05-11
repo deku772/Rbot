@@ -16,6 +16,10 @@ import android.widget.TextView;
 import android.widget.Toast;
 
 import java.security.MessageDigest;
+import java.util.concurrent.TimeUnit;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.IOException;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -117,7 +121,11 @@ public class SetupActivity extends AppCompatActivity {
     }
 
     private void updateStatusUI() {
-        boolean rootfsReady = ChrootManager.isRootfsReady();
+        AuthManager am = AuthManager.getInstance();
+        boolean useProot = am.isProotMode();
+        boolean rootfsReady = useProot
+            ? PRootManager.getInstance(this).isRootfsReady()
+            : ChrootManager.isRootfsReady();
         // Use mPendingBot so status reflects the user's current selection, not saved preference
         boolean botInstalled = mPendingBot.isInstalled();
 
@@ -185,16 +193,28 @@ public class SetupActivity extends AppCompatActivity {
         BotManager.getInstance(this).switchTo(mPendingBot.getId());
 
         // When reinstall is checked, remove markers so the steps actually execute
+        AuthManager am = AuthManager.getInstance();
+        boolean useProot = am.isProotMode();
         if (reinstallRootfs) {
-            ChrootManager.execRoot("rm -f " + RbotConstants.ROOTFS_MARKER);
+            if (useProot) {
+                new java.io.File(getFilesDir(), RbotConstants.PROOT_ROOTFS_MARKER).delete();
+            } else {
+                ChrootManager.execRoot("rm -f " + RbotConstants.ROOTFS_MARKER);
+            }
         }
         if (reinstallBot) {
-            // Remove bot-specific marker
-            ChrootManager.execRoot("rm -f " + RbotConstants.ASTRBOT_MARKER);
-            ChrootManager.execInChroot("rm -rf " + mPendingBot.getHomePath(), 30);
+            if (useProot) {
+                new java.io.File(getFilesDir(), RbotConstants.PROOT_ASTRBOT_MARKER).delete();
+                PRootManager.getInstance(this).runInProot("rm -rf /root/astrbot", 30);
+            } else {
+                ChrootManager.execRoot("rm -f " + RbotConstants.ASTRBOT_MARKER);
+                ChrootManager.execInChroot("rm -rf " + mPendingBot.getHomePath(), 30);
+            }
         }
 
-        boolean needRootfs = !ChrootManager.isRootfsReady() || reinstallRootfs;
+        boolean needRootfs = useProot
+            ? !PRootManager.getInstance(this).isRootfsReady() || reinstallRootfs
+            : !ChrootManager.isRootfsReady() || reinstallRootfs;
         boolean needDeps = reinstallDeps;
         boolean needBot = !mPendingBot.isInstalled() || reinstallBot;
 
@@ -217,18 +237,26 @@ public class SetupActivity extends AppCompatActivity {
      * Uses wait/notify to block the background thread until the user responds on UI thread.
      */
     private void runInteractiveInstall(boolean needRootfs, boolean needDeps, boolean needBot) {
-        // ─── Step 0: Root check ───
-        appendLog("🔍 检查 Root 权限...");
-        if (!ChrootManager.isRootAvailable()) {
+        AuthManager am = AuthManager.getInstance();
+        boolean useProot = am.isProotMode();
+        PRootManager pm = useProot ? PRootManager.getInstance(this) : null;
+
+        // ─── Step 0: Auth check ───
+        appendLog("🔍 检查权限...");
+        if (useProot) {
+            appendLog("✅ PRoot 免 Root 模式");
+            runOnUiThread(() -> mStepText.setText("PRoot ✅"));
+        } else if (!ChrootManager.isRootAvailable() && !am.isShizukuReady()) {
             runOnUiThread(() -> {
                 appendLog("❌ 未获取 Root 权限");
                 finishInstall("需要 Root 权限", "重试");
-                Toast.makeText(this, "请授予 Root 权限后重试", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "请授予 Root 权限或使用 PRoot 模式", Toast.LENGTH_LONG).show();
             });
             return;
+        } else {
+            appendLog("✅ Root 权限已获取");
+            runOnUiThread(() -> mStepText.setText("Root ✅"));
         }
-        appendLog("✅ Root 权限已获取");
-        runOnUiThread(() -> mStepText.setText("Root ✅"));
 
         // ─── Step 1: Test proxies + let user choose ───
         appendLog("🌐 测试 GitHub 连接...");
@@ -309,24 +337,42 @@ public class SetupActivity extends AppCompatActivity {
             appendLog("✅ 系统镜像就绪: " + tarballPath);
             runOnUiThread(() -> mStepText.setText("镜像 ✅"));
 
-            appendLog("📂 解压系统镜像（约 1-3 分钟）...");
-            runOnUiThread(() -> mStepText.setText("解压系统镜像..."));
+            if (useProot) {
+                // PRoot mode: extract rootfs to app internal storage
+                appendLog("📂 解压到 PRoot 目录（约 1-3 分钟）...");
+                runOnUiThread(() -> mStepText.setText("解压系统镜像..."));
 
-            if (ChrootManager.ensureChrootDir()) {
-                runOnUiThread(() -> {
-                    appendLog("❌ 无法创建 /data/rbot 目录");
-                    finishInstall("目录创建失败", "重试");
-                });
-                return;
-            }
+                pm.ensureDirectories();
+                boolean extractOk = extractProotRootfs(tarballPath);
+                if (!extractOk) {
+                    runOnUiThread(() -> finishInstall("解压失败", "重试"));
+                    return;
+                }
+                pm.configureProotRootfs();
+                pm.markRootfsReady();
+                appendLog("✅ PRoot 系统镜像解压完成");
+                runOnUiThread(() -> mStepText.setText("解压 ✅"));
+            } else {
+                // Chroot mode: extract to /data/rbot (needs root)
+                appendLog("📂 解压系统镜像（约 1-3 分钟）...");
+                runOnUiThread(() -> mStepText.setText("解压系统镜像..."));
 
-            ChrootManager.ProgressCallback extractCb = makeCallback();
-            if (ChrootManager.extractRootfs(tarballPath, extractCb)) {
-                runOnUiThread(() -> finishInstall("解压失败", "重试"));
-                return;
+                if (ChrootManager.ensureChrootDir()) {
+                    runOnUiThread(() -> {
+                        appendLog("❌ 无法创建 /data/rbot 目录");
+                        finishInstall("目录创建失败", "重试");
+                    });
+                    return;
+                }
+
+                ChrootManager.ProgressCallback extractCb = makeCallback();
+                if (ChrootManager.extractRootfs(tarballPath, extractCb)) {
+                    runOnUiThread(() -> finishInstall("解压失败", "重试"));
+                    return;
+                }
+                appendLog("✅ 系统镜像解压完成");
+                runOnUiThread(() -> mStepText.setText("解压 ✅"));
             }
-            appendLog("✅ 系统镜像解压完成");
-            runOnUiThread(() -> mStepText.setText("解压 ✅"));
 
             // Ask to restore AstrBot data if backup exists
             if (new java.io.File(RbotConstants.EXTERNAL_DATA_BACKUP).exists()) {
@@ -361,18 +407,34 @@ public class SetupActivity extends AppCompatActivity {
             appendLog("⏭️ 系统镜像已存在，跳过解压");
         }
 
-        // ─── Step 3: Setup chroot + apt ───
-        appendLog("🔧 初始化 chroot 环境...");
-        runOnUiThread(() -> mStepText.setText("初始化 chroot..."));
-        ChrootManager.setupChrootEnvironment(makeCallback());
+        // ─── Step 3: Setup environment + apt ───
+        if (useProot) {
+            // PRoot mode — no mount setup needed, just configure rootfs
+            appendLog("🔧 配置 PRoot 环境...");
+            runOnUiThread(() -> mStepText.setText("配置 PRoot..."));
+            pm.configureProotRootfs();
+        } else {
+            appendLog("🔧 初始化 chroot 环境...");
+            runOnUiThread(() -> mStepText.setText("初始化 chroot..."));
+            ChrootManager.setupChrootEnvironment(makeCallback());
+        }
 
         // Always do apt update after fresh rootfs extract or when reinstalling deps
         if (needRootfs || needDeps) {
             appendLog("📡 更新软件源...");
             runOnUiThread(() -> mStepText.setText("更新软件源..."));
-            if (ChrootManager.aptUpdate(makeCallback())) {
-                runOnUiThread(() -> finishInstall("软件源更新失败", "重试"));
-                return;
+            if (useProot) {
+                ChrootManager.CommandResult aptResult = pm.runInProotWithProgress(
+                    "apt update --allow-unauthenticated", 60, makeCallback());
+                if (!aptResult.success()) {
+                    runOnUiThread(() -> finishInstall("软件源更新失败", "重试"));
+                    return;
+                }
+            } else {
+                if (ChrootManager.aptUpdate(makeCallback())) {
+                    runOnUiThread(() -> finishInstall("软件源更新失败", "重试"));
+                    return;
+                }
             }
             appendLog("✅ 软件源更新完成");
         }
@@ -380,9 +442,23 @@ public class SetupActivity extends AppCompatActivity {
         if (needDeps) {
             appendLog("📦 安装系统依赖...");
             runOnUiThread(() -> mStepText.setText("安装系统依赖..."));
-            if (ChrootManager.aptInstallDeps(makeCallback())) {
-                runOnUiThread(() -> finishInstall("依赖安装失败", "重试"));
-                return;
+            if (useProot) {
+                ChrootManager.CommandResult depResult = pm.runInProotWithProgress(
+                    "apt install -y --allow-unauthenticated " +
+                    "python3 python3-venv python3-pip python3-dev " +
+                    "git curl wget gpgv coreutils procps dropbear-bin " +
+                    "ca-certificates software-properties-common locales build-essential",
+                    120, makeCallback());
+                if (!depResult.success()) {
+                    runOnUiThread(() -> finishInstall("依赖安装失败", "重试"));
+                    return;
+                }
+                pm.runInProot("locale-gen en_US.UTF-8", 30);
+            } else {
+                if (ChrootManager.aptInstallDeps(makeCallback())) {
+                    runOnUiThread(() -> finishInstall("依赖安装失败", "重试"));
+                    return;
+                }
             }
             appendLog("✅ 系统依赖安装完成");
         } else {
@@ -394,7 +470,24 @@ public class SetupActivity extends AppCompatActivity {
             appendLog("🔐 设置 root 密码...");
             runOnUiThread(() -> mStepText.setText("设置 root 密码..."));
             String defaultPassword = generateRandomPassword();
-            if (ChrootManager.setRootPassword(defaultPassword)) {
+            if (useProot) {
+                // PRoot mode: set password via proot
+                ChrootManager.CommandResult passResult = pm.runInProot(
+                    "HASH=$(openssl passwd -6 -salt rbotsalt '" + defaultPassword + "') && " +
+                    "if grep -q '^root:' /etc/shadow; then " +
+                    "  sed -i \"s|^root:[^:]*:|root:$HASH:|\" /etc/shadow; " +
+                    "else " +
+                    "  echo \"root:$HASH:19000:0:99999:7:::\" >> /etc/shadow; " +
+                    "fi && chmod 600 /etc/shadow && " +
+                    "printf '%s' '" + defaultPassword + "' > /root/.rbot_pass && chmod 600 /root/.rbot_pass",
+                    15);
+                if (passResult.success()) {
+                    appendLog("✅ root 密码已设置: " + defaultPassword);
+                    appendLog("   (请妥善保存，用于 SSH 登录)");
+                } else {
+                    appendLog("⚠️ root 密码设置失败，SSH 可能无法登录");
+                }
+            } else if (ChrootManager.setRootPassword(defaultPassword)) {
                 appendLog("✅ root 密码已设置: " + defaultPassword);
                 appendLog("   (请妥善保存，用于 SSH 登录)");
             } else {
@@ -611,7 +704,7 @@ public class SetupActivity extends AppCompatActivity {
                 return cachePath;
             }
             appendLog("  ⚠️ 本地镜像校验失败（可能下载不完整），将重新下载");
-            ChrootManager.execRoot("rm -f " + cachePath);
+            new java.io.File(cachePath).delete();
         }
         appendLog("  本地未找到镜像，检测路径: " + cachePath);
         appendLog("  你可以手动放置 ubuntu24_rbot.tar.gz 到该路径跳过下载");
@@ -619,15 +712,54 @@ public class SetupActivity extends AppCompatActivity {
     }
 
     private String downloadRootfs() {
-        ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR);
-
+        boolean useProot = AuthManager.getInstance().isProotMode();
         String downloadUrl = GitHubProxyManager.buildUrl(RbotConstants.GITHUB_ROOTFS_URL, mSelectedProxyIndex);
-        appendLog("  从 GitHub 下载中（约 458MB）...");
 
+        if (useProot) {
+            // PRoot mode: use Java HTTP download (no root required)
+            appendLog("  从 GitHub 下载中（约 458MB）...");
+            try {
+                PRootManager pm = PRootManager.getInstance(this);
+                // Ensure parent dir exists (may need storage permission for sdcard)
+                new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).getParentFile().mkdirs();
+                pm.downloadFile(downloadUrl, RbotConstants.SDCARD_ROOTFS_CACHE, makeCallback());
+            } catch (IOException e) {
+                appendLog("  ❌ 下载失败: " + e.getMessage());
+                // Fallback to direct URL
+                if (!downloadUrl.equals(RbotConstants.GITHUB_ROOTFS_URL)) {
+                    appendLog("  尝试直连下载...");
+                    try {
+                        PRootManager pm = PRootManager.getInstance(this);
+                        pm.downloadFile(RbotConstants.GITHUB_ROOTFS_URL,
+                            RbotConstants.SDCARD_ROOTFS_CACHE, makeCallback());
+                    } catch (IOException e2) {
+                        appendLog("  ❌ 直连下载也失败: " + e2.getMessage());
+                        new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).delete();
+                        return null;
+                    }
+                } else {
+                    new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).delete();
+                    return null;
+                }
+            }
+
+            if (new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
+                appendLog("  校验下载文件...");
+                if (verifyRootfsMd5(RbotConstants.SDCARD_ROOTFS_CACHE)) {
+                    return RbotConstants.SDCARD_ROOTFS_CACHE;
+                }
+                appendLog("  ⚠️ 下载文件校验失败（可能不完整）");
+            }
+            new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).delete();
+            return null;
+        }
+
+        // Chroot mode: use curl via root
+        ChrootManager.execRoot("mkdir -p " + RbotConstants.SDCARD_CACHE_DIR);
+        appendLog("  从 GitHub 下载中（约 458MB）...");
         ChrootManager.CommandResult result = ChrootManager.execRoot(
             "curl -L --progress-bar -o " + RbotConstants.SDCARD_ROOTFS_CACHE +
             " '" + downloadUrl + "'", 600);
-
         if (result.success() && new java.io.File(RbotConstants.SDCARD_ROOTFS_CACHE).exists()) {
             appendLog("  校验下载文件...");
             if (verifyRootfsMd5(RbotConstants.SDCARD_ROOTFS_CACHE)) {
@@ -635,9 +767,80 @@ public class SetupActivity extends AppCompatActivity {
             }
             appendLog("  ⚠️ 下载文件校验失败（可能不完整）");
         }
-
         ChrootManager.execRoot("rm -f " + RbotConstants.SDCARD_ROOTFS_CACHE);
         return null;
+    }
+
+    /**
+     * Extract rootfs tarball for PRoot mode into app internal storage.
+     * Uses Java's tar extraction since we can't use `su -c tar` in PRoot mode.
+     * Returns true on success, false on failure.
+     */
+    private boolean extractProotRootfs(String tarballPath) {
+        PRootManager pm = PRootManager.getInstance(this);
+        String rootfsDir = pm.getRootfsDir();
+
+        // Clean any previous extraction
+        deleteRecursively(new java.io.File(rootfsDir));
+
+        // Use tar command via ProcessBuilder (no root needed since we write to app storage)
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                "tar", "-xzf", tarballPath, "-C", rootfsDir);
+            pb.redirectErrorStream(true);
+            Process process = pb.start();
+
+            // Read output for progress
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
+                String line;
+                int fileCount = 0;
+                while ((line = reader.readLine()) != null) {
+                    fileCount++;
+                    if (fileCount % 500 == 0) {
+                        appendLog("  已提取 " + fileCount + " 个文件...");
+                    }
+                }
+            }
+
+            boolean exited = process.waitFor(600, TimeUnit.SECONDS);
+            if (!exited) {
+                process.destroyForcibly();
+                appendLog("❌ 解压超时");
+                return false;
+            }
+
+            int exitCode = process.exitValue();
+            if (exitCode != 0) {
+                appendLog("❌ 解压失败 (exit code " + exitCode + ")");
+                return false;
+            }
+
+            // Verify critical files
+            if (!new java.io.File(rootfsDir + "/bin/bash").exists()) {
+                appendLog("❌ 解压后关键文件缺失");
+                return false;
+            }
+
+            // Handle GitHub tar.xz which extracts into ubuntu-fs/ subdirectory
+            java.io.File ubuntuFsDir = new java.io.File(rootfsDir + "/ubuntu-fs");
+            if (ubuntuFsDir.exists() && ubuntuFsDir.isDirectory()) {
+                appendLog("  重组目录结构...");
+                // Move contents up
+                ProcessBuilder mvPb = new ProcessBuilder(
+                    "sh", "-c",
+                    "cp -r " + rootfsDir + "/ubuntu-fs/. " + rootfsDir + "/ && " +
+                    "rm -rf " + rootfsDir + "/ubuntu-fs");
+                Process mvProc = mvPb.start();
+                mvProc.waitFor(120, TimeUnit.SECONDS);
+            }
+
+            return true;
+        } catch (Exception e) {
+            appendLog("❌ 解压异常: " + e.getMessage());
+            return false;
+        }
     }
 
     // ─── UI helpers ───
@@ -704,6 +907,18 @@ public class SetupActivity extends AppCompatActivity {
 
     /** Verify rootfs tarball MD5 — detects incomplete/corrupted downloads */
     private boolean verifyRootfsMd5(String path) {
+        // Try Java MD5 first (works without root, always available)
+        String javaMd5 = PRootManager.computeMd5(path);
+        if (javaMd5 != null) {
+            boolean match = javaMd5.equalsIgnoreCase(RbotConstants.ROOTFS_MD5);
+            if (!match) {
+                appendLog("  MD5: 期望 " + RbotConstants.ROOTFS_MD5);
+                appendLog("  MD5: 实际 " + javaMd5);
+            }
+            return match;
+        }
+
+        // Fallback to md5sum via root (for chroot mode if Java MD5 fails)
         try {
             ChrootManager.CommandResult result = ChrootManager.execRoot("md5sum " + path, 30);
             if (result.success()) {
@@ -719,5 +934,18 @@ public class SetupActivity extends AppCompatActivity {
             appendLog("  ⚠️ MD5校验异常: " + e.getMessage());
         }
         return false;
+    }
+
+    /** Recursively delete a directory */
+    private void deleteRecursively(java.io.File file) {
+        if (file.isDirectory()) {
+            java.io.File[] children = file.listFiles();
+            if (children != null) {
+                for (java.io.File child : children) {
+                    deleteRecursively(child);
+                }
+            }
+        }
+        file.delete();
     }
 }

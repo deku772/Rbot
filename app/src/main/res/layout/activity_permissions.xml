@@ -332,6 +332,84 @@
 
     </androidx.cardview.widget.CardView>
 
+    <!-- PRoot mode card -->
+    <androidx.cardview.widget.CardView
+        android:id="@+id/proot_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="#F1F8E9">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🚀"
+                    android:textSize="20sp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="PRoot 免 Root 模式"
+                        android:textSize="15sp"
+                        android:textColor="#33691E"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/proot_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="免 Root 运行 Linux 环境"
+                        android:textSize="12sp"
+                        android:textColor="#1B5E20"
+                        android:layout_marginTop="2dp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="PRoot 通过 ptrace 系统调用拦截模拟 chroot，无需 Root 权限即可运行完整的 Ubuntu 环境和 AstrBot。适合没有 Root 的设备，或 Shizuku ADB 模式用户。性能略低于 Root 模式。"
+                android:textSize="12sp"
+                android:textColor="#1B5E20"
+                android:layout_marginTop="8dp" />
+
+            <Button
+                android:id="@+id/btn_enable_proot"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="12dp"
+                android:text="启用 PRoot 模式"
+                android:textSize="13sp"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/rbot_button_green_bg" />
+
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
     <!-- Notification permission card (Android 13+) -->
     <androidx.cardview.widget.CardView
         android:id="@+id/notification_card"
