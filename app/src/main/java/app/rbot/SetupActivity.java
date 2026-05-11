@@ -773,7 +773,8 @@ public class SetupActivity extends AppCompatActivity {
 
     /**
      * Extract rootfs tarball for PRoot mode into app internal storage.
-     * Uses Java's tar extraction since we can't use `su -c tar` in PRoot mode.
+     * Step 1: Decompress .gz using Java GZIPInputStream (Android toybox tar lacks -z).
+     * Step 2: Extract plain .tar using system tar command.
      * Returns true on success, false on failure.
      */
     private boolean extractProotRootfs(String tarballPath) {
@@ -782,25 +783,34 @@ public class SetupActivity extends AppCompatActivity {
 
         // Clean any previous extraction
         deleteRecursively(new java.io.File(rootfsDir));
+        new java.io.File(rootfsDir).mkdirs();
 
-        // Use tar command via ProcessBuilder (no root needed since we write to app storage)
+        // Step 1: gunzip (pure Java)
+        appendLog("📂 解压 gzip（约 1-2 分钟）...");
+        String tarPath;
+        try {
+            tarPath = decompressGzip(tarballPath);
+            appendLog("✅ gzip 解压完成 → " + tarPath);
+        } catch (Exception e) {
+            appendLog("❌ gzip 解压失败: " + e.getMessage());
+            return false;
+        }
+
+        // Step 2: tar extract (system command, plain tar needs no -z)
+        appendLog("📂 提取 tar（约 1-2 分钟）...");
         try {
             ProcessBuilder pb = new ProcessBuilder(
-                "tar", "-xzf", tarballPath, "-C", rootfsDir);
+                "/system/bin/tar", "-xf", tarPath, "-C", rootfsDir);
             pb.redirectErrorStream(true);
             Process process = pb.start();
 
-            // Read output for progress
-            StringBuilder output = new StringBuilder();
+            // Read stderr for errors
+            StringBuilder errOutput = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(process.getInputStream()))) {
                 String line;
-                int fileCount = 0;
                 while ((line = reader.readLine()) != null) {
-                    fileCount++;
-                    if (fileCount % 500 == 0) {
-                        appendLog("  已提取 " + fileCount + " 个文件...");
-                    }
+                    errOutput.append(line).append("\n");
                 }
             }
 
@@ -813,34 +823,49 @@ public class SetupActivity extends AppCompatActivity {
 
             int exitCode = process.exitValue();
             if (exitCode != 0) {
-                appendLog("❌ 解压失败 (exit code " + exitCode + ")");
+                appendLog("❌ tar 解压失败 (exit " + exitCode + "): " + errOutput.toString().trim());
                 return false;
             }
-
-            // Verify critical files
-            if (!new java.io.File(rootfsDir + "/bin/bash").exists()) {
-                appendLog("❌ 解压后关键文件缺失");
-                return false;
-            }
-
-            // Handle GitHub tar.xz which extracts into ubuntu-fs/ subdirectory
-            java.io.File ubuntuFsDir = new java.io.File(rootfsDir + "/ubuntu-fs");
-            if (ubuntuFsDir.exists() && ubuntuFsDir.isDirectory()) {
-                appendLog("  重组目录结构...");
-                // Move contents up
-                ProcessBuilder mvPb = new ProcessBuilder(
-                    "sh", "-c",
-                    "cp -r " + rootfsDir + "/ubuntu-fs/. " + rootfsDir + "/ && " +
-                    "rm -rf " + rootfsDir + "/ubuntu-fs");
-                Process mvProc = mvPb.start();
-                mvProc.waitFor(120, TimeUnit.SECONDS);
-            }
-
-            return true;
         } catch (Exception e) {
-            appendLog("❌ 解压异常: " + e.getMessage());
+            appendLog("❌ tar 解压异常: " + e.getMessage());
+            return false;
+        } finally {
+            // Clean intermediate .tar file
+            new java.io.File(tarPath).delete();
+        }
+
+        // Verify critical files
+        if (!new java.io.File(rootfsDir + "/bin/bash").exists()) {
+            appendLog("❌ 解压后关键文件缺失");
             return false;
         }
+
+        appendLog("✅ 系统镜像解压完成");
+        return true;
+    }
+
+    /** Decompress a .gz file to a temp file using pure Java. Returns path to decompressed file. */
+    private String decompressGzip(String gzPath) throws IOException {
+        String tarPath = gzPath + ".tar";
+        try (java.io.BufferedOutputStream bos = new java.io.BufferedOutputStream(
+                new java.io.FileOutputStream(tarPath));
+             java.util.zip.GZIPInputStream gzis = new java.util.zip.GZIPInputStream(
+                new java.io.BufferedInputStream(new java.io.FileInputStream(gzPath)))) {
+            byte[] buf = new byte[8192];
+            long totalWritten = 0;
+            int bytesRead;
+            long lastProgressMb = 0;
+            while ((bytesRead = gzis.read(buf)) != -1) {
+                bos.write(buf, 0, bytesRead);
+                totalWritten += bytesRead;
+                long mb = totalWritten / (1024 * 1024);
+                if (mb > lastProgressMb && mb % 50 == 0) {
+                    appendLog("  已解压 " + mb + " MB...");
+                    lastProgressMb = mb;
+                }
+            }
+        }
+        return tarPath;
     }
 
     // ─── UI helpers ───
