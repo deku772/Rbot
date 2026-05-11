@@ -772,9 +772,9 @@ public class SetupActivity extends AppCompatActivity {
     }
 
     /**
-     * Extract rootfs tarball for PRoot mode into app internal storage.
-     * Step 1: Decompress .gz using Java GZIPInputStream (Android toybox tar lacks -z).
-     * Step 2: Extract plain .tar using system tar command.
+     * Extract rootfs tarball (.tar.gz) for PRoot mode into app internal storage.
+     * Pure Java implementation — no external commands needed.
+     * Android toybox tar doesn't support --no-same-owner, so we parse tar ourselves.
      * Returns true on success, false on failure.
      */
     private boolean extractProotRootfs(String tarballPath) {
@@ -785,58 +785,18 @@ public class SetupActivity extends AppCompatActivity {
         deleteRecursively(new java.io.File(rootfsDir));
         new java.io.File(rootfsDir).mkdirs();
 
-        // Step 1: gunzip (pure Java)
-        appendLog("📂 解压 gzip（约 1-2 分钟）...");
-        String tarPath;
+        appendLog("📂 解压系统镜像（约 2-5 分钟）...");
         try {
-            tarPath = decompressGzip(tarballPath);
-            appendLog("✅ gzip 解压完成 → " + tarPath);
+            int fileCount = extractTarGz(tarballPath, rootfsDir);
+            appendLog("✅ 已提取 " + fileCount + " 个文件");
         } catch (Exception e) {
-            appendLog("❌ gzip 解压失败: " + e.getMessage());
+            appendLog("❌ 解压异常: " + e.getMessage());
             return false;
-        }
-
-        // Step 2: tar extract (system command, plain tar needs no -z)
-        appendLog("📂 提取 tar（约 1-2 分钟）...");
-        try {
-            ProcessBuilder pb = new ProcessBuilder(
-                "/system/bin/tar", "-xf", tarPath, "-C", rootfsDir);
-            pb.redirectErrorStream(true);
-            Process process = pb.start();
-
-            // Read stderr for errors
-            StringBuilder errOutput = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    errOutput.append(line).append("\n");
-                }
-            }
-
-            boolean exited = process.waitFor(600, TimeUnit.SECONDS);
-            if (!exited) {
-                process.destroyForcibly();
-                appendLog("❌ 解压超时");
-                return false;
-            }
-
-            int exitCode = process.exitValue();
-            if (exitCode != 0) {
-                appendLog("❌ tar 解压失败 (exit " + exitCode + "): " + errOutput.toString().trim());
-                return false;
-            }
-        } catch (Exception e) {
-            appendLog("❌ tar 解压异常: " + e.getMessage());
-            return false;
-        } finally {
-            // Clean intermediate .tar file
-            new java.io.File(tarPath).delete();
         }
 
         // Verify critical files
         if (!new java.io.File(rootfsDir + "/bin/bash").exists()) {
-            appendLog("❌ 解压后关键文件缺失");
+            appendLog("❌ 解压后关键文件缺失（/bin/bash 不存在）");
             return false;
         }
 
@@ -844,28 +804,130 @@ public class SetupActivity extends AppCompatActivity {
         return true;
     }
 
-    /** Decompress a .gz file to a temp file using pure Java. Returns path to decompressed file. */
-    private String decompressGzip(String gzPath) throws IOException {
-        String tarPath = gzPath + ".tar";
-        try (java.io.BufferedOutputStream bos = new java.io.BufferedOutputStream(
-                new java.io.FileOutputStream(tarPath));
-             java.util.zip.GZIPInputStream gzis = new java.util.zip.GZIPInputStream(
-                new java.io.BufferedInputStream(new java.io.FileInputStream(gzPath)))) {
-            byte[] buf = new byte[8192];
-            long totalWritten = 0;
-            int bytesRead;
-            long lastProgressMb = 0;
-            while ((bytesRead = gzis.read(buf)) != -1) {
-                bos.write(buf, 0, bytesRead);
-                totalWritten += bytesRead;
-                long mb = totalWritten / (1024 * 1024);
-                if (mb > lastProgressMb && mb % 50 == 0) {
-                    appendLog("  已解压 " + mb + " MB...");
-                    lastProgressMb = mb;
+    /**
+     * Extract a .tar.gz file to the given directory using pure Java.
+     * Handles directory entries, regular files, and symlinks.
+     * Returns the number of entries extracted.
+     */
+    private int extractTarGz(String gzPath, String destDir) throws Exception {
+        int fileCount = 0;
+        long lastProgressTime = 0;
+
+        try (java.util.zip.GZIPInputStream gzis = new java.util.zip.GZIPInputStream(
+                new java.io.BufferedInputStream(new java.io.FileInputStream(gzPath), 65536));
+             java.io.BufferedInputStream bis = new java.io.BufferedInputStream(gzis, 65536)) {
+
+            byte[] headerBuf = new byte[512];
+
+            while (true) {
+                // Read tar header (512 bytes)
+                int totalRead = 0;
+                while (totalRead < 512) {
+                    int r = bis.read(headerBuf, totalRead, 512 - totalRead);
+                    if (r == -1) break;
+                    totalRead += r;
+                }
+                if (totalRead < 512) break; // EOF
+
+                // Check for empty block (two consecutive zero blocks = end of archive)
+                boolean allZero = true;
+                for (byte b : headerBuf) {
+                    if (b != 0) { allZero = false; break; }
+                }
+                if (allZero) break;
+
+                // Parse header
+                String name = readTarString(headerBuf, 0, 100);
+                if (name.isEmpty()) break;
+
+                String modeStr = readTarString(headerBuf, 100, 8);
+                String sizeStr = readTarString(headerBuf, 124, 12);
+                String typeFlag = readTarString(headerBuf, 156, 1);
+                String linkName = readTarString(headerBuf, 157, 100);
+                String prefix = readTarString(headerBuf, 345, 155);
+
+                long size;
+                try {
+                    size = Long.parseLong(sizeStr.trim(), 8);
+                } catch (NumberFormatException e) {
+                    size = 0;
+                }
+
+                // Build full path (posix.1-2001: prefix + name)
+                String fullPath = name;
+                if (!prefix.isEmpty()) {
+                    fullPath = prefix + "/" + name;
+                }
+                java.io.File destFile = new java.io.File(destDir, fullPath);
+
+                if (typeFlag.equals("5") || name.endsWith("/")) {
+                    // Directory
+                    destFile.mkdirs();
+                } else if (typeFlag.equals("2")) {
+                    // Symlink
+                    destFile.getParentFile().mkdirs();
+                    try {
+                        java.nio.file.Files.createSymbolicLink(
+                            destFile.toPath(), java.nio.file.Paths.get(linkName));
+                    } catch (Exception e) {
+                        // Symlink creation may fail on some filesystems, skip silently
+                    }
+                } else if (typeFlag.equals("0") || typeFlag.isEmpty()) {
+                    // Regular file
+                    destFile.getParentFile().mkdirs();
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(destFile)) {
+                        long remaining = size;
+                        byte[] buf = new byte[8192];
+                        while (remaining > 0) {
+                            int toRead = (int) Math.min(buf.length, remaining);
+                            int bytesRead = bis.read(buf, 0, toRead);
+                            if (bytesRead == -1) break;
+                            fos.write(buf, 0, bytesRead);
+                            remaining -= bytesRead;
+                        }
+                    }
+                    // Pad to 512-byte boundary
+                    long padding = (512 - (size % 512)) % 512;
+                    if (padding > 0) bis.skip(padding);
+
+                    // Make executable if mode indicates execute permission
+                    try {
+                        int mode = Integer.parseInt(modeStr.trim(), 8);
+                        if ((mode & 0111) != 0) {
+                            destFile.setExecutable(true);
+                        }
+                    } catch (NumberFormatException ignored) {}
+                } else {
+                    // Other types (block, char, fifo) — skip data blocks
+                    long dataBlocks = (size + 511) / 512;
+                    bis.skip(dataBlocks * 512);
+                }
+
+                fileCount++;
+                long now = System.currentTimeMillis();
+                if (fileCount % 2000 == 0 && now - lastProgressTime > 2000) {
+                    appendLog("  已提取 " + fileCount + " 个文件...");
+                    lastProgressTime = now;
                 }
             }
         }
-        return tarPath;
+
+        return fileCount;
+    }
+
+    /** Read a null-terminated string from a tar header byte array */
+    private String readTarString(byte[] buf, int offset, int maxLen) {
+        int end = offset;
+        int limit = offset + maxLen;
+        while (end < limit && buf[end] != 0) {
+            end++;
+        }
+        // Trim trailing spaces (tar headers pad with spaces, not nulls, in some implementations)
+        int trimEnd = end;
+        while (trimEnd > offset && (buf[trimEnd - 1] == 0 || buf[trimEnd - 1] == ' ')) {
+            trimEnd--;
+        }
+        return new String(buf, offset, trimEnd - offset, java.nio.charset.StandardCharsets.UTF_8);
     }
 
     // ─── UI helpers ───
