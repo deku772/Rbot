@@ -12,6 +12,7 @@ import android.provider.Settings;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
@@ -36,6 +37,9 @@ public class PermissionsActivity extends AppCompatActivity {
     private CardView mShizukuCard;
     private TextView mShizukuStatus;
     private Button mGrantShizukuButton;
+    private CardView mProotCard;
+    private TextView mProotStatus;
+    private Button mEnableProotButton;
     private CardView mNotificationCard;
     private TextView mNotificationStatus;
     private Button mGrantNotificationButton;
@@ -53,6 +57,9 @@ public class PermissionsActivity extends AppCompatActivity {
         mShizukuCard = findViewById(R.id.shizuku_card);
         mShizukuStatus = findViewById(R.id.shizuku_status);
         mGrantShizukuButton = findViewById(R.id.btn_grant_shizuku);
+        mProotCard = findViewById(R.id.proot_card);
+        mProotStatus = findViewById(R.id.proot_status);
+        mEnableProotButton = findViewById(R.id.btn_enable_proot);
         mNotificationCard = findViewById(R.id.notification_card);
         mNotificationStatus = findViewById(R.id.notification_status);
         mGrantNotificationButton = findViewById(R.id.btn_grant_notification);
@@ -60,6 +67,7 @@ public class PermissionsActivity extends AppCompatActivity {
         mDisableBatteryOptButton.setOnClickListener(v -> requestIgnoreBatteryOptimizations());
         mGrantStorageButton.setOnClickListener(v -> requestStoragePermission());
         mGrantShizukuButton.setOnClickListener(v -> requestShizukuPermission());
+        mEnableProotButton.setOnClickListener(v -> enableProotMode());
         mGrantNotificationButton.setOnClickListener(v -> requestNotificationPermission());
 
         // Show notification card only on Android 13+
@@ -79,6 +87,7 @@ public class PermissionsActivity extends AppCompatActivity {
         refreshStorageStatus();
         refreshRootStatus();
         refreshShizukuStatus();
+        refreshProotStatus();
         refreshNotificationStatus();
     }
 
@@ -143,9 +152,11 @@ public class PermissionsActivity extends AppCompatActivity {
 
     private void refreshShizukuStatus() {
         AuthManager am = AuthManager.getInstance();
-        boolean shizukuAvailable = am.isShizukuAvailable();
+        boolean shizukuAvailable = am.isShizukuAvailable(); // UID == 0
         boolean shizukuReady = am.isShizukuReady();
         boolean permissionGranted = am.isShizukuPermissionGranted();
+        boolean shizukuBinderAlive = am.isShizukuBinderAlive();
+        boolean isAdbMode = am.isShizukuAdbMode();
 
         if (shizukuReady) {
             // Shizuku is connected and running as root
@@ -157,14 +168,19 @@ public class PermissionsActivity extends AppCompatActivity {
             mShizukuStatus.setText("Shizuku 已运行 — 需要授权");
             mGrantShizukuButton.setText("授予 Shizuku 权限");
             mGrantShizukuButton.setEnabled(true);
-        } else if (shizukuAvailable) {
-            // Shizuku available but UID != 0 (ADB mode)
-            mShizukuStatus.setText("Shizuku 运行中但为 ADB 模式 ⚠️\nADB 权限不足以执行 chroot，需要 Root 模式");
-            mGrantShizukuButton.setText("请切换到 Root 模式");
+        } else if (isAdbMode) {
+            // Shizuku running in ADB mode (UID != 0) — cannot chroot, but PRoot works
+            mShizukuStatus.setText("Shizuku ADB 模式 ⚠️\nADB 权限不足以执行 chroot\n可使用下方 PRoot 免 Root 模式");
+            mGrantShizukuButton.setText("切换到 Root 模式");
             mGrantShizukuButton.setEnabled(false);
+        } else if (shizukuBinderAlive) {
+            // Binder alive but state unclear
+            mShizukuStatus.setText("Shizuku 运行中（状态未知）\n如果无法使用 Root 模式，请尝试 PRoot");
+            mGrantShizukuButton.setText("重新检测");
+            mGrantShizukuButton.setEnabled(true);
         } else {
             // Shizuku not detected — offer download options
-            mShizukuStatus.setText("未安装 Shizuku — 点击按钮下载");
+            mShizukuStatus.setText("未安装 Shizuku — 点击按钮下载\n或使用下方 PRoot 免 Root 模式");
             mGrantShizukuButton.setText("下载 Shizuku");
             mGrantShizukuButton.setEnabled(true);
         }
@@ -172,7 +188,7 @@ public class PermissionsActivity extends AppCompatActivity {
 
     private void requestShizukuPermission() {
         AuthManager am = AuthManager.getInstance();
-        if (am.isShizukuAvailable()) {
+        if (am.isShizukuBinderAlive()) {
             // Shizuku is running — request permission or bind service
             am.requestShizukuPermission();
         } else {
@@ -189,6 +205,62 @@ public class PermissionsActivity extends AppCompatActivity {
                     startActivity(intent);
                 } catch (Exception ignored) {}
             }
+        }
+    }
+
+    private void refreshProotStatus() {
+        AuthManager am = AuthManager.getInstance();
+        PRootManager pm = PRootManager.getInstance(this);
+
+        if (am.isProotMode()) {
+            mProotStatus.setText("已启用 ✅（PRoot 免 Root 模式）");
+            mEnableProotButton.setText("已启用");
+            mEnableProotButton.setEnabled(false);
+        } else if (pm.isRootfsReady()) {
+            mProotStatus.setText("PRoot 环境已就绪 ✅\n点击启用切换到 PRoot 模式");
+            mEnableProotButton.setText("启用 PRoot 模式");
+            mEnableProotButton.setEnabled(true);
+        } else {
+            mProotStatus.setText("免 Root 运行 Linux 环境\n不需要 Root 或 Shizuku，通过 ptrace 系统调用模拟 chroot\n性能略低于 Root 模式，但功能完整");
+            mEnableProotButton.setText("启用 PRoot 模式");
+            mEnableProotButton.setEnabled(true);
+        }
+    }
+
+    private void enableProotMode() {
+        AuthManager am = AuthManager.getInstance();
+        am.setForceProot(true);
+
+        // Show confirmation
+        Toast.makeText(this, "已切换到 PRoot 免 Root 模式", Toast.LENGTH_SHORT).show();
+
+        // Refresh status
+        refreshProotStatus();
+        refreshShizukuStatus();
+        refreshRootStatus();
+
+        // Pre-download proot binary in background (no root needed)
+        PRootManager pm = PRootManager.getInstance(this);
+        if (!pm.isProotBinaryAvailable()) {
+            Toast.makeText(this, "正在下载 PRoot 二进制...", Toast.LENGTH_SHORT).show();
+            new Thread(() -> {
+                boolean ok = pm.ensureProotBinary();
+                runOnUiThread(() -> {
+                    if (ok) {
+                        Toast.makeText(this, "PRoot 二进制下载完成 ✅", Toast.LENGTH_SHORT).show();
+                    } else {
+                        Toast.makeText(this, "PRoot 二进制下载失败，稍后会自动重试", Toast.LENGTH_LONG).show();
+                    }
+                    refreshProotStatus();
+                });
+            }).start();
+        }
+
+        // Jump to setup if rootfs not ready
+        if (!pm.isRootfsReady()) {
+            Intent intent = new Intent(this, SetupActivity.class);
+            intent.putExtra(SetupActivity.EXTRA_START_STEP, SetupActivity.STEP_INSTALL);
+            startActivity(intent);
         }
     }
 

@@ -47,6 +47,27 @@ public final class RbotConstants {
     /** App package name */
     public static final String PACKAGE_NAME = "app.rbot";
 
+    // ─── PRoot mode paths ───
+
+    /** PRoot SSH port (different from chroot's port 22) */
+    public static final int PROOT_SSH_PORT = 8022;
+
+    /** PRoot rootfs subdirectory name (relative to app filesDir) */
+    public static final String PROOT_ROOTFS_DIR_NAME = "proot-rootfs";
+
+    /** PRoot marker file (relative to app filesDir) */
+    public static final String PROOT_ROOTFS_MARKER = ".proot-rootfs-ready";
+
+    /** PRoot AstrBot marker file (relative to app filesDir) */
+    public static final String PROOT_ASTRBOT_MARKER = ".proot-astrbot-ready";
+
+    /** PRoot binary download URL — hosted on GitHub releases (arm64-v8a only) */
+    public static final String PROOT_BINARY_URL =
+        "https://github.com/deku772/rbot/releases/download/proot-v1/libproot.so";
+
+    /** PRoot rootfs cache path (inside app cache, no sdcard permission needed) */
+    public static final String PROOT_ROOTFS_CACHE = SDCARD_ROOTFS_CACHE;
+
     /** Rbot tmp directory (on host, for scripts) */
     public static final String RBOT_TMP = "/data/local/tmp/rbot_tmp";
 

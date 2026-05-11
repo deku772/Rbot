@@ -31,6 +31,7 @@ public class LogActivity extends AppCompatActivity {
     private static final int MAX_LOG_LINES = 500;
     private String mActiveBotName;
     private String mBotLogFile;
+    private boolean mUseProot;
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -44,7 +45,14 @@ public class LogActivity extends AppCompatActivity {
         // Get active bot info for dynamic log path
         BotAdapter activeBot = BotManager.getInstance(this).getActiveBot();
         mActiveBotName = activeBot.getName();
-        mBotLogFile = RbotConstants.CHROOT_DIR + activeBot.getLogFile();
+        mUseProot = AuthManager.getInstance().isProotMode();
+        if (mUseProot) {
+            // PRoot mode: log file is in app internal storage, can be read directly
+            mBotLogFile = PRootManager.getInstance(this).getAstrBotLogFile();
+        } else {
+            // Chroot mode: log file is under /data/rbot, needs root to read
+            mBotLogFile = RbotConstants.CHROOT_DIR + activeBot.getLogFile();
+        }
 
         mClearLogButton.setOnClickListener(v -> {
             OpLog.clear();
@@ -90,10 +98,16 @@ public class LogActivity extends AppCompatActivity {
 
                 // 2. Read bot runtime log
                 String botLog = "";
-                ChrootManager.CommandResult botResult = ChrootManager.execRoot(
-                    "tail -n 100 '" + mBotLogFile + "' 2>/dev/null", 5);
-                if (botResult.success() && !botResult.stdout().trim().isEmpty()) {
-                    botLog = botResult.stdout();
+                if (mUseProot) {
+                    // PRoot mode: read directly from app storage (no root needed)
+                    botLog = PRootManager.readTail(mBotLogFile, 100);
+                } else {
+                    // Chroot mode: read via root shell
+                    ChrootManager.CommandResult botResult = ChrootManager.execRoot(
+                        "tail -n 100 '" + mBotLogFile + "' 2>/dev/null", 5);
+                    if (botResult.success() && !botResult.stdout().trim().isEmpty()) {
+                        botLog = botResult.stdout();
+                    }
                 }
 
                 final String fOpLog = opLog;

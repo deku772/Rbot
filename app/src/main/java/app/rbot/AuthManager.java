@@ -38,8 +38,12 @@ public class AuthManager {
     public enum AuthMode {
         /** su binary works (Magisk/KernelSU/APatch) */
         ROOT,
-        /** Shizuku or Sui with root (UID 0) */
+        /** Shizuku or Sui with root (UID 0) — chroot capable */
         SHIZUKU,
+        /** Shizuku ADB mode (UID != 0) — insufficient for chroot, but PRoot available */
+        SHIZUKU_ADB,
+        /** PRoot mode — no root needed, runs via ptrace syscall interception */
+        PROOT,
         /** No root access available */
         UNAVAILABLE
     }
@@ -51,6 +55,8 @@ public class AuthManager {
     private static AuthManager sInstance;
 
     private AuthMode mCurrentMode = AuthMode.UNAVAILABLE;
+    private AuthMode mDetectedMode = AuthMode.UNAVAILABLE; // raw detection result before PRoot override
+    private boolean mForceProot = false; // user explicitly selected PRoot mode
     private IShellService mShellService;
     private Shizuku.UserServiceArgs mServiceArgs;
     private ServiceConnection mServiceConnection;
@@ -151,6 +157,7 @@ public class AuthManager {
 
     /**
      * Detect the best available auth mode and set it.
+     * Detection priority: ROOT > SHIZUKU (UID=0) > SHIZUKU_ADB > PROOT > UNAVAILABLE
      */
     public void detectAndSetMode() {
         // Priority 1: Check root
@@ -158,19 +165,30 @@ public class AuthManager {
             Log.i(TAG, "Root available (su works) → ROOT mode");
             // Unbind Shizuku service if previously bound
             unbindShellService();
-            updateMode(AuthMode.ROOT);
+            mDetectedMode = AuthMode.ROOT;
+            updateMode(mForceProot ? AuthMode.PROOT : AuthMode.ROOT);
             return;
         }
 
-        // Priority 2: Check Shizuku
+        // Priority 2: Check Shizuku with root (UID=0)
         if (Shizuku.getUid() == 0) {
             // Shizuku is running with root — check permission
             if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
                 Log.i(TAG, "Shizuku running as root, permission granted → SHIZUKU mode");
-                bindShellService();
+                mDetectedMode = AuthMode.SHIZUKU;
+                if (!mForceProot) {
+                    bindShellService();
+                } else {
+                    updateMode(AuthMode.PROOT);
+                }
             } else {
                 Log.i(TAG, "Shizuku running as root, requesting permission");
-                Shizuku.requestPermission(SHIZUKU_REQUEST_CODE);
+                mDetectedMode = AuthMode.SHIZUKU;
+                if (!mForceProot) {
+                    Shizuku.requestPermission(SHIZUKU_REQUEST_CODE);
+                } else {
+                    updateMode(AuthMode.PROOT);
+                }
             }
             return;
         }
@@ -178,14 +196,21 @@ public class AuthManager {
         // Priority 3: Shizuku running but not root (ADB mode)
         if (Shizuku.getUid() > 0) {
             Log.w(TAG, "Shizuku running as UID " + Shizuku.getUid()
-                + " (ADB mode) — insufficient for chroot");
-            updateMode(AuthMode.UNAVAILABLE);
+                + " (ADB mode) — insufficient for chroot, PRoot available");
+            mDetectedMode = AuthMode.SHIZUKU_ADB;
+            updateMode(AuthMode.PROOT);
             return;
         }
 
-        // No auth available
-        Log.w(TAG, "No root access available");
-        updateMode(AuthMode.UNAVAILABLE);
+        // Priority 4: No Shizuku at all — PRoot mode if available
+        mDetectedMode = AuthMode.UNAVAILABLE;
+        if (mForceProot) {
+            Log.i(TAG, "No root access, user selected PRoot mode");
+            updateMode(AuthMode.PROOT);
+        } else {
+            Log.w(TAG, "No root access available");
+            updateMode(AuthMode.UNAVAILABLE);
+        }
     }
 
     /**
@@ -246,6 +271,27 @@ public class AuthManager {
         }
     }
 
+    /** Check if Shizuku is installed and the binder is alive (regardless of UID) */
+    public boolean isShizukuBinderAlive() {
+        try {
+            // getUid() throws if binder is dead; any UID > 0 means binder is alive
+            int uid = Shizuku.getUid();
+            return uid >= 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** Check if Shizuku is running in ADB mode (binder alive but UID != 0) */
+    public boolean isShizukuAdbMode() {
+        try {
+            int uid = Shizuku.getUid();
+            return uid > 0; // UID 0 = root mode, UID > 0 = ADB mode
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** Check if Shizuku permission is granted */
     public boolean isShizukuPermissionGranted() {
         try {
@@ -253,6 +299,27 @@ public class AuthManager {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /** Force PRoot mode — call from UI when user selects PRoot */
+    public void setForceProot(boolean force) {
+        mForceProot = force;
+        detectAndSetMode();
+    }
+
+    /** Check if currently running in PRoot mode */
+    public boolean isProotMode() {
+        return mCurrentMode == AuthMode.PROOT;
+    }
+
+    /** Get the raw detected mode (before PRoot override) */
+    public AuthMode getDetectedMode() {
+        return mDetectedMode;
+    }
+
+    /** Check if PRoot mode is available (always true — PRoot doesn't need root) */
+    public boolean isProotAvailable() {
+        return true;
     }
 
     // ─── Internal ───
@@ -283,8 +350,9 @@ public class AuthManager {
             Log.i(TAG, "Auth mode changed: " + mCurrentMode + " → " + mode);
             mCurrentMode = mode;
 
-            // Notify ChrootManager about the mode change
-            ChrootManager.setAuthMode(mode == AuthMode.SHIZUKU);
+            // Notify ChrootManager about Shizuku mode (for execRoot routing)
+            boolean useShizuku = (mode == AuthMode.SHIZUKU);
+            ChrootManager.setAuthMode(useShizuku);
 
             if (mCallback != null) {
                 mHandler.post(() -> mCallback.onAuthChanged(mode));
