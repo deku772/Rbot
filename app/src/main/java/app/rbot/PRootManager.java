@@ -267,20 +267,16 @@ public final class PRootManager {
         sysFakesDir.mkdirs();
     }
 
-    /** Ensure DNS resolv.conf exists */
+    /** Ensure DNS resolv.conf exists — write both bind-mount source and direct rootfs copy */
     private void ensureResolvConf() {
+        String dnsConfig = "nameserver 8.8.8.8\nnameserver 8.8.4.4\nnameserver 223.5.5.5\n";
+        // Bind-mount source (proot --bind uses this file)
         File resolvFile = new File(mConfigDir, "resolv.conf");
-        if (!resolvFile.exists() || resolvFile.length() == 0) {
-            writeFile(resolvFile,
-                "nameserver 223.5.5.5\nnameserver 119.29.29.29\nnameserver 8.8.8.8\n");
-        }
-        // Also write directly into rootfs as fallback
+        writeFile(resolvFile, dnsConfig);
+        // Direct rootfs copy (fallback if bind-mount doesn't work)
         File rootfsResolv = new File(mRootfsDir, "etc/resolv.conf");
         rootfsResolv.getParentFile().mkdirs();
-        if (!rootfsResolv.exists() || rootfsResolv.length() == 0) {
-            writeFile(rootfsResolv,
-                "nameserver 223.5.5.5\nnameserver 119.29.29.29\nnameserver 8.8.8.8\n");
-        }
+        writeFile(rootfsResolv, dnsConfig);
     }
 
     // ─── PRoot command builders ───
@@ -749,6 +745,11 @@ public final class PRootManager {
 
         // Timezone
         writeFile(new File(mRootfsDir, "/etc/timezone"), "Asia/Shanghai\n");
+
+        // Hosts file (prevent DNS lookups for localhost)
+        writeFile(new File(mRootfsDir, "/etc/hosts"),
+            "127.0.0.1\tlocalhost\n"
+            + "::1\t\tlocalhost ip6-localhost ip6-loopback\n");
 
         // Replace Ubuntu default mirrors with Tsinghua mirror (faster in China)
         // This overrides whatever sources.list the rootfs shipped with
