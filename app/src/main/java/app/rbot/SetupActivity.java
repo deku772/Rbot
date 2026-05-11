@@ -806,101 +806,146 @@ public class SetupActivity extends AppCompatActivity {
 
     /**
      * Extract a .tar.gz file to the given directory using pure Java.
-     * Handles directory entries, regular files, and symlinks.
+     * Handles: regular files ('0'/'\0'), directories ('5'), symlinks ('2'),
+     *          GNU long filenames ('L'), and Pax headers ('x').
      * Returns the number of entries extracted.
      */
     private int extractTarGz(String gzPath, String destDir) throws Exception {
         int fileCount = 0;
         long lastProgressTime = 0;
+        String pendingLongName = null;  // GNU long filename from '././@LongLink' entry
 
-        try (java.util.zip.GZIPInputStream gzis = new java.util.zip.GZIPInputStream(
-                new java.io.BufferedInputStream(new java.io.FileInputStream(gzPath), 65536));
-             java.io.BufferedInputStream bis = new java.io.BufferedInputStream(gzis, 65536)) {
+        try (java.io.InputStream raw = new java.io.FileInputStream(gzPath);
+             java.util.zip.GZIPInputStream gzis = new java.util.zip.GZIPInputStream(raw, 65536)) {
 
-            byte[] headerBuf = new byte[512];
+            byte[] header = new byte[512];
+            byte[] fileBuf = new byte[8192];
 
             while (true) {
-                // Read tar header (512 bytes)
+                // Read exactly 512 bytes for tar header
                 int totalRead = 0;
                 while (totalRead < 512) {
-                    int r = bis.read(headerBuf, totalRead, 512 - totalRead);
-                    if (r == -1) break;
+                    int r = gzis.read(header, totalRead, 512 - totalRead);
+                    if (r == -1) return fileCount; // clean EOF
                     totalRead += r;
                 }
-                if (totalRead < 512) break; // EOF
 
-                // Check for empty block (two consecutive zero blocks = end of archive)
+                // Two consecutive zero blocks = end of archive
                 boolean allZero = true;
-                for (byte b : headerBuf) {
+                for (byte b : header) {
                     if (b != 0) { allZero = false; break; }
                 }
-                if (allZero) break;
+                if (allZero) return fileCount;
 
-                // Parse header
-                String name = readTarString(headerBuf, 0, 100);
-                if (name.isEmpty()) break;
+                // Parse type flag (offset 156, 1 byte)
+                char typeFlag = (char) header[156];
+                if (typeFlag == 0) typeFlag = '0'; // old-style tar uses '\0' for regular files
 
-                String modeStr = readTarString(headerBuf, 100, 8);
-                String sizeStr = readTarString(headerBuf, 124, 12);
-                String typeFlag = readTarString(headerBuf, 156, 1);
-                String linkName = readTarString(headerBuf, 157, 100);
-                String prefix = readTarString(headerBuf, 345, 155);
-
-                long size;
+                // Parse size (offset 124, 12 bytes, octal ASCII, null-terminated)
+                String sizeStr = new String(header, 124, 11, java.nio.charset.StandardCharsets.US_ASCII).trim();
+                long size = 0;
                 try {
-                    size = Long.parseLong(sizeStr.trim(), 8);
+                    size = Long.parseLong(sizeStr, 8);
                 } catch (NumberFormatException e) {
                     size = 0;
                 }
 
-                // Build full path (posix.1-2001: prefix + name)
+                // Parse name (offset 0, 100 bytes, null-terminated)
+                String name = readTarField(header, 0, 100);
+
+                // Parse link name (offset 157, 100 bytes)
+                String linkName = readTarField(header, 157, 100);
+
+                // Parse prefix (offset 345, 155 bytes, POSIX.1-2001)
+                String prefix = readTarField(header, 345, 155);
+
+                // Build full path
                 String fullPath = name;
-                if (!prefix.isEmpty()) {
+                if (!prefix.isEmpty() && !prefix.equals("./")) {
                     fullPath = prefix + "/" + name;
                 }
+
+                // Skip leading ./
+                if (fullPath.startsWith("./")) {
+                    fullPath = fullPath.substring(2);
+                }
+
+                // Handle GNU long filename
+                if (typeFlag == 'L') {
+                    // Content of this entry is the long filename (next iteration uses it)
+                    pendingLongName = readLongContent(gzis, size);
+                    skipPadding(gzis, size);
+                    fileCount++;
+                    continue;
+                }
+
+                // Handle Pax extended header
+                if (typeFlag == 'x') {
+                    // Content has key=value pairs, we skip but could parse if needed
+                    skipLongContent(gzis, size);
+                    skipPadding(gzis, size);
+                    fileCount++;
+                    continue;
+                }
+
+                // Apply pending long filename
+                if (pendingLongName != null) {
+                    fullPath = pendingLongName.startsWith("./") ? pendingLongName.substring(2) : pendingLongName;
+                    pendingLongName = null;
+                }
+
+                if (fullPath.isEmpty()) continue;
+
                 java.io.File destFile = new java.io.File(destDir, fullPath);
 
-                if (typeFlag.equals("5") || name.endsWith("/")) {
-                    // Directory
-                    destFile.mkdirs();
-                } else if (typeFlag.equals("2")) {
-                    // Symlink
-                    destFile.getParentFile().mkdirs();
-                    try {
-                        java.nio.file.Files.createSymbolicLink(
-                            destFile.toPath(), java.nio.file.Paths.get(linkName));
-                    } catch (Exception e) {
-                        // Symlink creation may fail on some filesystems, skip silently
-                    }
-                } else if (typeFlag.equals("0") || typeFlag.isEmpty()) {
-                    // Regular file
-                    destFile.getParentFile().mkdirs();
-                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(destFile)) {
-                        long remaining = size;
-                        byte[] buf = new byte[8192];
-                        while (remaining > 0) {
-                            int toRead = (int) Math.min(buf.length, remaining);
-                            int bytesRead = bis.read(buf, 0, toRead);
-                            if (bytesRead == -1) break;
-                            fos.write(buf, 0, bytesRead);
-                            remaining -= bytesRead;
-                        }
-                    }
-                    // Pad to 512-byte boundary
-                    long padding = (512 - (size % 512)) % 512;
-                    if (padding > 0) bis.skip(padding);
+                switch (typeFlag) {
+                    case '5': // Directory
+                        destFile.mkdirs();
+                        break;
 
-                    // Make executable if mode indicates execute permission
-                    try {
-                        int mode = Integer.parseInt(modeStr.trim(), 8);
-                        if ((mode & 0111) != 0) {
-                            destFile.setExecutable(true);
+                    case '2': // Symlink
+                        destFile.getParentFile().mkdirs();
+                        if (!linkName.isEmpty()) {
+                            try {
+                                java.nio.file.Files.createSymbolicLink(
+                                    destFile.toPath(),
+                                    java.nio.file.Paths.get(linkName));
+                            } catch (Exception e) {
+                                // Symlink may fail, skip
+                            }
                         }
-                    } catch (NumberFormatException ignored) {}
-                } else {
-                    // Other types (block, char, fifo) — skip data blocks
-                    long dataBlocks = (size + 511) / 512;
-                    bis.skip(dataBlocks * 512);
+                        break;
+
+                    case '0': // Regular file
+                    case '7': // contiguous file (treat as regular)
+                    case '\0': // old-style regular file
+                        destFile.getParentFile().mkdirs();
+                        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(destFile)) {
+                            long remaining = size;
+                            while (remaining > 0) {
+                                int toRead = (int) Math.min(fileBuf.length, remaining);
+                                int bytesRead = gzis.read(fileBuf, 0, toRead);
+                                if (bytesRead == -1) break;
+                                fos.write(fileBuf, 0, bytesRead);
+                                remaining -= bytesRead;
+                            }
+                        }
+                        skipPadding(gzis, size);
+                        // Set execute permission if mode has any execute bit
+                        if (header[100] != 0) {
+                            String modeField = new String(header, 100, 7, java.nio.charset.StandardCharsets.US_ASCII).trim();
+                            try {
+                                int mode = Integer.parseInt(modeField, 8);
+                                if ((mode & 0111) != 0) destFile.setExecutable(true);
+                            } catch (NumberFormatException ignored) {}
+                        }
+                        break;
+
+                    default:
+                        // Unknown type — skip data blocks
+                        skipLongContent(gzis, size);
+                        skipPadding(gzis, size);
+                        break;
                 }
 
                 fileCount++;
@@ -911,23 +956,56 @@ public class SetupActivity extends AppCompatActivity {
                 }
             }
         }
-
-        return fileCount;
     }
 
-    /** Read a null-terminated string from a tar header byte array */
-    private String readTarString(byte[] buf, int offset, int maxLen) {
+    /** Read a null-terminated, space-padded field from tar header */
+    private String readTarField(byte[] buf, int offset, int maxLen) {
         int end = offset;
         int limit = offset + maxLen;
-        while (end < limit && buf[end] != 0) {
-            end++;
+        while (end < limit && buf[end] != 0) end++;
+        // Trim trailing spaces and nulls
+        while (end > offset && (buf[end - 1] == 0 || buf[end - 1] == ' ')) end--;
+        return new String(buf, offset, end - offset, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** Read the content of a long filename entry (used for GNU tar 'L' type) */
+    private String readLongContent(java.io.InputStream in, long size) throws Exception {
+        byte[] content = new byte[(int) size];
+        int totalRead = 0;
+        while (totalRead < size) {
+            int r = in.read(content, totalRead, (int) size - totalRead);
+            if (r == -1) break;
+            totalRead += r;
         }
-        // Trim trailing spaces (tar headers pad with spaces, not nulls, in some implementations)
-        int trimEnd = end;
-        while (trimEnd > offset && (buf[trimEnd - 1] == 0 || buf[trimEnd - 1] == ' ')) {
-            trimEnd--;
+        // The long filename is null-terminated
+        int len = 0;
+        while (len < content.length && content[len] != 0) len++;
+        return new String(content, 0, len, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** Skip content bytes for Pax header or other entries with data */
+    private void skipLongContent(java.io.InputStream in, long size) throws Exception {
+        long remaining = size;
+        byte[] buf = new byte[8192];
+        while (remaining > 0) {
+            int toRead = (int) Math.min(buf.length, remaining);
+            int r = in.read(buf, 0, toRead);
+            if (r == -1) break;
+            remaining -= r;
         }
-        return new String(buf, offset, trimEnd - offset, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
+    /** Skip padding to 512-byte boundary after a data block */
+    private void skipPadding(java.io.InputStream in, long dataSize) throws Exception {
+        long padding = (512 - (dataSize % 512)) % 512;
+        if (padding > 0) {
+            long skipped = 0;
+            while (skipped < padding) {
+                long s = in.skip(padding - skipped);
+                if (s <= 0) break;
+                skipped += s;
+            }
+        }
     }
 
     // ─── UI helpers ───
