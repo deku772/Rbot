@@ -122,10 +122,11 @@ public class SetupActivity extends AppCompatActivity {
 
     private void updateStatusUI() {
         AuthManager am = AuthManager.getInstance();
-        boolean useProot = am.isProotMode();
-        boolean rootfsReady = useProot
-            ? PRootManager.getInstance(this).isRootfsReady()
-            : ChrootManager.isRootfsReady();
+        // Check both PRoot and Chroot rootfs status independently
+        PRootManager pm = PRootManager.getInstance(this);
+        boolean prootRootfsReady = pm.isRootfsReady();
+        boolean chrootRootfsReady = ChrootManager.isRootfsReady();
+        boolean rootfsReady = prootRootfsReady || chrootRootfsReady;
         // Use mPendingBot so status reflects the user's current selection, not saved preference
         boolean botInstalled = mPendingBot.isInstalled();
 
@@ -424,8 +425,17 @@ public class SetupActivity extends AppCompatActivity {
             appendLog("📡 更新软件源...");
             runOnUiThread(() -> mStepText.setText("更新软件源..."));
             if (useProot) {
+                // First test network connectivity inside proot
+                appendLog("🌐 测试 PRoot 容器网络...");
+                ChrootManager.CommandResult netTest = pm.runInProot(
+                    "ping -c 1 -W 3 8.8.8.8 2>&1 || echo PING_FAIL", 10);
+                appendLog("  网络测试: " + netTest.stdout().trim());
+                ChrootManager.CommandResult dnsTest = pm.runInProot(
+                    "getent hosts mirrors.tuna.tsinghua.edu.cn 2>&1 || echo DNS_FAIL", 10);
+                appendLog("  DNS 测试: " + dnsTest.stdout().trim());
+                
                 ChrootManager.CommandResult aptResult = pm.runInProotWithProgress(
-                    "apt update --allow-unauthenticated", 60, makeCallback());
+                    "apt update --allow-unauthenticated -o Debug::Acquire::http=yes", 120, makeCallback());
                 if (!aptResult.success()) {
                     runOnUiThread(() -> finishInstall("软件源更新失败", "重试"));
                     return;

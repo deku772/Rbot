@@ -47,12 +47,13 @@ public class GitHubProxyManager {
     private static int[] sLatencies = new int[0];
 
     /**
-     * Test all proxies using root curl and return the index of the fastest one.
-     * Root curl bypasses Android VPN restrictions and uses the system's network stack.
+     * Test all proxies using pure Java HTTP and return the index of the fastest one.
+     * No root required — works in both Root and PRoot modes.
      * @return index into PROXY_TEMPLATES, or 0 (direct) if all fail
      */
     public static int testProxies() {
-        String testUrl = "https://raw.githubusercontent.com/AstrBotDevs/AstrBot/main/README.md";
+        // Use a domestic CDN URL for proxy testing to avoid GitHub blocking issues
+        String testUrl = "https://registry.npmmirror.com/-/package/astro-blog-x-core/dist-tags";
         return testProxies(testUrl);
     }
 
@@ -104,28 +105,38 @@ public class GitHubProxyManager {
     }
 
     /**
-     * Test a URL using root curl. Returns latency in ms, or -1 on failure.
-     * Uses curl's -w flag to extract timing info, -o /dev/null to discard body,
-     * and -sS for silent mode (show errors only).
+     * Test a URL using pure Java HTTP (no root required). Returns latency in ms, or -1 on failure.
+     * Works in both Root and PRoot modes since it uses the app's own network stack.
      */
     private static int testWithCurl(String url) {
         try {
-            // Use curl with timing output: %{time_total} in seconds (e.g. 0.123)
-            String cmd = "curl -sS -o /dev/null -w '%{time_total}' -L --connect-timeout 8 --max-time 15 '" + url + "'";
-            ChrootManager.CommandResult result = ChrootManager.execRoot(cmd, 20);
+            long start = System.currentTimeMillis();
+            java.net.URL u = new java.net.URL(url);
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) u.openConnection();
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(15000);
+            conn.setInstanceFollowRedirects(true);
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("User-Agent", "rbot-proxy-test/1.0");
 
-            if (result.success() && result.stdout() != null && !result.stdout().trim().isEmpty()) {
-                String timeStr = result.stdout().trim().replace("'", "");
-                float seconds = Float.parseFloat(timeStr);
-                int ms = (int) (seconds * 1000);
-                Log.i(TAG, "curl test " + url + " → " + ms + "ms");
-                return ms;
+            int responseCode = conn.getResponseCode();
+            // Read a small amount to ensure the connection is working
+            try (java.io.InputStream is = conn.getInputStream()) {
+                byte[] buf = new byte[512];
+                is.read(buf); // just need to open the stream
+            }
+            conn.disconnect();
+
+            if (responseCode >= 200 && responseCode < 400) {
+                int elapsed = (int) (System.currentTimeMillis() - start);
+                Log.i(TAG, "proxy test " + url + " → " + elapsed + "ms (HTTP " + responseCode + ")");
+                return elapsed;
             } else {
-                Log.w(TAG, "curl test failed: " + result.stderr());
+                Log.w(TAG, "proxy test failed: HTTP " + responseCode + " for " + url);
                 return -1;
             }
         } catch (Exception e) {
-            Log.w(TAG, "curl test exception: " + e.getMessage());
+            Log.w(TAG, "proxy test exception: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             return -1;
         }
     }
