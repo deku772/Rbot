@@ -749,6 +749,15 @@ public final class PRootManager {
 
         // Timezone
         writeFile(new File(mRootfsDir, "/etc/timezone"), "Asia/Shanghai\n");
+
+        // Replace Ubuntu default mirrors with Tsinghua mirror (faster in China)
+        // This overrides whatever sources.list the rootfs shipped with
+        writeFile(new File(mRootfsDir, "/etc/apt/sources.list"),
+            "# Ubuntu 24.04 Noble - Tsinghua mirror (auto-configured by rbot)\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble main restricted universe multiverse\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-updates main restricted universe multiverse\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-security main restricted universe multiverse\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-backports main restricted universe multiverse\n");
     }
 
     /** Mark rootfs as ready */
