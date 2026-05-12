@@ -780,6 +780,18 @@ public final class PRootManager {
             "127.0.0.1\tlocalhost\n"
             + "::1\t\tlocalhost ip6-localhost ip6-loopback\n");
 
+        // Clear any old mirror configs from sources.list.d (e.g. Ubuntu official mirrors)
+        File sourcesListD = new File(mRootfsDir, "/etc/apt/sources.list.d");
+        if (sourcesListD.exists()) {
+            java.io.File[] oldFiles = sourcesListD.listFiles();
+            if (oldFiles != null) {
+                for (java.io.File f : oldFiles) {
+                    f.delete();
+                    Log.i(TAG, "Deleted old source: " + f.getName());
+                }
+            }
+        }
+
         // Replace Ubuntu default mirrors with Tsinghua mirror (faster in China)
         // This overrides whatever sources.list the rootfs shipped with
         writeFile(new File(mRootfsDir, "/etc/apt/sources.list"),
@@ -788,6 +800,29 @@ public final class PRootManager {
             + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-updates main restricted universe multiverse\n"
             + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-security main restricted universe multiverse\n"
             + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-backports main restricted universe multiverse\n");
+    }
+
+    /** Update sources.list to use Tsinghua mirror — call this before apt update
+     *  even if rootfs already existed, to replace any stale official mirrors */
+    public void updateSourcesList() {
+        // Clear old mirror configs
+        File sourcesListD = new File(mRootfsDir, "/etc/apt/sources.list.d");
+        if (sourcesListD.exists()) {
+            java.io.File[] oldFiles = sourcesListD.listFiles();
+            if (oldFiles != null) {
+                for (java.io.File f : oldFiles) {
+                    f.delete();
+                }
+            }
+        }
+        // Write Tsinghua mirror
+        writeFile(new File(mRootfsDir, "/etc/apt/sources.list"),
+            "# Ubuntu 24.04 Noble - Tsinghua mirror (auto-configured by rbot)\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble main restricted universe multiverse\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-updates main restricted universe multiverse\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-security main restricted universe multiverse\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-backports main restricted universe multiverse\n");
+        Log.i(TAG, "sources.list updated to Tsinghua mirror");
     }
 
     /** Mark rootfs as ready */

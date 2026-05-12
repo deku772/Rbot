@@ -442,10 +442,12 @@ public class SetupActivity extends AppCompatActivity {
 
         // ─── Step 3: Setup environment + apt ───
         if (useProot) {
-            // PRoot mode — no mount setup needed, just configure rootfs
+            // PRoot mode — configure rootfs (sources.list, apt config, DNS, etc.)
             appendLog("🔧 配置 PRoot 环境...");
             runOnUiThread(() -> mStepText.setText("配置 PRoot..."));
             pm.configureProotRootfs();
+            // Always update sources.list to use Tsinghua mirror (even if rootfs existed)
+            pm.updateSourcesList();
         } else {
             appendLog("🔧 初始化 chroot 环境...");
             runOnUiThread(() -> mStepText.setText("初始化 chroot..."));
