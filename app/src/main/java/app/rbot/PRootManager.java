@@ -752,10 +752,13 @@ public final class PRootManager {
             "APT::Sandbox::User \"root\";\n" +
             "Acquire::Languages \"none\";\n" +
             "Acquire::Retries \"3\";\n" +
-            "Acquire::http::Timeout \"20\";\n" +
-            "Acquire::https::Timeout \"20\";\n" +
+            "Acquire::http::Timeout \"30\";\n" +
+            "Acquire::https::Timeout \"30\";\n" +
+            "Acquire::AllowInsecureRepositories \"true\";\n" +
+            "APT::Get::AllowUnauthenticated \"true\";\n" +
+            "APT::Get::Update::AllowUnauthenticated \"true\";\n" +
             "Dpkg::Use-Pty \"0\";\n" +
-            "Dpkg::Options { \"--force-confnew\"; \"--force-overwrite\"; };\n");
+            "Dpkg::Options { \"--force-confnew\"; \"--force-overwrite\"; \"--force-depends\"; };\n");
 
         // Dpkg config
         writeFile(new File(mRootfsDir, "/etc/dpkg/dpkg.cfg.d/01-rbot-proot"),
@@ -815,13 +818,13 @@ public final class PRootManager {
                 }
             }
         }
-        // Write Tsinghua mirror
+        // Write Tsinghua mirror — only main/restricted/universe (backports often 404 on mirrors)
         writeFile(new File(mRootfsDir, "/etc/apt/sources.list"),
             "# Ubuntu 24.04 Noble - Tsinghua mirror (auto-configured by rbot)\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble main restricted universe multiverse\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-updates main restricted universe multiverse\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-security main restricted universe multiverse\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-backports main restricted universe multiverse\n");
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble main restricted universe\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-updates main restricted universe\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-security main restricted universe\n"
+            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-backports main\n");
         Log.i(TAG, "sources.list updated to Tsinghua mirror");
     }
 
