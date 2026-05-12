@@ -1107,9 +1107,8 @@ public final class PRootManager {
         runInProot("which dropbear >/dev/null 2>&1 || apt-get install -y dropbear-bin >/dev/null 2>&1", 60);
 
         // Ensure root password is set (dropbear needs it for password auth)
-        // Use chpasswd which handles /etc/shadow correctly
+        // Always set the password to ensure it's correct
         runInProot(
-            "grep -q '^root:[!*]' /etc/shadow 2>/dev/null && " +
             "echo 'root:" + RbotConstants.DEFAULT_SSH_PASSWORD + "' | chpasswd 2>/dev/null; " +
             "chmod 600 /etc/shadow 2>/dev/null", 10);
 

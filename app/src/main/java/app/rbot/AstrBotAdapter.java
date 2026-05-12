@@ -122,7 +122,8 @@ public class AstrBotAdapter extends BotAdapter {
             "else " +
             "  echo \"root:$HASH:19000:0:99999:7:::\" >> /etc/shadow; " +
             "fi && chmod 600 /etc/shadow && " +
-            "printf '%s' '" + RbotConstants.DEFAULT_SSH_PASSWORD + "' > /root/.rbot_pass && chmod 600 /root/.rbot_pass",
+            "printf '%s' '" + RbotConstants.DEFAULT_SSH_PASSWORD + "' > /root/.rbot_pass && chmod 600 /root/.rbot_pass && " +
+            "sed -i 's/groups)/groups 2\\/dev\\/null)/' /etc/bash.bashrc 2>/dev/null || true",
             15);
 
         pm.markAstrBotInstalled();
