@@ -293,7 +293,7 @@
 
             </LinearLayout>
 
-            <!-- Row 2: URL -->
+            <!-- Row 2: URL (local) -->
             <TextView
                 android:id="@+id/webui_url"
                 android:layout_width="wrap_content"
@@ -303,6 +303,16 @@
                 android:textColor="@color/rbot_accent"
                 android:textStyle="bold"
                 android:layout_marginTop="4dp" />
+
+            <!-- Row 2b: URL (LAN) -->
+            <TextView
+                android:id="@+id/webui_url_lan"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="#909090"
+                android:layout_marginTop="2dp" />
 
             <!-- Row 3: Button -->
             <Button
@@ -361,16 +371,26 @@
 
             </LinearLayout>
 
-            <!-- Row 2: SSH address -->
+            <!-- Row 2: SSH address (local) -->
             <TextView
                 android:id="@+id/ssh_info"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="192.168.1.100:22"
+                android:text="ssh root@127.0.0.1 -p 22"
                 android:textSize="15sp"
                 android:textColor="@color/rbot_accent"
                 android:textStyle="bold"
                 android:layout_marginTop="4dp" />
+
+            <!-- Row 2b: SSH address (LAN) -->
+            <TextView
+                android:id="@+id/ssh_info_lan"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="12sp"
+                android:textColor="#909090"
+                android:layout_marginTop="2dp" />
 
             <!-- Row 3: Buttons (SSH toggle + Terminal) -->
             <LinearLayout

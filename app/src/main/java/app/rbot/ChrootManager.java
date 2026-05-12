@@ -131,6 +131,11 @@ public final class ChrootManager {
 
     /** Check if AstrBot is installed (marker file at chroot root, readable by app process) */
     public static boolean isAstrBotInstalled() {
+        // PRoot mode uses a different marker location
+        if (AuthManager.getInstance().isProotMode()) {
+            // Use static check to avoid requiring Context
+            return PRootManager.isAstrBotInstalledStatic();
+        }
         return new File(RbotConstants.ASTRBOT_MARKER).exists();
     }
 
@@ -607,12 +612,51 @@ public final class ChrootManager {
 
     /** Step 4: clone AstrBot with a specific proxy index */
     public static boolean cloneAstrBotWithProxy(ProgressCallback callback, String version, int proxyIndex) {
-        // If marker says AstrBot is installed, skip
-        if (isAstrBotInstalled()) {
-            if (callback != null) callback.onProgress("AstrBot 已安装，跳过克隆");
+        // Check if we're in PRoot mode
+        if (AuthManager.getInstance().isProotMode()) {
+            // PRoot mode - use PRootManager instead of su-based chroot
+            PRootManager pm = PRootManager.getInstance(null);
+            
+            // If marker says AstrBot is installed, skip
+            if (pm.isAstrBotInstalled()) {
+                if (callback != null) callback.onProgress("AstrBot 已安装，跳过克隆");
+                return false;
+            }
+            
+            // Remove old directory if it exists
+            pm.runInProot("rm -rf /root/astrbot", 30);
+
+            if (callback != null) {
+                if (version != null && !version.isEmpty()) {
+                    callback.onProgress("正在克隆 AstrBot (" + version + ")...");
+                } else {
+                    callback.onProgress("正在克隆 AstrBot (最新版)...");
+                }
+            }
+
+            String cloneCmd = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+                "export GIT_TERMINAL_PROMPT=0 && " +
+                "git clone --depth 1";
+
+            if (version != null && !version.isEmpty()) {
+                cloneCmd += " --branch " + version;
+            }
+
+            // Use specified proxy for GitHub access
+            String repoUrl = GitHubProxyManager.buildUrl("https://github.com/AstrBotDevs/AstrBot.git", proxyIndex);
+            cloneCmd += " " + repoUrl + " /root/astrbot";
+
+            CommandResult result = pm.runInProotWithProgress(cloneCmd, 60, callback);
+
+            if (!result.success()) {
+                if (callback != null) callback.onError("AstrBot 克隆失败: " + result.stderr());
+                return true;
+            }
+            if (callback != null) callback.onProgress("AstrBot 克隆完成");
             return false;
         }
 
+        // Chroot mode (original logic)
         // Remove old directory if it exists (incomplete install, etc.)
         execInChroot("rm -rf /root/astrbot", 30);
 
@@ -650,30 +694,65 @@ public final class ChrootManager {
     public static boolean pipInstallDeps(ProgressCallback callback) {
         if (callback != null) callback.onProgress("正在创建 Python 虚拟环境...");
 
-        // Ubuntu 24.04 enforces PEP 668 — cannot pip install system-wide.
-        // Create a venv at /root/astrbot/venv and install deps there.
-        CommandResult venvResult = execInChrootWithProgress(
-            "python3 -m venv /root/astrbot/venv && " +
-            "/root/astrbot/venv/bin/pip install --upgrade pip", 60, callback);
+        // Check if we're in PRoot mode
+        if (AuthManager.getInstance().isProotMode()) {
+            // PRoot mode - use PRootManager instead of su-based chroot
+            PRootManager pm = PRootManager.getInstance(null);
 
-        if (!venvResult.success) {
-            if (callback != null) callback.onError("虚拟环境创建失败: " + venvResult.stderr);
-            return true;
-        }
+            // Ubuntu 24.04 enforces PEP 668 — cannot pip install system-wide.
+            // Create a venv at /root/astrbot/venv and install deps there.
+            ChrootManager.CommandResult venvResult = pm.runInProotWithProgress(
+                "python3 -m venv /root/astrbot/venv && " +
+                "/root/astrbot/venv/bin/pip install --upgrade pip", 60, callback);
 
-        if (callback != null) callback.onProgress("正在安装 Python 依赖...");
+            if (!venvResult.success()) {
+                if (callback != null) callback.onError("虚拟环境创建失败: " + venvResult.stderr());
+                return true;
+            }
 
-        CommandResult result = execInChrootWithProgress(
-            "export PATH=/root/astrbot/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
-            "cd /root/astrbot && pip install -r requirements.txt", 300, callback);
+            if (callback != null) callback.onProgress("正在安装 Python 依赖...");
 
-        if (!result.success) {
-            if (callback != null) callback.onError("Python 依赖安装失败: " + result.stderr);
-            return true;
+            ChrootManager.CommandResult result = pm.runInProotWithProgress(
+                "export PATH=/root/astrbot/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+                "cd /root/astrbot && pip install -r requirements.txt", 300, callback);
+
+            if (!result.success()) {
+                if (callback != null) callback.onError("Python 依赖安装失败: " + result.stderr());
+                return true;
+            }
+        } else {
+            // Chroot mode (original logic)
+            // Ubuntu 24.04 enforces PEP 668 — cannot pip install system-wide.
+            // Create a venv at /root/astrbot/venv and install deps there.
+            CommandResult venvResult = execInChrootWithProgress(
+                "python3 -m venv /root/astrbot/venv && " +
+                "/root/astrbot/venv/bin/pip install --upgrade pip", 60, callback);
+
+            if (!venvResult.success) {
+                if (callback != null) callback.onError("虚拟环境创建失败: " + venvResult.stderr);
+                return true;
+            }
+
+            if (callback != null) callback.onProgress("正在安装 Python 依赖...");
+
+            CommandResult result = execInChrootWithProgress(
+                "export PATH=/root/astrbot/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+                "cd /root/astrbot && pip install -r requirements.txt", 300, callback);
+
+            if (!result.success) {
+                if (callback != null) callback.onError("Python 依赖安装失败: " + result.stderr);
+                return true;
+            }
         }
 
         // Mark as installed
-        execRoot("touch " + RbotConstants.ASTRBOT_MARKER);
+        if (AuthManager.getInstance().isProotMode()) {
+            // PRoot mode - use PRootManager's marker
+            PRootManager.getInstance(null).markAstrBotInstalled();
+        } else {
+            // Chroot mode - use traditional marker
+            execRoot("touch " + RbotConstants.ASTRBOT_MARKER);
+        }
         if (callback != null) callback.onProgress("Python 依赖安装完成");
         return false;
     }

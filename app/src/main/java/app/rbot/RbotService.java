@@ -181,14 +181,24 @@ public class RbotService extends Service {
 
     public void startGateway(CommandCallback callback) {
         safeExecuteWithResult(callback, () -> {
-            ChrootManager.CommandResult result = ChrootManager.startAstrBot();
+            ChrootManager.CommandResult result;
+            if (AuthManager.getInstance().isProotMode()) {
+                result = PRootManager.getInstance(getApplicationContext()).startAstrBot();
+            } else {
+                result = ChrootManager.startAstrBot();
+            }
             return new CommandResult(result.success(), result.stdout(), result.stderr(), result.exitCode());
         });
     }
 
     public void stopGateway(CommandCallback callback) {
         safeExecuteWithResult(callback, () -> {
-            ChrootManager.CommandResult result = ChrootManager.stopAstrBot();
+            ChrootManager.CommandResult result;
+            if (AuthManager.getInstance().isProotMode()) {
+                result = PRootManager.getInstance(getApplicationContext()).stopAstrBot();
+            } else {
+                result = ChrootManager.stopAstrBot();
+            }
             return new CommandResult(result.success(), result.stdout(), result.stderr(), result.exitCode());
         });
     }
@@ -201,7 +211,12 @@ public class RbotService extends Service {
 
     public void isGatewayRunning(CommandCallback callback) {
         safeExecuteWithResult(callback, () -> {
-            boolean running = ChrootManager.isAstrBotRunning();
+            boolean running;
+            if (AuthManager.getInstance().isProotMode()) {
+                running = PRootManager.getInstance(getApplicationContext()).isAstrBotRunning();
+            } else {
+                running = ChrootManager.isAstrBotRunning();
+            }
             return new CommandResult(true, running ? "running" : "stopped", "", 0);
         });
     }

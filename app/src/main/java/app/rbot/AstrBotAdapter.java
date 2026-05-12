@@ -106,8 +106,8 @@ public class AstrBotAdapter extends BotAdapter {
         ChrootManager.CommandResult pipResult = pm.runInProotWithProgress(
             "python3 -m venv /root/astrbot/venv && " +
             "/root/astrbot/venv/bin/pip install --upgrade pip && " +
-            "cd /root/astrbot && /root/astrbot/venv/bin/pip install -r requirements.txt",
-            300, callback);
+            "cd /root/astrbot && /root/astrbot/venv/bin/pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt",
+            600, callback);
         if (!pipResult.success()) {
             if (callback != null) callback.onError("Python 依赖安装失败: " + pipResult.stderr());
             return true;
@@ -158,7 +158,7 @@ public class AstrBotAdapter extends BotAdapter {
             // pip install
             if (callback != null) callback.onProgress("安装 Python 依赖...");
             ChrootManager.CommandResult pipResult = pm.runInProotWithProgress(
-                "cd /root/astrbot && /root/astrbot/venv/bin/pip install -r requirements.txt",
+                "cd /root/astrbot && /root/astrbot/venv/bin/pip install -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt",
                 300, callback);
             if (!pipResult.success()) {
                 if (callback != null) callback.onError("Python 依赖安装失败");

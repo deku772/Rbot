@@ -49,7 +49,7 @@ public final class RbotConstants {
 
     // ─── PRoot mode paths ───
 
-    /** PRoot SSH port (different from chroot's port 22) */
+    /** PRoot SSH port — must be >= 1024 (Android blocks privileged ports for non-root) */
     public static final int PROOT_SSH_PORT = 8022;
 
     /** PRoot rootfs subdirectory name (relative to app filesDir) */
@@ -64,6 +64,13 @@ public final class RbotConstants {
     /** PRoot binary download URL — hosted on GitHub releases (arm64-v8a only) */
     public static final String PROOT_BINARY_URL =
         "https://github.com/deku772/rbot/releases/download/proot-v1/libproot.so";
+    
+    /** Alternative PRoot binary download URLs */
+    public static final String[] PROOT_BINARY_URLS = {
+        PROOT_BINARY_URL,
+        "https://github.com/termux/proot/releases/download/v5.1.0/proot-aarch64",
+        "https://github.com/JunWan666/openclaw-termux-zh/releases/download/proot-v1/libproot.so"
+    };
 
     /** PRoot rootfs cache path (inside app cache, no sdcard permission needed) */
     public static final String PROOT_ROOTFS_CACHE = SDCARD_ROOTFS_CACHE;

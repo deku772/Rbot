@@ -216,13 +216,8 @@ public class AuthManager {
 
         // Priority 4: No Shizuku / Shizuku error — PRoot mode if available
         mDetectedMode = AuthMode.UNAVAILABLE;
-        if (mForceProot) {
-            Log.i(TAG, "No root access, user selected PRoot mode");
-            updateMode(AuthMode.PROOT);
-        } else {
-            Log.w(TAG, "No root access available");
-            updateMode(AuthMode.UNAVAILABLE);
-        }
+        Log.i(TAG, "No root access available, using PRoot mode");
+        updateMode(AuthMode.PROOT);
     }
 
     /**
