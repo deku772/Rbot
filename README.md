@@ -100,10 +100,6 @@ APK 位于 `app/build/outputs/apk/debug/`。
 
 ![权限](assets/权限.png)
 
-### 群聊
-
-![群聊](assets/群聊.png)
-
 ## 管理功能
 
 在「管理」Tab 中可以：
