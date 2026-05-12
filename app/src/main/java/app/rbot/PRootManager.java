@@ -146,7 +146,6 @@ public final class PRootManager {
         // Try runtime dir (downloaded binary)
         File runtime = new File(mNativeRuntimeDir, "libproot.so");
         if (runtime.exists() && runtime.length() > 0) {
-            ensureLibTalloc();
             return runtime.getAbsolutePath();
         }
 
@@ -162,25 +161,29 @@ public final class PRootManager {
             + direct.getAbsolutePath() + " and " + runtime.getAbsolutePath() + ")");
     }
 
-    /** Ensure libtalloc.so.2 exists in nativeLibDir (proot SONAME dependency) */
-    private void ensureLibTalloc() {
-        File target = new File(mNativeLibDir, "libtalloc.so.2");
-        if (target.exists() && target.length() > 0) return;
+    /** Ensure libtalloc.so.2 exists in a writable directory.
+     *  proot is dynamically linked against libtalloc.so.2 but Android's
+     *  nativeLibraryDir is read-only. We bundle the .so in assets and
+     *  copy it to our writable filesDir at runtime. */
+    private File ensureLibTalloc() {
+        File libDir = new File(mFilesDir, "lib");
+        libDir.mkdirs();
+        File target = new File(libDir, "libtalloc.so.2");
+        if (target.exists() && target.length() > 30000) return target;
 
-        File source = new File(mNativeLibDir, "libtalloc.so");
-        if (source.exists() && source.length() > 0) {
-            try {
-                java.nio.file.Files.copy(source.toPath(), target.toPath(),
-                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                target.setExecutable(true);
-                target.setReadable(true, false);
-                Log.i(TAG, "libtalloc.so.2 prepared");
-            } catch (Exception e) {
-                Log.e(TAG, "Failed to copy libtalloc: " + e.getMessage());
-            }
-        } else {
-            Log.w(TAG, "libtalloc.so not found in " + mNativeLibDir);
+        // Copy from bundled assets
+        try (java.io.InputStream is = mContext.getAssets().open("libtalloc.so");
+             java.io.OutputStream os = new java.io.FileOutputStream(target)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) os.write(buf, 0, n);
+            target.setExecutable(true);
+            target.setReadable(true, false);
+            Log.i(TAG, "libtalloc.so.2 extracted to " + target.getAbsolutePath());
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to extract libtalloc: " + e.getMessage());
         }
+        return target;
     }
 
     /**
@@ -256,9 +259,9 @@ public final class PRootManager {
         } catch (Exception e) {
             // 32-bit loader is optional
         }
-        // libtalloc.so.2 is ensured by resolveProotPath() before proot binary is used
-        // LD_LIBRARY_PATH for proot itself (needs libtalloc.so.2)
-        env.put("LD_LIBRARY_PATH", joinPaths(mConfigDir, mNativeLibDir, mNativeRuntimeDir));
+        // Ensure libtalloc.so.2 exists and add its directory to LD_LIBRARY_PATH
+        File talloc = ensureLibTalloc();
+        env.put("LD_LIBRARY_PATH", joinPaths(talloc.getParent(), mConfigDir, mNativeLibDir, mNativeRuntimeDir));
         // NOTE: Do NOT set PROOT_NO_SECCOMP — seccomp BPF provides efficient syscall
         // interception AND proper fork/clone child process tracking
         return env;
