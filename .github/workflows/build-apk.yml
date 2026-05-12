@@ -136,3 +136,31 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create Gitee Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: yanglbme/gitee-release-action@v1.1.0
+        with:
+          gitee-owner: deku772
+          gitee-repo: rbot
+          gitee-token: ${{ secrets.GITEE_TOKEN }}
+          tag: ${{ github.ref_name }}
+          release-name: Release ${{ github.ref_name }}
+          body: |
+            ## 更新内容
+            
+            - 自动构建版本 ${{ github.ref_name }}
+            - 构建时间: ${{ github.event.head_commit.timestamp }}
+            
+            ## 下载
+            
+            - APK 文件已附加到本发布
+            
+            ---
+            
+            同步自 GitHub: https://github.com/deku772/Rbot/releases/tag/${{ github.ref_name }}
+          draft: ${{ steps.release_channel.outputs.is_draft == 'true' }}
+          prerelease: ${{ steps.release_channel.outputs.is_prerelease == 'true' }}
+          assets: |
+            ${{ env.APK_DIR_PATH }}/*.apk
+            ${{ env.APK_DIR_PATH }}/sha256sums.txt
