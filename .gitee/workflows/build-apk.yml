@@ -1,0 +1,75 @@
+name: Build Release APK
+
+on:
+  push:
+    branches:
+      - main
+      - root
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clone repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build Release APK
+        run: |
+          set -e
+          
+          CURRENT_VERSION_NAME=$(grep 'versionName "' app/build.gradle | head -1 | sed 's/.*versionName "//;s/".*//')
+          echo "Detected version from build.gradle: $CURRENT_VERSION_NAME"
+          
+          RELEASE_VERSION_NAME="v${CURRENT_VERSION_NAME}+${GIT_SHA:0:7}"
+          
+          APK_DIR_PATH="./app/build/outputs/apk/release"
+          echo "APK_DIR_PATH=$APK_DIR_PATH"
+          
+          echo "Building Release APK: $RELEASE_VERSION_NAME"
+          ./gradlew assembleRelease
+          
+          echo "Validating APKs..."
+          ls -la "$APK_DIR_PATH/"
+          
+          echo "Generating sha256sums..."
+          cd "$APK_DIR_PATH"
+          sha256sum *.apk > sha256sums.txt
+          cat sha256sums.txt
+
+      - name: Create Gitee Release
+        if: startsWith(GIT_REF, 'refs/tags/')
+        uses: yanglbme/gitee-release-action@v1.1.0
+        with:
+          gitee-owner: deku772
+          gitee-repo: rbot
+          gitee-token: ${{ secrets.GITEE_TOKEN }}
+          tag: ${{ GIT_TAG_NAME }}
+          release-name: Release ${{ GIT_TAG_NAME }}
+          body: |
+            ## 更新内容
+            
+            - 自动构建版本 ${{ GIT_TAG_NAME }}
+            - 构建时间: ${{ GIT_COMMIT_TIME }}
+            
+            ## 下载
+            
+            - APK 文件已附加到本发布
+          draft: false
+          prerelease: false
+          assets: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/sha256sums.txt
