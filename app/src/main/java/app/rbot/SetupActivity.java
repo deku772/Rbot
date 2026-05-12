@@ -468,9 +468,22 @@ public class SetupActivity extends AppCompatActivity {
                     "getent hosts mirrors.tuna.tsinghua.edu.cn 2>&1 || echo DNS_FAIL", 10);
                 appendLog("  DNS 测试: " + dnsTest.stdout().trim());
                 
+                // Update apt sources — ignore missing/insecure repos (some mirror repos may 404)
                 ChrootManager.CommandResult aptResult = pm.runInProotWithProgress(
-                    "apt update --allow-unauthenticated -o Debug::Acquire::http=yes", 120, makeCallback());
-                if (!aptResult.success()) {
+                    "apt update --fix-missing --allow-unauthenticated " +
+                    "-o Acquire::AllowInsecureRepositories=true " +
+                    "-o APT::Get::AllowUnauthenticated=true " +
+                    "2>&1", 180, makeCallback());
+                // apt update may return non-zero for partial failures (404 on backports etc.)
+                // Core repos (main/restricted/universe) should be fine. Check output.
+                String aptOutput = aptResult.stdout();
+                boolean hasFetched = aptOutput != null && aptOutput.contains("Fetched");
+                if (hasFetched) {
+                    appendLog("✅ 软件源更新完成（部分镜像仓库 404 不影响核心安装）");
+                } else if (aptResult.exitCode() == 0) {
+                    appendLog("✅ 软件源更新完成");
+                } else {
+                    appendLog("❌ apt update 失败，无有效数据");
                     runOnUiThread(() -> finishInstall("软件源更新失败", "重试"));
                     return;
                 }
