@@ -2,7 +2,9 @@ package app.rbot;
 
 import android.content.Context;
 import android.os.Build;
+import android.system.ErrnoException;
 import android.system.Os;
+import android.system.OsConstants;
 import android.util.Log;
 
 import java.io.BufferedReader;
@@ -40,10 +42,12 @@ public final class PRootManager {
     private static final String FAKE_KERNEL_VERSION =
         "#1 SMP PREEMPT_DYNAMIC PRoot-Rbot";
 
-    /** SSH port for PRoot mode (different from chroot's port 22) */
+    /** SSH port — must be >= 1024 because Android's ip_unprivileged_port_start=1024
+     *  prevents non-root apps from binding to privileged ports, even inside proot. */
     public static final int SSH_PORT = 8022;
 
     private static PRootManager sInstance;
+    private static String sFilesDir; // Static cache of filesDir for use without Context
     private final Context mContext;
 
     // Paths — all inside app internal storage (supports symlinks)
@@ -60,13 +64,29 @@ public final class PRootManager {
 
     /** Marker file indicating AstrBot is installed in PRoot rootfs */
     private final String mAstrBotMarker;
+    
+    /** Static marker file name for AstrBot installed check */
+    private static final String ASTRBOT_MARKER_NAME = ".proot-astrbot-ready";
 
     /** AstrBot home inside PRoot rootfs */
     private static final String ASTRBOT_HOME_RELATIVE = "/root/astrbot";
 
+    /** PID file for the proot parent process (host-side) */
+    private final String mProotPidFile;
+
+    /** The currently running proot process for AstrBot gateway, or null */
+    private Process mProotGatewayProcess;
+
+    /** PID file for the proot SSH daemon process (host-side) */
+    private final String mProotSshPidFile;
+
+    /** The currently running proot process for SSH, or null */
+    private Process mProotSshProcess;
+
     private PRootManager(Context context) {
         mContext = context.getApplicationContext();
         mFilesDir = mContext.getFilesDir().getAbsolutePath();
+        sFilesDir = mFilesDir; // Cache for static methods
         mNativeLibDir = mContext.getApplicationInfo().nativeLibraryDir;
         mRootfsDir = mFilesDir + "/proot-rootfs";
         mConfigDir = mFilesDir + "/proot-config";
@@ -74,7 +94,11 @@ public final class PRootManager {
         mNativeRuntimeDir = mFilesDir + "/proot-native";
         mHomeDir = mFilesDir + "/proot-home";
         mRootfsMarker = mFilesDir + "/.proot-rootfs-ready";
-        mAstrBotMarker = mFilesDir + "/.proot-astrbot-ready";
+        mAstrBotMarker = mFilesDir + "/" + ASTRBOT_MARKER_NAME;
+        mProotPidFile = mFilesDir + "/proot-gateway.pid";
+        mProotGatewayProcess = null;
+        mProotSshPidFile = mFilesDir + "/proot-ssh.pid";
+        mProotSshProcess = null;
     }
 
     public static synchronized PRootManager getInstance(Context context) {
@@ -91,6 +115,7 @@ public final class PRootManager {
     public String getAstrBotHome() { return mRootfsDir + ASTRBOT_HOME_RELATIVE; }
     public String getAstrBotPidFile() { return getAstrBotHome() + "/astrbot.pid"; }
     public String getAstrBotLogFile() { return getAstrBotHome() + "/astrbot.log"; }
+    public String getProotPidFile() { return mProotPidFile; }
 
     // ─── Status checks ───
 
@@ -104,19 +129,62 @@ public final class PRootManager {
     public boolean isAstrBotInstalled() {
         return new File(mAstrBotMarker).exists();
     }
+    
+    /** 
+     * Static version of isAstrBotInstalled that doesn't require Context.
+     * Uses cached sFilesDir which is set on first getInstance() call.
+     * @return true if AstrBot marker exists, false otherwise (or if sFilesDir is not set)
+     */
+    public static boolean isAstrBotInstalledStatic() {
+        if (sFilesDir == null) {
+            return false; // Instance never created, can't check
+        }
+        return new File(sFilesDir + "/" + ASTRBOT_MARKER_NAME).exists();
+    }
 
-    /** Check if AstrBot is running in PRoot */
+    /** Check if AstrBot is running in PRoot.
+     * Checks from the host side only — avoids starting a second proot instance
+     * which could conflict with the gateway proot's ptrace.
+     */
     public boolean isAstrBotRunning() {
+        // Check: is the proot parent process alive?
+        // If proot is dead, AstrBot is definitely dead too.
+        boolean prootAlive = false;
+
+        // Check Java Process object first
+        if (mProotGatewayProcess != null && mProotGatewayProcess.isAlive()) {
+            prootAlive = true;
+        }
+
+        // Also check via PID file (survives app restart)
+        if (!prootAlive) {
+            File prootPidFile = new File(mProotPidFile);
+            if (prootPidFile.exists()) {
+                try {
+                    int prootPid = Integer.parseInt(
+                        new String(java.nio.file.Files.readAllBytes(prootPidFile.toPath())).trim());
+                    prootAlive = isPidAlive(prootPid);
+                } catch (Exception e) {
+                    Log.w(TAG, "isAstrBotRunning: proot PID check failed: " + e.getMessage());
+                }
+            }
+        }
+
+        if (!prootAlive) {
+            return false;
+        }
+
+        // Proot is alive — AstrBot should be running inside it.
+        // Quick check on the AstrBot PID from host side.
+        // proot doesn't virtualize PIDs, so the PID in astrbot.pid is the host PID.
         File pidFile = new File(getAstrBotPidFile());
         if (!pidFile.exists()) return false;
         try {
-            String pid = new String(java.nio.file.Files.readAllBytes(pidFile.toPath())).trim();
-            if (pid.isEmpty()) return false;
-            // Check if process is alive — we're the parent, so we can check
-            Process p = new ProcessBuilder("kill", "-0", pid)
-                .redirectErrorStream(true).start();
-            return p.waitFor() == 0;
+            int pid = Integer.parseInt(
+                new String(java.nio.file.Files.readAllBytes(pidFile.toPath())).trim());
+            return isPidAlive(pid);
         } catch (Exception e) {
+            Log.e(TAG, "isAstrBotRunning failed: " + e.getMessage());
             return false;
         }
     }
@@ -149,16 +217,57 @@ public final class PRootManager {
             return runtime.getAbsolutePath();
         }
 
+        // Try system proot as fallback
+        File systemProot = new File("/system/bin/proot");
+        if (systemProot.exists() && systemProot.canExecute()) {
+            Log.i(TAG, "Using system proot at: " + systemProot.getAbsolutePath());
+            return systemProot.getAbsolutePath();
+        }
+        
+        // Try termux proot
+        File termuxProot = new File("/data/data/com.termux/files/usr/bin/proot");
+        if (termuxProot.exists() && termuxProot.canExecute()) {
+            Log.i(TAG, "Using Termux proot at: " + termuxProot.getAbsolutePath());
+            return termuxProot.getAbsolutePath();
+        }
+
         // Binary not found — attempt runtime download
-        Log.i(TAG, "PRoot binary not found, downloading at runtime...");
-        if (ensureProotBinary()) {
+        Log.i(TAG, "PRoot binary not found at " + direct.getAbsolutePath() + " or " + runtime.getAbsolutePath());
+        Log.i(TAG, "System proot not found, attempting to download...");
+        
+        // Try downloading up to 2 times
+        boolean downloaded = false;
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            Log.i(TAG, "Download attempt " + attempt + "/2");
+            if (ensureProotBinary()) {
+                downloaded = true;
+                break;
+            }
+            Log.w(TAG, "Download attempt " + attempt + " failed, retrying...");
+            try {
+                Thread.sleep(2000); // Wait 2 seconds before retrying
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        
+        if (downloaded) {
             ensureLibTalloc();
+            Log.i(TAG, "PRoot binary downloaded successfully to " + runtime.getAbsolutePath());
             return runtime.getAbsolutePath();
         }
 
+        Log.e(TAG, "Failed to download PRoot binary after 2 attempts");
+        Log.e(TAG, "Native lib dir: " + mNativeLibDir);
+        Log.e(TAG, "Runtime dir: " + mNativeRuntimeDir);
+        Log.e(TAG, "Files dir: " + mFilesDir);
+        
         throw new IllegalStateException(
-            "PRoot binary not found and download failed (checked "
-            + direct.getAbsolutePath() + " and " + runtime.getAbsolutePath() + ")");
+            "PRoot binary not found and download failed after 2 attempts. " +
+            "Checked: " + direct.getAbsolutePath() + ", " + runtime.getAbsolutePath() + ", " +
+            systemProot.getAbsolutePath() + ", " + termuxProot.getAbsolutePath() + ". " +
+            "Please check your network connection and try again, or install Termux for proot support.");
     }
 
     /** Ensure libtalloc.so.2 exists in a writable directory.
@@ -201,25 +310,40 @@ public final class PRootManager {
         // Build download URL — use GitHub proxy for Chinese users
         String downloadUrl = RbotConstants.PROOT_BINARY_URL;
         int bestProxy = GitHubProxyManager.testProxies();
-        downloadUrl = GitHubProxyManager.buildUrl(downloadUrl, bestProxy);
+        
+        // Try multiple download URLs
+        boolean downloaded = false;
+        for (String baseUrl : RbotConstants.PROOT_BINARY_URLS) {
+            downloadUrl = GitHubProxyManager.buildUrl(baseUrl, bestProxy);
 
-        Log.i(TAG, "Downloading proot binary from: " + downloadUrl);
-        try {
-            downloadFile(downloadUrl, target.getAbsolutePath(), null);
-        } catch (IOException e) {
-            Log.e(TAG, "Proot binary download failed: " + e.getMessage());
-            // Fallback: try direct URL
-            if (!downloadUrl.equals(RbotConstants.PROOT_BINARY_URL)) {
-                Log.i(TAG, "Retrying with direct URL...");
-                try {
-                    downloadFile(RbotConstants.PROOT_BINARY_URL, target.getAbsolutePath(), null);
-                } catch (IOException e2) {
-                    Log.e(TAG, "Direct download also failed: " + e2.getMessage());
-                    return false;
+            Log.i(TAG, "Downloading proot binary from: " + downloadUrl);
+            try {
+                downloadFile(downloadUrl, target.getAbsolutePath(), null);
+                if (target.exists() && target.length() > 1000) {
+                    downloaded = true;
+                    break;
                 }
-            } else {
-                return false;
+            } catch (IOException e) {
+                Log.e(TAG, "Proot binary download failed from " + downloadUrl + ": " + e.getMessage());
             }
+            
+            // Also try direct URL without proxy
+            if (!downloadUrl.equals(baseUrl)) {
+                try {
+                    downloadFile(baseUrl, target.getAbsolutePath(), null);
+                    if (target.exists() && target.length() > 1000) {
+                        downloaded = true;
+                        break;
+                    }
+                } catch (IOException e2) {
+                    Log.e(TAG, "Direct download from " + baseUrl + " also failed: " + e2.getMessage());
+                }
+            }
+        }
+        
+        if (!downloaded) {
+            Log.e(TAG, "Failed to download proot binary from all available sources");
+            return false;
         }
 
         // Make executable
@@ -246,7 +370,7 @@ public final class PRootManager {
     // ─── Environment setup ───
 
     /** Host-side environment for proot binary itself */
-    private java.util.Map<String, String> prootEnv() {
+    java.util.Map<String, String> prootEnv() {
         java.util.Map<String, String> env = new java.util.LinkedHashMap<>();
         env.put("PROOT_TMP_DIR", mTmpDir);
         try {
@@ -387,6 +511,8 @@ public final class PRootManager {
         // NOTE: --sysvipc is NOT used during install — causes SIGABRT when dpkg forks
 
         // Guest environment via env -i
+        File talloc = ensureLibTalloc();
+        String ldLibraryPath = joinPaths(talloc.getParent(), mConfigDir, mNativeLibDir, mNativeRuntimeDir);
         flags.addAll(java.util.Arrays.asList(
             "/usr/bin/env", "-i",
             "HOME=/root",
@@ -396,6 +522,7 @@ public final class PRootManager {
             "TMPDIR=/tmp",
             "DEBIAN_FRONTEND=noninteractive",
             "APT::Sandbox::User=root",
+            "LD_LIBRARY_PATH=" + ldLibraryPath,
             "/bin/bash", "-c",
             command
         ));
@@ -407,22 +534,85 @@ public final class PRootManager {
      * Build gateway-mode proot command (matches proot-distro's command_login).
      * Used for: running AstrBot (long-lived process).
      * Full featured: --change-id=0:0, --sysvipc, full uname struct.
+     *
+     * CRITICAL: No --kill-on-exit here! The proot process must stay alive
+     * as AstrBot's process namespace container. The command ends with
+     * 'sleep infinity' so proot never exits on its own.
+     * To stop: kill the proot process via stopAstrBot().
      */
     public String[] buildGatewayCommand(String command) {
-        java.util.List<String> flags = new java.util.ArrayList<>(commonProotFlags());
+        java.util.List<String> flags = new java.util.ArrayList<>();
 
-        String machine = getUnameMachine();
+        // NOTE: Do NOT add --kill-on-exit for gateway mode!
+        // AstrBot needs proot to stay alive as its container.
+        // commonProotFlags() adds --kill-on-exit; we must not use it directly.
+        // Instead, build from scratch without --kill-on-exit.
+
+        ensureProcFakes();
+        ensureResolvConf();
+
+        String prootPath = resolveProotPath();
+        String procFakes = mConfigDir + "/proc_fakes";
+        String sysFakes = mConfigDir + "/sys_fakes";
+
+        flags.add(prootPath);
+        flags.add("--link2symlink");
+        flags.add("-L");
+        // NO --kill-on-exit — AstrBot needs proot alive
+        flags.add("--rootfs=" + mRootfsDir);
+        flags.add("--cwd=/root");
 
         // --change-id=0:0 (proot-distro command_login uses this for root)
-        flags.add(1, "--change-id=0:0");
+        flags.add("--change-id=0:0");
         // --sysvipc: enable SysV IPC (proot-distro enables for login sessions)
-        flags.add(2, "--sysvipc");
+        flags.add("--sysvipc");
         // Full uname struct
+        String machine = getUnameMachine();
         String kernelRelease = "\\Linux\\localhost\\" + FAKE_KERNEL_RELEASE
             + "\\" + FAKE_KERNEL_VERSION + "\\" + machine + "\\localdomain\\-1\\";
-        flags.add(3, "--kernel-release=" + kernelRelease);
+        flags.add("--kernel-release=" + kernelRelease);
+
+        // Core device binds (same as commonProotFlags)
+        flags.add("--bind=/dev");
+        flags.add("--bind=/dev/urandom:/dev/random");
+        flags.add("--bind=/proc");
+        flags.add("--bind=/proc/self/fd:/dev/fd");
+        flags.add("--bind=/sys");
+
+        // Fake /proc entries
+        flags.add("--bind=" + procFakes + "/loadavg:/proc/loadavg");
+        flags.add("--bind=" + procFakes + "/stat:/proc/stat");
+        flags.add("--bind=" + procFakes + "/uptime:/proc/uptime");
+        flags.add("--bind=" + procFakes + "/version:/proc/version");
+        flags.add("--bind=" + procFakes + "/vmstat:/proc/vmstat");
+        flags.add("--bind=" + procFakes + "/cap_last_cap:/proc/sys/kernel/cap_last_cap");
+        flags.add("--bind=" + procFakes + "/max_user_watches:/proc/sys/fs/inotify/max_user_watches");
+        flags.add("--bind=" + procFakes + "/fips_enabled:/proc/sys/crypto/fips_enabled");
+
+        // Shared memory
+        flags.add("--bind=" + mRootfsDir + "/tmp:/dev/shm");
+        // SELinux override
+        flags.add("--bind=" + sysFakes + "/empty:/sys/fs/selinux");
+        // Home overlay
+        flags.add("--bind=" + mHomeDir + ":/root/home");
+
+        // DNS
+        File resolvFile = new File(mConfigDir, "resolv.conf");
+        if (resolvFile.exists()) {
+            flags.add("--bind=" + resolvFile.getAbsolutePath() + ":/etc/resolv.conf");
+        }
+
+        // Storage access
+        if (hasStorageAccess()) {
+            File storageDir = new File(mRootfsDir, "storage");
+            storageDir.mkdirs();
+            flags.add("--bind=/storage:/storage");
+            flags.add("--bind=/storage/emulated/0:/sdcard");
+        }
 
         // Guest environment via env -i
+        File talloc = ensureLibTalloc();
+        String ldLibraryPath = joinPaths(talloc.getParent(), mConfigDir, mNativeLibDir, mNativeRuntimeDir);
         flags.addAll(java.util.Arrays.asList(
             "/usr/bin/env", "-i",
             "HOME=/root",
@@ -432,6 +622,7 @@ public final class PRootManager {
             "TERM=xterm-256color",
             "TMPDIR=/tmp",
             "DEBIAN_FRONTEND=noninteractive",
+            "LD_LIBRARY_PATH=" + ldLibraryPath,
             "/bin/bash", "-c",
             command
         ));
@@ -439,7 +630,91 @@ public final class PRootManager {
         return flags.toArray(new String[0]);
     }
 
-    // ─── PRoot command execution ───
+    /**
+     * Build interactive shell proot command (for ShellActivity terminal).
+     * Same as buildGatewayCommand but WITH --kill-on-exit, because when the user
+     * exits the shell (types 'exit'), proot should also terminate.
+     * The proot process is NOT a long-lived daemon in this case.
+     */
+    public String[] buildShellCommand(String command) {
+        java.util.List<String> flags = new java.util.ArrayList<>();
+
+        ensureProcFakes();
+        ensureResolvConf();
+
+        String prootPath = resolveProotPath();
+        String procFakes = mConfigDir + "/proc_fakes";
+        String sysFakes = mConfigDir + "/sys_fakes";
+
+        flags.add(prootPath);
+        flags.add("--link2symlink");
+        flags.add("-L");
+        flags.add("--kill-on-exit"); // Shell is interactive, proot should exit when shell exits
+        flags.add("--rootfs=" + mRootfsDir);
+        flags.add("--cwd=/root");
+        flags.add("--change-id=0:0");
+        flags.add("--sysvipc");
+        String machine = getUnameMachine();
+        String kernelRelease = "\\Linux\\localhost\\" + FAKE_KERNEL_RELEASE
+            + "\\" + FAKE_KERNEL_VERSION + "\\" + machine + "\\localdomain\\-1\\";
+        flags.add("--kernel-release=" + kernelRelease);
+
+        // Core device binds
+        flags.add("--bind=/dev");
+        flags.add("--bind=/dev/urandom:/dev/random");
+        flags.add("--bind=/proc");
+        flags.add("--bind=/proc/self/fd:/dev/fd");
+        flags.add("--bind=/sys");
+
+        // Fake /proc entries
+        flags.add("--bind=" + procFakes + "/loadavg:/proc/loadavg");
+        flags.add("--bind=" + procFakes + "/stat:/proc/stat");
+        flags.add("--bind=" + procFakes + "/uptime:/proc/uptime");
+        flags.add("--bind=" + procFakes + "/version:/proc/version");
+        flags.add("--bind=" + procFakes + "/vmstat:/proc/vmstat");
+        flags.add("--bind=" + procFakes + "/cap_last_cap:/proc/sys/kernel/cap_last_cap");
+        flags.add("--bind=" + procFakes + "/max_user_watches:/proc/sys/fs/inotify/max_user_watches");
+        flags.add("--bind=" + procFakes + "/fips_enabled:/proc/sys/crypto/fips_enabled");
+
+        // Shared memory
+        flags.add("--bind=" + mRootfsDir + "/tmp:/dev/shm");
+        // SELinux override
+        flags.add("--bind=" + sysFakes + "/empty:/sys/fs/selinux");
+        // Home overlay
+        flags.add("--bind=" + mHomeDir + ":/root/home");
+
+        // DNS
+        File resolvFile = new File(mConfigDir, "resolv.conf");
+        if (resolvFile.exists()) {
+            flags.add("--bind=" + resolvFile.getAbsolutePath() + ":/etc/resolv.conf");
+        }
+
+        // Storage access
+        if (hasStorageAccess()) {
+            File storageDir = new File(mRootfsDir, "storage");
+            storageDir.mkdirs();
+            flags.add("--bind=/storage:/storage");
+            flags.add("--bind=/storage/emulated/0:/sdcard");
+        }
+
+        // Guest environment via env -i
+        File talloc = ensureLibTalloc();
+        String ldLibraryPath = joinPaths(talloc.getParent(), mConfigDir, mNativeLibDir, mNativeRuntimeDir);
+        flags.addAll(java.util.Arrays.asList(
+            "/usr/bin/env", "-i",
+            "HOME=/root",
+            "USER=root",
+            "LANG=C.UTF-8",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "TERM=xterm-256color",
+            "TMPDIR=/tmp",
+            "LD_LIBRARY_PATH=" + ldLibraryPath,
+            "/bin/bash", "-c",
+            command
+        ));
+
+        return flags.toArray(new String[0]);
+    }
 
     /**
      * Execute a command in proot (install mode) synchronously.
@@ -545,10 +820,10 @@ public final class PRootManager {
             stdoutThread.start();
             stderrThread.start();
 
-            // Wait with adaptive timeout
+            // Wait with adaptive timeout - only check max wall time, not idle timeout
+            // This allows long-running commands like pip install to continue even without output
             long startTime = System.currentTimeMillis();
             long maxWallTime = timeoutSec * 3 * 1000L;
-            long idleTimeout = timeoutSec * 1000L;
 
             while (process.isAlive()) {
                 long now = System.currentTimeMillis();
@@ -557,11 +832,7 @@ public final class PRootManager {
                     return new ChrootManager.CommandResult(false, stdout.toString(),
                         "Proot 命令超时 (wall " + (maxWallTime/1000) + "s)", -1);
                 }
-                if (now - lastActivity[0] > idleTimeout) {
-                    process.destroyForcibly();
-                    return new ChrootManager.CommandResult(false, stdout.toString(),
-                        "Proot 命令超时 (" + (idleTimeout/1000) + "s 无输出)", -1);
-                }
+                // Don't kill for idle timeout - pip install can take minutes without output
                 Thread.sleep(500);
             }
 
@@ -581,13 +852,27 @@ public final class PRootManager {
 
     // ─── AstrBot lifecycle (PRoot mode) ───
 
-    /** Start AstrBot inside PRoot in background */
+    /** Start AstrBot inside PRoot in background.
+     *
+     * CRITICAL ARCHITECTURE: Unlike chroot mode where `su -c` exits and the child
+     * process survives, proot is a ptrace-based container — when the proot parent
+     * process exits, ALL traced child processes die (or with --kill-on-exit, are
+     * explicitly killed). Therefore, we must keep the proot process alive as a
+     * daemon for as long as AstrBot needs to run.
+     *
+     * Strategy:
+     * 1. Start proot in background with a long-running `sleep infinity` guard.
+     *    The bash command launches AstrBot in background, then sleeps forever.
+     *    This keeps proot alive without consuming CPU.
+     * 2. Save the proot host PID to proot-gateway.pid for later cleanup.
+     * 3. Verify AstrBot actually started by checking its PID from the host side.
+     */
     public ChrootManager.CommandResult startAstrBot() {
         // Ensure home and tmp dirs
         new File(mHomeDir).mkdirs();
         new File(mTmpDir).mkdirs();
 
-        // Kill any existing process
+        // Kill any existing process first
         stopAstrBot();
 
         // Use venv python if available
@@ -598,22 +883,23 @@ public final class PRootManager {
             pythonBin = "/root/astrbot/venv/bin/python3";
         }
 
-        String startCmd =
+        // Delete old PID file so we can detect a fresh write
+        new File(getAstrBotPidFile()).delete();
+
+        // The command inside proot: start AstrBot in background, then sleep forever.
+        // Simple and reliable — no startup detection inside proot (proot's ptrace
+        // can interfere with kill -0, file writes may be delayed by filesystem cache).
+        // We detect startup from the Java side by checking the PID file.
+        final String startCmd =
             "cd /root/astrbot && " +
-            "rm -f /root/astrbot/astrbot.pid && " +
             "nohup " + pythonBin + " main.py >> /root/astrbot/astrbot.log 2>&1 & " +
-            "disown && " +
             "echo $! > /root/astrbot/astrbot.pid && " +
-            "/bin/sleep 5 && " +
-            "PID=$(cat /root/astrbot/astrbot.pid 2>/dev/null) && " +
-            "if [ -n \"$PID\" ] && kill -0 \"$PID\" 2>/dev/null; then " +
-            "  echo started_$PID; " +
-            "else " +
-            "  echo 'FAIL_PID='$PID': ' $(tail -5 /root/astrbot/astrbot.log 2>/dev/null); exit 1; " +
-            "fi";
+            "exec /bin/sleep infinity"; // Keep proot alive forever
 
         String[] cmd = buildGatewayCommand(startCmd);
         java.util.Map<String, String> env = prootEnv();
+
+        Log.i(TAG, "Starting AstrBot with gateway proot command");
 
         try {
             ProcessBuilder pb = new ProcessBuilder(cmd);
@@ -621,24 +907,68 @@ public final class PRootManager {
             pb.environment().putAll(env);
             pb.redirectErrorStream(true);
 
+            // Start proot in background — do NOT waitFor()!
             Process process = pb.start();
-            StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(process.getInputStream()))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (!line.contains("proot warning") && !line.contains("can't sanitize")) {
-                        output.append(line).append("\n");
+            mProotGatewayProcess = process;
+
+            // Save the host-side proot PID for later cleanup
+            long prootPid = getProcessPid(process);
+            if (prootPid > 0) {
+                writeFile(new File(mProotPidFile), String.valueOf(prootPid));
+                Log.i(TAG, "Proot gateway process PID: " + prootPid);
+            }
+
+            // Drain proot output in background to prevent pipe blocking
+            Thread drainThread = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream()))) {
+                    while (reader.readLine() != null) {}
+                } catch (Exception ignored) {}
+            });
+            drainThread.setDaemon(true);
+            drainThread.start();
+
+            // Wait for AstrBot PID file to appear and process to be alive.
+            // Detection is done entirely from the Java/host side using Os.kill(pid, 0)
+            // which is immune to proot's ptrace interference.
+            boolean started = false;
+            String detail = "";
+            File pidFile = new File(getAstrBotPidFile());
+
+            for (int i = 0; i < 30; i++) { // 30 × 1s = 30s max wait
+                try { Thread.sleep(1000); } catch (Exception ignored) {}
+
+                if (pidFile.exists() && pidFile.length() > 0) {
+                    try {
+                        int pid = Integer.parseInt(
+                            new String(java.nio.file.Files.readAllBytes(pidFile.toPath())).trim());
+                        if (pid > 0 && isPidAlive(pid)) {
+                            started = true;
+                            Log.i(TAG, "AstrBot started successfully, PID=" + pid);
+                            break;
+                        } else {
+                            detail = "PID " + pid + " not alive";
+                        }
+                    } catch (NumberFormatException e) {
+                        detail = "Invalid PID in file";
                     }
                 }
             }
 
-            boolean exited = process.waitFor(30, TimeUnit.SECONDS);
-            String stdout = output.toString();
-            boolean started = exited && stdout.contains("started_");
+            if (!started) {
+                Log.e(TAG, "AstrBot startup verification failed: " + detail);
+                // Read log for details
+                try {
+                    File logFile = new File(mRootfsDir, "root/astrbot/astrbot.log");
+                    if (logFile.exists()) {
+                        detail = readTail(logFile.getAbsolutePath(), 20);
+                    }
+                } catch (Exception e) {
+                    detail = e.getMessage();
+                }
+            }
 
-            Log.d(TAG, "[startAstrBot] stdout=" + stdout.trim());
-            return new ChrootManager.CommandResult(started, stdout, "", started ? 0 : 1);
+            return new ChrootManager.CommandResult(started, started ? "started" : "", detail, started ? 0 : 1);
 
         } catch (Exception e) {
             Log.e(TAG, "startAstrBot failed: " + e.getMessage());
@@ -646,33 +976,142 @@ public final class PRootManager {
         }
     }
 
-    /** Stop AstrBot in PRoot mode */
+    /**
+     * Get the PID of a Java Process object on Android/Linux.
+     * Uses reflection to access the internal pid field.
+     */
+    private long getProcessPid(Process process) {
+        try {
+            // Android's ProcessImpl stores pid in a field called "pid"
+            java.lang.reflect.Field pidField = process.getClass().getDeclaredField("pid");
+            pidField.setAccessible(true);
+            return pidField.getInt(process);
+        } catch (NoSuchFieldException e) {
+            // Some Android versions use a different field name
+            try {
+                java.lang.reflect.Field pidField = process.getClass().getDeclaredField("mPid");
+                pidField.setAccessible(true);
+                return pidField.getInt(process);
+            } catch (Exception e2) {
+                Log.w(TAG, "Could not get process PID: " + e2.getMessage());
+                return -1;
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Could not get process PID via reflection: " + e.getMessage());
+            return -1;
+        }
+    }
+
+    /**
+     * Check if a process with the given PID is alive.
+     * Uses android.system.Os.kill(pid, 0) — signal 0 doesn't kill,
+     * just checks if the process exists.
+     */
+    private boolean isPidAlive(int pid) {
+        if (pid <= 0) return false;
+        try {
+            Os.kill(pid, 0); // Signal 0 = existence check
+            return true;
+        } catch (ErrnoException e) {
+            // ESRCH = no such process
+            if (e.errno == OsConstants.ESRCH) return false;
+            // EPERM = process exists but we can't signal it (still alive)
+            if (e.errno == OsConstants.EPERM) return true;
+            return false;
+        }
+    }
+
+    /**
+     * Kill a process by PID. Tries SIGTERM first, then SIGKILL.
+     */
+    private void killPid(int pid) {
+        if (pid <= 0) return;
+        try {
+            Os.kill(pid, 9); // SIGKILL
+            Log.i(TAG, "Killed process " + pid);
+        } catch (ErrnoException e) {
+            Log.w(TAG, "Failed to kill PID " + pid + ": " + e.getMessage());
+        }
+    }
+
+    /** Stop AstrBot in PRoot mode.
+     * Kills both the AstrBot process inside proot AND the proot parent process.
+     * Without killing proot, it would stay alive as a zombie consuming the
+     * sleep infinity guard.
+     */
     public ChrootManager.CommandResult stopAstrBot() {
+        // Step 1: Kill the proot parent process — this also kills all proot-traced children
+        // (AstrBot). This is the most reliable way to stop everything.
+        try {
+            // Kill the Java Process object if we have it
+            if (mProotGatewayProcess != null) {
+                mProotGatewayProcess.destroyForcibly();
+                try { mProotGatewayProcess.waitFor(3, TimeUnit.SECONDS); } catch (Exception ignored) {}
+                mProotGatewayProcess = null;
+            }
+
+            // Also kill by PID file (survives app restart)
+            File prootPidFile = new File(mProotPidFile);
+            if (prootPidFile.exists()) {
+                try {
+                    int prootPid = Integer.parseInt(
+                        new String(java.nio.file.Files.readAllBytes(prootPidFile.toPath())).trim());
+                    if (prootPid > 0 && isPidAlive(prootPid)) {
+                        killPid(prootPid);
+                        Log.i(TAG, "Killed proot process " + prootPid);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to kill proot by PID: " + e.getMessage());
+                }
+                prootPidFile.delete();
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error killing proot process: " + e.getMessage());
+        }
+
+        // Step 2: Kill any AstrBot/python processes that might still be running
+        // (fallback in case proot didn't clean them up)
         try {
             File pidFile = new File(getAstrBotPidFile());
             if (pidFile.exists()) {
-                String pid = new String(java.nio.file.Files.readAllBytes(pidFile.toPath())).trim();
-                if (!pid.isEmpty()) {
-                    // Try to kill the process group
-                    new ProcessBuilder("kill", "-9", pid).start().waitFor();
+                try {
+                    int pid = Integer.parseInt(
+                        new String(java.nio.file.Files.readAllBytes(pidFile.toPath())).trim());
+                    if (pid > 0 && isPidAlive(pid)) {
+                        killPid(pid);
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Failed to kill AstrBot by PID: " + e.getMessage());
                 }
                 pidFile.delete();
             }
-            // Also try pkill as fallback
-            new ProcessBuilder("pkill", "-9", "-f", "python.*main.py")
-                .redirectErrorStream(true).start().waitFor();
         } catch (Exception e) {
-            Log.w(TAG, "stopAstrBot error: " + e.getMessage());
+            Log.w(TAG, "stopAstrBot cleanup error: " + e.getMessage());
         }
+
         return new ChrootManager.CommandResult(true, "stopped", "", 0);
     }
 
     // ─── SSH Service (PRoot mode) ───
 
-    /** Start SSH service in PRoot mode on port 8022 */
+    /** Start SSH service in PRoot mode on port 22.
+     *
+     * Same architecture as startAstrBot(): proot must stay alive as a daemon.
+     * Without it, --kill-on-exit in runInProot() would kill dropbear when proot exits.
+     */
     public ChrootManager.CommandResult startSshService() {
+        // Kill any existing SSH proot first
+        stopSshService();
+
         // Ensure dropbear is installed
         runInProot("which dropbear >/dev/null 2>&1 || apt-get install -y dropbear-bin >/dev/null 2>&1", 60);
+
+        // Ensure root password is set (dropbear needs it for password auth)
+        // Use chpasswd which handles /etc/shadow correctly
+        runInProot(
+            "grep -q '^root:[!*]' /etc/shadow 2>/dev/null && " +
+            "echo 'root:" + RbotConstants.DEFAULT_SSH_PASSWORD + "' | chpasswd 2>/dev/null; " +
+            "chmod 600 /etc/shadow 2>/dev/null", 10);
 
         String setupCmd =
             "mkdir -p /etc/dropbear && " +
@@ -683,21 +1122,109 @@ public final class PRootManager {
             "dropbear -r /etc/dropbear/dropbear_rsa_host_key " +
             "-r /etc/dropbear/dropbear_ecdsa_host_key " +
             "-r /etc/dropbear/dropbear_ed25519_host_key " +
-            "-p " + SSH_PORT + " -R -B && echo dropbear_started";
+            "-p " + SSH_PORT + " -R && " +
+            "echo dropbear_started > /root/.rbot-ssh-result && " +
+            "exec /bin/sleep infinity"; // Keep proot alive
 
-        return runInProot(setupCmd, 20);
+        // Use gateway command (no --kill-on-exit)
+        String[] cmd = buildGatewayCommand(setupCmd);
+        java.util.Map<String, String> env = prootEnv();
+
+        try {
+            ProcessBuilder pb = new ProcessBuilder(cmd);
+            pb.environment().clear();
+            pb.environment().putAll(env);
+            pb.redirectErrorStream(true);
+
+            Process process = pb.start();
+            mProotSshProcess = process;
+
+            // Save SSH proot PID
+            long sshPid = getProcessPid(process);
+            if (sshPid > 0) {
+                writeFile(new File(mProotSshPidFile), String.valueOf(sshPid));
+            }
+
+            // Drain output
+            Thread drainThread = new Thread(() -> {
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(process.getInputStream()))) {
+                    while (reader.readLine() != null) {}
+                } catch (Exception ignored) {}
+            });
+            drainThread.setDaemon(true);
+            drainThread.start();
+
+            // Wait for startup result via marker file
+            File sshMarker = new File(mRootfsDir, "/root/.rbot-ssh-result");
+            boolean started = false;
+            for (int i = 0; i < 20; i++) { // 10 seconds max
+                try { Thread.sleep(500); } catch (Exception ignored) {}
+                if (sshMarker.exists() && sshMarker.length() > 0) {
+                    String result = new String(java.nio.file.Files.readAllBytes(sshMarker.toPath())).trim();
+                    started = result.contains("dropbear_started");
+                    break;
+                }
+            }
+            sshMarker.delete();
+
+            return new ChrootManager.CommandResult(started, started ? "dropbear_started" : "", "", started ? 0 : 1);
+        } catch (Exception e) {
+            Log.e(TAG, "startSshService failed: " + e.getMessage());
+            return new ChrootManager.CommandResult(false, "", e.getMessage(), -1);
+        }
     }
 
-    /** Stop SSH service in PRoot mode */
+    /** Stop SSH service in PRoot mode.
+     * Kills the proot parent process which also kills dropbear inside.
+     */
     public ChrootManager.CommandResult stopSshService() {
-        return runInProot("pkill -x dropbear 2>/dev/null; echo stopped", 10);
+        // Kill proot SSH process
+        if (mProotSshProcess != null) {
+            mProotSshProcess.destroyForcibly();
+            try { mProotSshProcess.waitFor(3, TimeUnit.SECONDS); } catch (Exception ignored) {}
+            mProotSshProcess = null;
+        }
+
+        // Kill by PID file
+        File sshPidFile = new File(mProotSshPidFile);
+        if (sshPidFile.exists()) {
+            try {
+                int sshPid = Integer.parseInt(
+                    new String(java.nio.file.Files.readAllBytes(sshPidFile.toPath())).trim());
+                if (sshPid > 0 && isPidAlive(sshPid)) {
+                    killPid(sshPid);
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "Failed to kill SSH proot by PID: " + e.getMessage());
+            }
+            sshPidFile.delete();
+        }
+
+        return new ChrootManager.CommandResult(true, "stopped", "", 0);
     }
 
-    /** Check if SSH is running in PRoot mode */
+    /** Check if SSH is running in PRoot mode.
+     * Checks if the proot SSH process is alive.
+     */
     public boolean isSshRunning() {
-        ChrootManager.CommandResult result = runInProot(
-            "pgrep -x dropbear >/dev/null 2>&1 && echo running || echo stopped", 5);
-        return result.success() && result.stdout().trim().equals("running");
+        // Check Java Process object
+        if (mProotSshProcess != null && mProotSshProcess.isAlive()) {
+            return true;
+        }
+
+        // Check via PID file
+        File sshPidFile = new File(mProotSshPidFile);
+        if (sshPidFile.exists()) {
+            try {
+                int sshPid = Integer.parseInt(
+                    new String(java.nio.file.Files.readAllBytes(sshPidFile.toPath())).trim());
+                return isPidAlive(sshPid);
+            } catch (Exception e) {
+                Log.w(TAG, "isSshRunning: PID check failed: " + e.getMessage());
+            }
+        }
+        return false;
     }
 
     /** Get SSH info string for PRoot mode */
@@ -795,14 +1322,15 @@ public final class PRootManager {
             }
         }
 
-        // Replace Ubuntu default mirrors with Tsinghua mirror (faster in China)
-        // This overrides whatever sources.list the rootfs shipped with
+        // Replace Ubuntu default mirrors with ARM64 ports repository
+        // ARM64 requires ubuntu-ports, not regular ubuntu!
         writeFile(new File(mRootfsDir, "/etc/apt/sources.list"),
-            "# Ubuntu 24.04 Noble - Tsinghua mirror (auto-configured by rbot)\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble main restricted universe multiverse\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-updates main restricted universe multiverse\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-security main restricted universe multiverse\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-backports main restricted universe multiverse\n");
+            "# Ubuntu 24.04 Noble - ARM64 ports (auto-configured by rbot)\n"
+            + "# NOTE: ARM64 requires ports.ubuntu.com, not archive.ubuntu.com\n"
+            + "deb https://mirrors.aliyun.com/ubuntu-ports/ noble main restricted universe multiverse\n"
+            + "deb https://mirrors.aliyun.com/ubuntu-ports/ noble-updates main restricted universe multiverse\n"
+            + "deb https://mirrors.aliyun.com/ubuntu-ports/ noble-security main restricted universe multiverse\n"
+            + "deb https://mirrors.aliyun.com/ubuntu-ports/ noble-backports main restricted universe multiverse\n");
     }
 
     /** Update sources.list to use Tsinghua mirror — call this before apt update
@@ -818,14 +1346,17 @@ public final class PRootManager {
                 }
             }
         }
-        // Write Tsinghua mirror — only main/restricted/universe (backports often 404 on mirrors)
+        // ARM64 must use ubuntu-ports repository, not regular ubuntu!
+        // https://ports.ubuntu.com/ is the official ARM64 repo
+        // Use Aliyun mirror for faster download in China
         writeFile(new File(mRootfsDir, "/etc/apt/sources.list"),
-            "# Ubuntu 24.04 Noble - Tsinghua mirror (auto-configured by rbot)\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble main restricted universe\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-updates main restricted universe\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-security main restricted universe\n"
-            + "deb https://mirrors.tuna.tsinghua.edu.cn/ubuntu/ noble-backports main\n");
-        Log.i(TAG, "sources.list updated to Tsinghua mirror");
+            "# Ubuntu 24.04 Noble - ARM64 ports (auto-configured by rbot)\n"
+            + "# NOTE: ARM64 requires ports.ubuntu.com, not archive.ubuntu.com\n"
+            + "deb https://mirrors.aliyun.com/ubuntu-ports/ noble main restricted universe multiverse\n"
+            + "deb https://mirrors.aliyun.com/ubuntu-ports/ noble-updates main restricted universe multiverse\n"
+            + "deb https://mirrors.aliyun.com/ubuntu-ports/ noble-security main restricted universe multiverse\n"
+            + "deb https://mirrors.aliyun.com/ubuntu-ports/ noble-backports main restricted universe multiverse\n");
+        Log.i(TAG, "sources.list updated to Aliyun ubuntu-ports mirror for ARM64");
     }
 
     /** Mark rootfs as ready */

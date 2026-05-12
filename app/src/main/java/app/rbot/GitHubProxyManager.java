@@ -52,29 +52,20 @@ public class GitHubProxyManager {
      * @return index into PROXY_TEMPLATES, or 0 (direct) if all fail
      */
     public static int testProxies() {
-        // Use multiple test URLs for better reliability
-        // Try npm mirror first (fast in China), fallback to GitHub
-        String[] testUrls = {
-            "https://registry.npmmirror.com/-/package/astro-blog-x-core/dist-tags",
-            "https://mirrors.tuna.tsinghua.edu.cn/",
-            "https://api.github.com/zen"
-        };
+        // Use GitHub-specific test URL since gh-proxy only works with GitHub URLs
+        // Using GitHub API zen endpoint which is lightweight
+        String githubTestUrl = "https://api.github.com/zen";
         
-        // Try each test URL until one works
-        for (String testUrl : testUrls) {
-            try {
-                int result = testProxies(testUrl);
-                if (result >= 0) {
-                    Log.i(TAG, "Proxy test succeeded with URL: " + testUrl);
-                    return result;
-                }
-            } catch (Exception e) {
-                Log.w(TAG, "Proxy test failed with URL " + testUrl + ": " + e.getMessage());
-            }
+        try {
+            int result = testProxies(githubTestUrl);
+            Log.i(TAG, "Proxy test succeeded with URL: " + githubTestUrl);
+            return result;
+        } catch (Exception e) {
+            Log.w(TAG, "Proxy test failed with GitHub URL: " + e.getMessage());
         }
         
-        // All test URLs failed, return direct connection (index 0)
-        Log.w(TAG, "All proxy test URLs failed, using direct connection");
+        // GitHub test failed, fallback to direct connection
+        Log.w(TAG, "All proxy tests failed, using direct connection");
         return 0;
     }
 
@@ -135,11 +126,11 @@ public class GitHubProxyManager {
             long start = System.currentTimeMillis();
             java.net.URL u = new java.net.URL(url);
             conn = (java.net.HttpURLConnection) u.openConnection();
-            conn.setConnectTimeout(5000);  // 减少超时时间从 8s 到 5s
-            conn.setReadTimeout(10000);     // 减少超时时间从 15s 到 10s
+            conn.setConnectTimeout(8000);  // 增加超时时间以适应慢网络
+            conn.setReadTimeout(15000);     // 增加超时时间以适应慢网络
             conn.setInstanceFollowRedirects(true);
-            conn.setRequestMethod("HEAD");  // 使用 HEAD 请求更快
-            conn.setRequestProperty("User-Agent", "rbot-proxy-test/1.0");
+            conn.setRequestMethod("GET");   // 使用 GET 请求以提高兼容性
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36");
             conn.setRequestProperty("Accept", "*/*");
 
             int responseCode = conn.getResponseCode();

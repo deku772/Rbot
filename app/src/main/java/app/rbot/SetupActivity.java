@@ -268,7 +268,7 @@ public class SetupActivity extends AppCompatActivity {
             bestProxy[0] = GitHubProxyManager.testProxies();
         });
         proxyThread.start();
-        try { proxyThread.join(15000); } catch (InterruptedException ignored) {}
+        try { proxyThread.join(30000); } catch (InterruptedException ignored) {}
         if (proxyThread.isAlive()) {
             appendLog("⚠️ 代理测试超时，默认使用 gh-proxy");
             bestProxy[0] = 1; // default to first gh-proxy
@@ -465,7 +465,7 @@ public class SetupActivity extends AppCompatActivity {
                     "ping -c 1 -W 3 8.8.8.8 2>&1 || echo PING_FAIL", 10);
                 appendLog("  网络测试: " + netTest.stdout().trim());
                 ChrootManager.CommandResult dnsTest = pm.runInProot(
-                    "getent hosts mirrors.tuna.tsinghua.edu.cn 2>&1 || echo DNS_FAIL", 10);
+                    "getent hosts mirrors.aliyun.com 2>&1 || echo DNS_FAIL", 10);
                 appendLog("  DNS 测试: " + dnsTest.stdout().trim());
                 
                 // Update apt sources — ignore missing/insecure repos (some mirror repos may 404)
@@ -501,12 +501,16 @@ public class SetupActivity extends AppCompatActivity {
             runOnUiThread(() -> mStepText.setText("安装系统依赖..."));
             if (useProot) {
                 ChrootManager.CommandResult depResult = pm.runInProotWithProgress(
-                    "apt install -y --allow-unauthenticated " +
+                    "apt install -y --allow-unauthenticated --fix-missing " +
                     "python3 python3-venv python3-pip python3-dev " +
                     "git curl wget gpgv coreutils procps dropbear-bin " +
                     "ca-certificates software-properties-common locales build-essential",
-                    120, makeCallback());
+                    180, makeCallback());
                 if (!depResult.success()) {
+                    appendLog("❌ 依赖安装失败:");
+                    appendLog("  stdout: " + (depResult.stdout() != null ? depResult.stdout().trim() : "null"));
+                    appendLog("  stderr: " + (depResult.stderr() != null ? depResult.stderr().trim() : "null"));
+                    appendLog("  exitCode: " + depResult.exitCode());
                     runOnUiThread(() -> finishInstall("依赖安装失败", "重试"));
                     return;
                 }

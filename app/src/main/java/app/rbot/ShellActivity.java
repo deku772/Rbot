@@ -118,15 +118,24 @@ public class ShellActivity extends AppCompatActivity
             }
         });
 
-        // Run chroot setup + ptmx access in background to avoid blocking UI
+        // Start shell session in background
+        boolean useProot = AuthManager.getInstance().isProotMode();
         new Thread(() -> {
-            ChrootManager.setupChrootDevices(null);
-            grantPtmxAccess();
-            // Start shell session on main thread after setup completes
-            runOnUiThread(() -> {
-                mSession = startChrootShell();
-                mTerminalView.attachSession(mSession);
-            });
+            if (useProot) {
+                // Proot mode: no su needed, no ptmx chmod needed
+                runOnUiThread(() -> {
+                    mSession = startProotShell();
+                    mTerminalView.attachSession(mSession);
+                });
+            } else {
+                // Chroot mode: need su + chroot setup
+                ChrootManager.setupChrootDevices(null);
+                grantPtmxAccess();
+                runOnUiThread(() -> {
+                    mSession = startChrootShell();
+                    mTerminalView.attachSession(mSession);
+                });
+            }
         }).start();
     }
 
@@ -390,7 +399,10 @@ public class ShellActivity extends AppCompatActivity
     }
 
     private void revokePtmxAccess() {
-        ChrootManager.execRoot("chmod 000 " + PTMX_DEVICE, 5);
+        // Only needed for chroot mode
+        if (!AuthManager.getInstance().isProotMode()) {
+            ChrootManager.execRoot("chmod 000 " + PTMX_DEVICE, 5);
+        }
     }
 
     // ─── Shell Session ────────────────────────────────────────────────────────
@@ -398,6 +410,38 @@ public class ShellActivity extends AppCompatActivity
     private static final String CHROOT_PATH =
         "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
 
+    /** Start a shell inside the proot environment (no root needed) */
+    private TerminalSession startProotShell() {
+        PRootManager pm = PRootManager.getInstance(this);
+        // Add Android supplementary group IDs to /etc/group to suppress
+        // "groups: cannot find name for group ID" warnings in bash login shell
+        String groupSetup =
+            "getent group 3003 >/dev/null || echo 'inet:3003:' >> /etc/group; " +
+            "getent group 9997 >/dev/null || echo 'inet:9997:' >> /etc/group; " +
+            "getent group 20339 >/dev/null || echo 'aid_read_20339:20339:' >> /etc/group; " +
+            "getent group 50339 >/dev/null || echo 'aid_read_50339:50339:' >> /etc/group; " +
+            "getent group 99909997 >/dev/null || echo 'aid_read_99909997:99909997:' >> /etc/group; ";
+        String[] cmd = pm.buildShellCommand(groupSetup + "/bin/bash -l");
+        java.util.Map<String, String> env = pm.prootEnv();
+
+        // Convert env map to array
+        String[] envArray = new String[env.size()];
+        int i = 0;
+        for (java.util.Map.Entry<String, String> entry : env.entrySet()) {
+            envArray[i++] = entry.getKey() + "=" + entry.getValue();
+        }
+
+        return new TerminalSession(
+            cmd[0],
+            "/",
+            cmd,
+            envArray,
+            2000,
+            this
+        );
+    }
+
+    /** Start a shell inside the chroot environment (requires root) */
     private TerminalSession startChrootShell() {
         return new TerminalSession(
             "/system/bin/su",

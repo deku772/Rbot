@@ -90,6 +90,14 @@ public class PermissionsActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshAllPermissionStatus();
+
+        // In PRoot mode, hide Shizuku card — not needed
+        AuthManager am = AuthManager.getInstance();
+        if (am.isProotMode()) {
+            mShizukuCard.setVisibility(View.GONE);
+        } else {
+            mShizukuCard.setVisibility(View.VISIBLE);
+        }
     }
 
     private void refreshAllPermissionStatus() {
@@ -153,7 +161,10 @@ public class PermissionsActivity extends AppCompatActivity {
 
     private void refreshRootStatus() {
         boolean rootAvailable = ChrootManager.isRootAvailable();
-        if (rootAvailable) {
+        AuthManager am = AuthManager.getInstance();
+        if (am.isProotMode()) {
+            mRootStatus.setText("无需 — PRoot 模式不需要 Root 权限");
+        } else if (rootAvailable) {
             mRootStatus.setText("可用 ✅");
         } else {
             mRootStatus.setText("不可用 — 可使用下方 Shizuku 授权");

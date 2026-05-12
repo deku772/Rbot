@@ -48,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
     private Button mSetupButton;
     private CardView mSshInfoPanel;
     private TextView mSshInfo;
+    private TextView mSshInfoLan;
     private TextView mSshStatus;
     private TextView mSshPassword;
     private Button mSshToggleButton;
@@ -56,6 +57,7 @@ public class MainActivity extends AppCompatActivity {
 
     private CardView mWebuiPanel;
     private TextView mWebuiUrl;
+    private TextView mWebuiUrlLan;
     private TextView mWebuiStatus;
     private Button mOpenWebuiButton;
 
@@ -109,10 +111,12 @@ public class MainActivity extends AppCompatActivity {
         mSetupButton = findViewById(R.id.btn_setup);
         mWebuiPanel = findViewById(R.id.webui_panel);
         mWebuiUrl = findViewById(R.id.webui_url);
+        mWebuiUrlLan = findViewById(R.id.webui_url_lan);
         mWebuiStatus = findViewById(R.id.webui_status);
         mOpenWebuiButton = findViewById(R.id.btn_open_webui);
         mSshInfoPanel = findViewById(R.id.ssh_info_panel);
         mSshInfo = findViewById(R.id.ssh_info);
+        mSshInfoLan = findViewById(R.id.ssh_info_lan);
         mSshStatus = findViewById(R.id.ssh_status);
         mSshPassword = findViewById(R.id.ssh_password);
         mSshToggleButton = findViewById(R.id.btn_ssh_toggle);
@@ -255,64 +259,63 @@ public class MainActivity extends AppCompatActivity {
         boolean chrootMounted = status.chrootMounted();
         boolean astrBotInstalled = status.astrBotInstalled();
         boolean astrBotRunning = status.astrBotRunning();
-        if (!hasPrivilegedAccess) {
-            AuthManager am = AuthManager.getInstance();
-            if (am.isProotMode()) {
-                // PRoot mode active — check if installed
-                if (rootfsReady && astrBotInstalled) {
-                    // Fully installed — show same UI as root mode
-                    String botStatus = botRunning
-                        ? "🤖 AstrBot: 运行中"
-                        : "🤖 AstrBot: 已停止";
-                    mStatusText.setText("🐧 PRoot 模式\n" + botStatus);
-                    mStartButton.setEnabled(!botRunning);
-                    mStopButton.setEnabled(botRunning);
-                    mSetupButton.setVisibility(View.GONE);
-                    mSshInfoPanel.setVisibility(View.VISIBLE);
-                    mWebuiPanel.setVisibility(View.VISIBLE);
-                    updateSshPanel();
+        AuthManager am = AuthManager.getInstance();
+
+        // PRoot mode — always available, no root/Shizuku needed
+        if (am.isProotMode()) {
+            if (rootfsReady && astrBotInstalled) {
+                // Fully installed — show status
+                String botStatus = botRunning
+                    ? "🤖 AstrBot: 运行中"
+                    : "🤖 AstrBot: 已停止";
+                mStatusText.setText("🐧 PRoot 模式（免 Root）\n" + botStatus);
+                mStartButton.setEnabled(!botRunning);
+                mStopButton.setEnabled(botRunning);
+                mSetupButton.setVisibility(View.GONE);
+                mSshInfoPanel.setVisibility(View.VISIBLE);
+                mWebuiPanel.setVisibility(View.VISIBLE);
+
+                // WebUI panel status
+                mWebuiUrl.setText("http://127.0.0.1:6185");
+                String lanIp = detectLanIpRaw();
+                if (lanIp != null) {
+                    mWebuiUrlLan.setText("局域网: http://" + lanIp + ":6185");
+                    mWebuiUrlLan.setVisibility(View.VISIBLE);
                 } else {
-                    // Not yet installed
-                    mStatusText.setText("🐧 PRoot 模式（免 Root）\n📦 需要安装");
-                    mStartButton.setEnabled(false);
-                    mStopButton.setEnabled(false);
-                    mSetupButton.setVisibility(View.VISIBLE);
-                    mSetupButton.setEnabled(true);
-                    mSshInfoPanel.setVisibility(View.GONE);
-                    mWebuiPanel.setVisibility(View.GONE);
+                    mWebuiUrlLan.setVisibility(View.GONE);
                 }
-            } else if (am.isShizukuAdbMode() || am.isShizukuBinderAlive()) {
-                // Shizuku ADB mode detected — offer PRoot
-                mStatusText.setText("⚠ Shizuku ADB 模式权限不足\n可使用 PRoot 免 Root 模式");
-                mStartButton.setEnabled(false);
-                mStopButton.setEnabled(false);
-                mSetupButton.setVisibility(View.VISIBLE);
-                mSetupButton.setEnabled(true);
-                mSetupButton.setText("使用 PRoot 模式");
-                mSetupButton.setOnClickListener(v -> {
-                    am.setForceProot(true);
-                    // Jump to setup
-                    Intent setupIntent = new Intent(this, SetupActivity.class);
-                    setupIntent.putExtra(SetupActivity.EXTRA_START_STEP, SetupActivity.STEP_INSTALL);
-                    startActivity(setupIntent);
-                });
-                mWebuiPanel.setVisibility(View.GONE);
-                mSshInfoPanel.setVisibility(View.GONE);
+                if (astrBotRunning) {
+                    mWebuiStatus.setText("运行中");
+                    mWebuiStatus.setTextColor(getColor(android.R.color.holo_green_light));
+                } else {
+                    mWebuiStatus.setText("未运行");
+                    mWebuiStatus.setTextColor(getColor(android.R.color.holo_red_light));
+                }
+
+                updateSshPanel();
             } else {
-                // No auth at all — guide to permissions page
-                mStatusText.setText("⚠ 需要 Root 或 Shizuku 权限\n点击下方「权限」按钮配置");
+                // Not yet installed
+                mStatusText.setText("🐧 PRoot 模式（免 Root）\n📦 需要安装");
                 mStartButton.setEnabled(false);
                 mStopButton.setEnabled(false);
                 mSetupButton.setVisibility(View.VISIBLE);
                 mSetupButton.setEnabled(true);
-                mSetupButton.setText("前往权限设置");
-                mSetupButton.setOnClickListener(v -> {
-                    Intent permIntent = new Intent(this, PermissionsActivity.class);
-                    startActivity(permIntent);
-                });
-                mWebuiPanel.setVisibility(View.GONE);
+                mSetupButton.setText("安装 AstrBot");
                 mSshInfoPanel.setVisibility(View.GONE);
+                mWebuiPanel.setVisibility(View.GONE);
             }
+        } else if (!hasPrivilegedAccess) {
+            // No root/Shizuku — auto-switch to PRoot mode
+            // PRoot doesn't require any special permissions
+            am.setForceProot(true);
+            mStatusText.setText("🐧 PRoot 模式（免 Root）\n📦 需要安装");
+            mStartButton.setEnabled(false);
+            mStopButton.setEnabled(false);
+            mSetupButton.setVisibility(View.VISIBLE);
+            mSetupButton.setEnabled(true);
+            mSetupButton.setText("安装 AstrBot");
+            mSshInfoPanel.setVisibility(View.GONE);
+            mWebuiPanel.setVisibility(View.GONE);
         } else if (!rootfsReady || !astrBotInstalled) {
             String authMode = rootAvailable ? "Root" : "Shizuku";
             mStatusText.setText("📦 需要安装（" + authMode + " 模式）");
@@ -338,8 +341,14 @@ public class MainActivity extends AppCompatActivity {
             mSetupButton.setVisibility(View.GONE);
 
             // WebUI panel: always visible after installation, update status text
-            String webuiUrl = detectLanIp();
-            mWebuiUrl.setText(webuiUrl);
+            mWebuiUrl.setText("http://127.0.0.1:6185");
+            String lanIp = detectLanIpRaw();
+            if (lanIp != null) {
+                mWebuiUrlLan.setText("局域网: http://" + lanIp + ":6185");
+                mWebuiUrlLan.setVisibility(View.VISIBLE);
+            } else {
+                mWebuiUrlLan.setVisibility(View.GONE);
+            }
             mWebuiPanel.setVisibility(View.VISIBLE);
             if ("astrbot".equals(activeBot.getId()) && astrBotRunning) {
                 mWebuiStatus.setText("运行中");
@@ -373,8 +382,14 @@ public class MainActivity extends AppCompatActivity {
         if (mLabelAstrbot != null) {
             mLabelAstrbot.setText(activeBot.getName().toUpperCase());
         }
-        // BINARIES: root shell access (su or Shizuku)
-        if (status.rootAvailable()) {
+        // BINARIES: root shell access (su or Shizuku) or PRoot mode
+        AuthManager am = AuthManager.getInstance();
+        if (am.isProotMode()) {
+            // In PRoot mode, binaries are always available (proot is bundled)
+            mStatusBinaries.setText("PRoot 已就绪");
+            mStatusBinaries.setTextColor(getColor(R.color.status_connected));
+            mDotBinaries.setBackgroundResource(R.drawable.ic_status_ready);
+        } else if (status.rootAvailable()) {
             mStatusBinaries.setText("Root 已就绪");
             mStatusBinaries.setTextColor(getColor(R.color.status_connected));
             mDotBinaries.setBackgroundResource(R.drawable.ic_status_ready);
@@ -400,7 +415,12 @@ public class MainActivity extends AppCompatActivity {
         }
 
         // BOOTSTRAP: chroot environment mounted (proc/sys/dev/pts)
-        if (status.chrootMounted()) {
+        if (am.isProotMode()) {
+            // In PRoot mode, no chroot mounting is needed — proot handles everything
+            mStatusBootstrap.setText("无需");
+            mStatusBootstrap.setTextColor(getColor(R.color.status_connected));
+            mDotBootstrap.setBackgroundResource(R.drawable.ic_status_ready);
+        } else if (status.chrootMounted()) {
             mStatusBootstrap.setText("运行中");
             mStatusBootstrap.setTextColor(getColor(R.color.status_connected));
             mDotBootstrap.setBackgroundResource(R.drawable.ic_status_ready);
@@ -441,26 +461,38 @@ public class MainActivity extends AppCompatActivity {
             boolean isRunning;
             String sshInfo;
             String rootPassword;
+            int sshPort;
             if (useProot) {
                 PRootManager pm = PRootManager.getInstance(MainActivity.this);
                 isRunning = pm.isSshRunning();
                 sshInfo = pm.getSshInfo();
+                sshPort = PRootManager.SSH_PORT;
                 rootPassword = RbotConstants.DEFAULT_SSH_PASSWORD;
             } else {
                 isRunning = ChrootManager.isSshRunning();
                 sshInfo = ChrootManager.getSshInfo();
+                sshPort = 22;
                 rootPassword = ChrootManager.getRootPassword();
             }
             mHandler.post(() -> {
-                mSshInfo.setText(sshInfo);
+                // Only show LAN address (user has built-in terminal for local access)
+                String lanIp = detectLanIpRaw();
+                if (lanIp != null) {
+                    mSshInfo.setText("ssh root@" + lanIp + " -p " + sshPort);
+                    mSshInfoLan.setVisibility(View.GONE);
+                } else {
+                    mSshInfo.setText("ssh root@127.0.0.1 -p " + sshPort);
+                    mSshInfoLan.setVisibility(View.GONE);
+                }
                 mSshPassword.setText("密码: " + (rootPassword.isEmpty() ? "(未设置)" : rootPassword));
 
                 // Click to copy SSH connection string
                 mSshInfo.setOnClickListener(v -> {
+                    String copyStr = mSshInfo.getText().toString();
                     android.content.ClipboardManager clipboard = (android.content.ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-                    android.content.ClipData clip = android.content.ClipData.newPlainText("SSH", sshInfo);
+                    android.content.ClipData clip = android.content.ClipData.newPlainText("SSH", copyStr);
                     clipboard.setPrimaryClip(clip);
-                    android.widget.Toast.makeText(this, "已复制: " + sshInfo, android.widget.Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(this, "已复制: " + copyStr, android.widget.Toast.LENGTH_SHORT).show();
                 });
                 if (isRunning) {
                     mSshStatus.setText("运行中");
@@ -479,7 +511,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void startGateway() {
         mStartButton.setEnabled(false);
-        mStatusText.setText("🔄 启动中...");
+        mStopButton.setEnabled(false);
+        mStatusText.setText("🔄 启动中（可能需要 10-30 秒）...");
         
         // Log the operation
         OpLog.log("🚀 启动 AstrBot...");
@@ -503,19 +536,12 @@ public class MainActivity extends AppCompatActivity {
                 OpLog.log("❌ AstrBot 启动失败: " + result.stderr());
             }
             
-            // Wait a bit for the process to fully start
-            try {
-                Thread.sleep(2000);
-            } catch (InterruptedException e) {
-                // ignore
-            }
-            
             refreshStatusOffThread();
             mHandler.post(() -> {
-                if (!result.success()) {
-                    android.widget.Toast.makeText(this, "启动失败: " + result.stderr(), android.widget.Toast.LENGTH_LONG).show();
-                } else {
+                if (result.success()) {
                     android.widget.Toast.makeText(this, "AstrBot 启动成功", android.widget.Toast.LENGTH_SHORT).show();
+                } else {
+                    android.widget.Toast.makeText(this, "启动失败: " + result.stderr(), android.widget.Toast.LENGTH_LONG).show();
                 }
             });
         }).start();
@@ -583,6 +609,12 @@ public class MainActivity extends AppCompatActivity {
 
     /** Try to detect LAN IP of this device, fall back to localhost */
     private String detectLanIp() {
+        // For the WebUI open button — always use localhost (browser is on the same device)
+        return "http://127.0.0.1:6185";
+    }
+
+    /** Detect raw LAN IP address (no port, no protocol), null if not found */
+    private String detectLanIpRaw() {
         try {
             java.net.NetworkInterface iface = java.net.NetworkInterface.getByName("wlan0");
             if (iface == null) {
@@ -601,14 +633,14 @@ public class MainActivity extends AppCompatActivity {
                 while (addrs.hasMoreElements()) {
                     java.net.InetAddress addr = addrs.nextElement();
                     if (!addr.isLoopbackAddress() && addr instanceof java.net.Inet4Address) {
-                        return "http://" + addr.getHostAddress() + ":6185";
+                        return addr.getHostAddress();
                     }
                 }
             }
         } catch (Exception e) {
-            Log.w(TAG, "detectLanIp failed: " + e.getMessage());
+            Log.w(TAG, "detectLanIpRaw failed: " + e.getMessage());
         }
-        return "http://127.0.0.1:6185";
+        return null;
     }
 
     // ─── Notification channel ───
