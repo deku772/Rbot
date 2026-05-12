@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.PowerManager;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
@@ -26,6 +27,7 @@ import androidx.core.content.ContextCompat;
  */
 public class PermissionsActivity extends AppCompatActivity {
 
+    private static final String TAG = "PermissionsActivity";
     private static final int REQUEST_STORAGE_PERMISSION = 100;
     private static final int REQUEST_NOTIFICATION_PERMISSION = 101;
 
@@ -306,14 +308,40 @@ public class PermissionsActivity extends AppCompatActivity {
     }
 
     private void requestStoragePermission() {
+        Log.i(TAG, "requestStoragePermission called, SDK=" + Build.VERSION.SDK_INT);
+        Toast.makeText(this, "正在打开存储权限设置...", Toast.LENGTH_SHORT).show();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            // Android 11+: 先尝试标准的 MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
             try {
                 Intent intent = new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION);
                 intent.setData(Uri.parse("package:" + getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                Log.i(TAG, "Starting storage permission activity: " + intent);
+                startActivity(intent);
+                return;
+            } catch (Exception e) {
+                Log.w(TAG, "Primary storage permission intent failed: " + e.getMessage());
+            }
+            // Fallback: 通用存储管理页面
+            try {
+                Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                Log.i(TAG, "Starting fallback storage permission activity");
+                startActivity(intent);
+                return;
+            } catch (Exception e) {
+                Log.w(TAG, "Fallback storage permission intent failed: " + e.getMessage());
+            }
+            // Last resort: 应用详情页面
+            try {
+                Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                intent.setData(Uri.parse("package:" + getPackageName()));
+                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                Log.i(TAG, "Starting app details as last resort");
                 startActivity(intent);
             } catch (Exception e) {
-                Intent intent = new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION);
-                startActivity(intent);
+                Log.e(TAG, "All storage permission intents failed: " + e.getMessage());
+                Toast.makeText(this, "请手动到系统设置中授予存储权限", Toast.LENGTH_LONG).show();
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             ActivityCompat.requestPermissions(this,
