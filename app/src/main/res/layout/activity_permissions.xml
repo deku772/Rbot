@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="@color/rbot_background"
+    android:fillViewport="true">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
     android:padding="16dp">
 
     <!-- Header -->
@@ -178,7 +183,84 @@
 
     </androidx.cardview.widget.CardView>
 
-    <!-- ═══ 第3位：PRoot 免 Root ═══ -->
+    <!-- ═══ 第3位：存储权限 ═══ -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="#E3F2FD">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📁"
+                    android:textSize="20sp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="存储权限"
+                        android:textSize="15sp"
+                        android:textColor="#1565C0"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/storage_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="检测中..."
+                        android:textSize="12sp"
+                        android:textColor="#0D47A1"
+                        android:layout_marginTop="2dp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="需要访问存储来读取 rootfs 镜像包、备份文件和日志。没有此权限将无法检测本地已下载的系统镜像。"
+                android:textSize="12sp"
+                android:textColor="#0D47A1"
+                android:layout_marginTop="8dp" />
+
+            <Button
+                android:id="@+id/btn_grant_storage"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="12dp"
+                android:text="授予存储权限"
+                android:textSize="13sp"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/rbot_button_green_bg" />
+
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
+    <!-- ═══ 第4位：PRoot 免 Root ═══ -->
     <androidx.cardview.widget.CardView
         android:id="@+id/proot_card"
         android:layout_width="match_parent"
@@ -248,83 +330,6 @@
                 android:layout_height="40dp"
                 android:layout_marginTop="12dp"
                 android:text="启用 PRoot 模式"
-                android:textSize="13sp"
-                android:textColor="#FFFFFF"
-                android:background="@drawable/rbot_button_green_bg" />
-
-        </LinearLayout>
-
-    </androidx.cardview.widget.CardView>
-
-    <!-- ═══ 第4位：存储权限 ═══ -->
-    <androidx.cardview.widget.CardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="0dp"
-        app:cardBackgroundColor="#E3F2FD">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📁"
-                    android:textSize="20sp" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="12dp"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="存储权限"
-                        android:textSize="15sp"
-                        android:textColor="#1565C0"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/storage_status"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="检测中..."
-                        android:textSize="12sp"
-                        android:textColor="#0D47A1"
-                        android:layout_marginTop="2dp" />
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="需要访问存储来读取 rootfs 镜像包、备份文件和日志。没有此权限将无法检测本地已下载的系统镜像。"
-                android:textSize="12sp"
-                android:textColor="#0D47A1"
-                android:layout_marginTop="8dp" />
-
-            <Button
-                android:id="@+id/btn_grant_storage"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:layout_marginTop="12dp"
-                android:text="授予存储权限"
                 android:textSize="13sp"
                 android:textColor="#FFFFFF"
                 android:background="@drawable/rbot_button_green_bg" />
@@ -535,3 +540,4 @@
     </androidx.cardview.widget.CardView>
 
 </LinearLayout>
+</ScrollView>
