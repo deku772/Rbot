@@ -70,6 +70,14 @@ public class PermissionsActivity extends AppCompatActivity {
         mEnableProotButton.setOnClickListener(v -> enableProotMode());
         mGrantNotificationButton.setOnClickListener(v -> requestNotificationPermission());
 
+        // Start install button
+        android.widget.Button btnStartInstall = findViewById(R.id.btn_start_install);
+        btnStartInstall.setOnClickListener(v -> {
+            Intent intent = new Intent(this, SetupActivity.class);
+            intent.putExtra(SetupActivity.EXTRA_START_STEP, SetupActivity.STEP_INSTALL);
+            startActivity(intent);
+        });
+
         // Show notification card only on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             mNotificationCard.setVisibility(View.VISIBLE);
