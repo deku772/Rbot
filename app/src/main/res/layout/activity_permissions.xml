@@ -33,161 +33,7 @@
 
     </LinearLayout>
 
-    <!-- Battery optimization card -->
-    <androidx.cardview.widget.CardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="0dp"
-        app:cardBackgroundColor="#FFF3E0">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🔋"
-                    android:textSize="20sp" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="12dp"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="电池优化"
-                        android:textSize="15sp"
-                        android:textColor="#E65100"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/battery_status"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="检测中..."
-                        android:textSize="12sp"
-                        android:textColor="#BF360C"
-                        android:layout_marginTop="2dp" />
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="未关闭电池优化时，系统可能在后台自动停止 AstrBot。建议点击「优化」并选择「所有应用」→ 找到本应用 → 设为「不优化」。"
-                android:textSize="12sp"
-                android:textColor="#BF360C"
-                android:layout_marginTop="8dp" />
-
-            <Button
-                android:id="@+id/btn_disable_battery_opt"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:layout_marginTop="12dp"
-                android:text="优化电池设置"
-                android:textSize="13sp"
-                android:textColor="#FFFFFF"
-                android:background="@drawable/rbot_button_green_bg" />
-
-        </LinearLayout>
-
-    </androidx.cardview.widget.CardView>
-
-    <!-- Storage permission card -->
-    <androidx.cardview.widget.CardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="0dp"
-        app:cardBackgroundColor="#E3F2FD">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="📁"
-                    android:textSize="20sp" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="12dp"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="存储权限"
-                        android:textSize="15sp"
-                        android:textColor="#1565C0"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/storage_status"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="检测中..."
-                        android:textSize="12sp"
-                        android:textColor="#0D47A1"
-                        android:layout_marginTop="2dp" />
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="AstrBot 需要访问存储来管理 rootfs 镜像、备份文件和日志。"
-                android:textSize="12sp"
-                android:textColor="#0D47A1"
-                android:layout_marginTop="8dp" />
-
-            <Button
-                android:id="@+id/btn_grant_storage"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:layout_marginTop="12dp"
-                android:text="授予存储权限"
-                android:textSize="13sp"
-                android:textColor="#FFFFFF"
-                android:background="@drawable/rbot_button_green_bg" />
-
-        </LinearLayout>
-
-    </androidx.cardview.widget.CardView>
-
-    <!-- Root permission card -->
+    <!-- ═══ 第1位：Root 权限 ═══ -->
     <androidx.cardview.widget.CardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -254,7 +100,7 @@
 
     </androidx.cardview.widget.CardView>
 
-    <!-- Shizuku permission card -->
+    <!-- ═══ 第2位：Shizuku ═══ -->
     <androidx.cardview.widget.CardView
         android:id="@+id/shizuku_card"
         android:layout_width="match_parent"
@@ -332,7 +178,7 @@
 
     </androidx.cardview.widget.CardView>
 
-    <!-- PRoot mode card -->
+    <!-- ═══ 第3位：PRoot 免 Root ═══ -->
     <androidx.cardview.widget.CardView
         android:id="@+id/proot_card"
         android:layout_width="match_parent"
@@ -410,7 +256,84 @@
 
     </androidx.cardview.widget.CardView>
 
-    <!-- Notification permission card (Android 13+) -->
+    <!-- ═══ 第4位：存储权限 ═══ -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="#E3F2FD">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="📁"
+                    android:textSize="20sp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="存储权限"
+                        android:textSize="15sp"
+                        android:textColor="#1565C0"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/storage_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="检测中..."
+                        android:textSize="12sp"
+                        android:textColor="#0D47A1"
+                        android:layout_marginTop="2dp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="需要访问存储来读取 rootfs 镜像包、备份文件和日志。没有此权限将无法检测本地已下载的系统镜像。"
+                android:textSize="12sp"
+                android:textColor="#0D47A1"
+                android:layout_marginTop="8dp" />
+
+            <Button
+                android:id="@+id/btn_grant_storage"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="12dp"
+                android:text="授予存储权限"
+                android:textSize="13sp"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/rbot_button_green_bg" />
+
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
+    <!-- ═══ 第5位：通知权限（Android 13+） ═══ -->
     <androidx.cardview.widget.CardView
         android:id="@+id/notification_card"
         android:layout_width="match_parent"
@@ -480,6 +403,83 @@
                 android:layout_height="40dp"
                 android:layout_marginTop="12dp"
                 android:text="授予通知权限"
+                android:textSize="13sp"
+                android:textColor="#FFFFFF"
+                android:background="@drawable/rbot_button_green_bg" />
+
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
+    <!-- ═══ 最后：电池优化（可选） ═══ -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="12dp"
+        app:cardCornerRadius="8dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="#FFF3E0">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="🔋"
+                    android:textSize="20sp" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="电池优化（可选）"
+                        android:textSize="15sp"
+                        android:textColor="#E65100"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/battery_status"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="检测中..."
+                        android:textSize="12sp"
+                        android:textColor="#BF360C"
+                        android:layout_marginTop="2dp" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="关闭电池优化可防止系统后台杀掉 AstrBot 服务。非必须，但推荐设置。"
+                android:textSize="12sp"
+                android:textColor="#BF360C"
+                android:layout_marginTop="8dp" />
+
+            <Button
+                android:id="@+id/btn_disable_battery_opt"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:layout_marginTop="12dp"
+                android:text="优化电池设置"
                 android:textSize="13sp"
                 android:textColor="#FFFFFF"
                 android:background="@drawable/rbot_button_green_bg" />
