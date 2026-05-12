@@ -4,7 +4,7 @@
 
 支持两种运行模式：
 - **Root 模式 (chroot)** —— 需要 Root 权限，零性能损耗，直接跑在 Linux 环境
-- **免 Root 模式 (proot)** —— 无需 Root，通过 ptrace 系统调用拦截运行 Linux 环境
+- **免 Root 模式 (proot)** —— 无需 Root，无需 Shizuku，通过 ptrace 系统调用拦截运行 Linux 环境
 
 ## 📚 快速指南
 
@@ -195,6 +195,7 @@ APK 位于 `app/build/outputs/apk/debug/`。
 
 ### v2.1.1 (2026-05-12)
 
+**新功能：**
 - 新增免 Root (proot) 模式：无需 Root、无需 Shizuku，开箱即用
 - proot 通过 ptrace 系统调用拦截运行完整 Ubuntu rootfs
 - proot 网关守护进程架构：proot 作为常驻容器，AstrBot/SSH 在其内运行
@@ -202,6 +203,24 @@ APK 位于 `app/build/outputs/apk/debug/`。
 - 内置终端支持 proot 模式（自动选择 proot/chroot shell）
 - WebUI 面板同时显示本机和局域网地址
 - SSH 面板显示局域网地址（端口 8022）
+
+**Bug 修复：**
+- 修复 PRoot 模式下安装标记文件位置错误
+- 修复测速 URL 使用非 GitHub 地址导致代理失效
+- 修复环境变量清除导致 libtalloc.so.2 链接失败
+- 修复 RbotService 未根据运行模式选择正确的启动方法
+- 修复 AuthManager 模式检测逻辑，确保无 root/Shizuku 时自动使用 PRoot 模式
+- 增强 PRootManager 下载逻辑，添加重试机制和详细日志
+- 修复 BINARIES 状态显示问题，在 PRoot 模式下正确显示"PRoot 已就绪"
+- 修复进程状态检测逻辑，确保在 PRoot 环境内部检查进程状态
+- 增强启动命令调试信息输出，便于问题定位
+
+**技术改进：**
+- PRoot 模式下使用不同的标记文件路径
+- 代理测速仅使用 GitHub 官方 API
+- 显式传递 LD_LIBRARY_PATH 环境变量
+- 添加 proot 下载备用链接和重试机制
+- 在 PRoot 环境内部检查进程状态而非从主机检查
 
 ### v2.0.5 (2026-05-10)
 
