@@ -738,45 +738,90 @@ public class SetupActivity extends AppCompatActivity {
     // ─── Rootfs tarball finding ───
 
     private String findRootfsTarball() {
-        String cachePath = RbotConstants.SDCARD_ROOTFS_CACHE;
-        java.io.File cacheFile = new java.io.File(cachePath);
+        String sdcardPath = RbotConstants.SDCARD_ROOTFS_CACHE;
+        java.io.File sdcardFile = new java.io.File(sdcardPath);
+        boolean useProot = AuthManager.getInstance().isProotMode();
         
-        if (cacheFile.exists()) {
-            long fileSize = cacheFile.length();
-            appendLog("  发现本地镜像: " + cachePath);
-            appendLog("  文件大小: " + (fileSize / 1024 / 1024) + " MB");
+        if (sdcardFile.exists()) {
+            long fileSize = sdcardFile.length();
+            appendLog("  发现 sdcard 镜像: " + sdcardPath + " (" + (fileSize / 1024 / 1024) + " MB)");
             
             // 基本文件大小检查（rootfs 应该至少 400MB）
             if (fileSize < 400 * 1024 * 1024) {
                 appendLog("  ⚠️ 文件太小（可能下载不完整），将重新下载");
-                cacheFile.delete();
+                sdcardFile.delete();
                 return null;
             }
             
-            appendLog("  校验本地镜像 MD5...");
-            Boolean md5Result = verifyRootfsMd5(cachePath);
+            // PRoot 模式下，sdcard 文件可能因 Android 分区存储限制无法直接读取。
+            // 先尝试复制到 app 内部可写目录，再校验+解压。
+            if (useProot) {
+                java.io.File localFile = new java.io.File(getFilesDir(), "rootfs-cache.tar.gz");
+                if (!localFile.exists() || localFile.length() != fileSize) {
+                    appendLog("  📋 PRoot 模式：复制镜像到内部存储（约 1-3 分钟）...");
+                    try (java.io.InputStream is = new java.io.FileInputStream(sdcardFile);
+                         java.io.OutputStream os = new java.io.FileOutputStream(localFile)) {
+                        long total = 0;
+                        byte[] buf = new byte[65536];
+                        int n;
+                        while ((n = is.read(buf)) > 0) {
+                            os.write(buf, 0, n);
+                            total += n;
+                        }
+                        appendLog("  ✅ 已复制 " + (total / 1024 / 1024) + " MB");
+                    } catch (Exception e) {
+                        appendLog("  ⚠️ sdcard 复制失败: " + e.getClass().getSimpleName());
+                        appendLog("  将尝试通过系统 cat 命令复制...");
+                        // Fallback: 用 /system/bin/cat 绕过存储限制
+                        try {
+                            Process p = Runtime.getRuntime().exec(new String[]{
+                                "/system/bin/cat", sdcardPath
+                            });
+                            try (java.io.InputStream is = p.getInputStream();
+                                 java.io.OutputStream os = new java.io.FileOutputStream(localFile)) {
+                                long total = 0;
+                                byte[] buf = new byte[65536];
+                                int n;
+                                while ((n = is.read(buf)) > 0) {
+                                    os.write(buf, 0, n);
+                                    total += n;
+                                }
+                                p.waitFor();
+                                appendLog("  ✅ 已复制 " + (total / 1024 / 1024) + " MB（via cat）");
+                            }
+                        } catch (Exception e2) {
+                            appendLog("  ❌ 复制也失败: " + e2.getClass().getSimpleName());
+                            appendLog("  请授予存储权限后重试，或手动下载镜像");
+                            return null;
+                        }
+                    }
+                }
+                if (localFile.exists() && localFile.length() > 400 * 1024 * 1024) {
+                    sdcardPath = localFile.getAbsolutePath();
+                    sdcardFile = localFile;
+                    appendLog("  使用内部存储镜像: " + sdcardPath);
+                } else {
+                    appendLog("  ❌ 内部存储镜像不可用，需要下载");
+                }
+            }
+            
+            appendLog("  校验镜像 MD5...");
+            Boolean md5Result = verifyRootfsMd5(sdcardPath);
             if (Boolean.TRUE.equals(md5Result)) {
-                appendLog("  ✅ 本地镜像校验通过");
-                return cachePath;
+                appendLog("  ✅ 镜像校验通过");
+                return sdcardPath;
             }
             
-            // MD5 校验失败或跳过，但文件存在且大小合理，给用户选择
-            appendLog("  ⚠️ MD5 " + (md5Result == null ? "校验跳过" : "校验失败"));
-            appendLog("  期望: " + RbotConstants.ROOTFS_MD5);
-            appendLog("  如果你确认文件完整，可以跳过校验继续使用");
-            appendLog("  否则将删除并重新下载");
-            
-            // PRoot 模式下，如果文件大小合理，直接使用（MD5 可能因权限问题失败）
-            boolean useProot = AuthManager.getInstance().isProotMode();
-            if (useProot && fileSize > 400 * 1024 * 1024) {
-                appendLog("  ⚠️ PRoot 模式：文件大小合理(" + (fileSize/1024/1024) + "MB)，直接使用本地镜像");
-                return cachePath;
+            if (md5Result == null) {
+                appendLog("  ⚠️ MD5 校验跳过（文件不可读），但大小合理，使用本地镜像");
+                return sdcardPath;
             }
             
-            cacheFile.delete();
+            appendLog("  ⚠️ MD5 不匹配，期望: " + RbotConstants.ROOTFS_MD5);
+            sdcardFile.delete();
         }
         
-        appendLog("  本地未找到镜像，检测路径: " + cachePath);
+        appendLog("  本地未找到镜像，检测路径: " + RbotConstants.SDCARD_ROOTFS_CACHE);
         appendLog("  你可以手动放置 ubuntu24_rbot.tar.gz 到该路径跳过下载");
         return null;
     }
