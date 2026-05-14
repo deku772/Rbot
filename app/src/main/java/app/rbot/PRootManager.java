@@ -1,5 +1,6 @@
 package app.rbot;
 
+import app.rbot.ChrootManager.CommandResult;
 import android.content.Context;
 import android.os.Build;
 import android.system.ErrnoException;
