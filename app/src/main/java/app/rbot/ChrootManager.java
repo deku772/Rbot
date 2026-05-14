@@ -921,6 +921,14 @@ public final class ChrootManager {
      * @return Backup file path on success, null on failure
      */
     public static String backupAstrBotData(ProgressCallback callback) {
+        // Check if we're in PRoot mode
+        if (AuthManager.getInstance().isProotMode()) {
+            // PRoot mode - use PRootManager
+            PRootManager pm = PRootManager.getInstance(null);
+            return pm.backupAstrBotData(callback);
+        }
+
+        // Chroot mode - original logic
         if (callback != null) callback.onProgress("准备备份...");
 
         // No need to setup chroot — host-side tar reads ext4 paths directly with root
@@ -989,6 +997,14 @@ public final class ChrootManager {
      * @return true on failure, false on success
      */
     public static boolean restoreAstrBotData(String backupFile, ProgressCallback callback) {
+        // Check if we're in PRoot mode
+        if (AuthManager.getInstance().isProotMode()) {
+            // PRoot mode - use PRootManager
+            PRootManager pm = PRootManager.getInstance(null);
+            return pm.restoreAstrBotData(backupFile, callback);
+        }
+
+        // Chroot mode - original logic
         if (callback != null) callback.onProgress("检查备份...");
 
         // Verify backup file exists
@@ -1021,6 +1037,13 @@ public final class ChrootManager {
      * @return Array of backup file paths, sorted by modification time (newest first)
      */
     public static String[] listBackups() {
+        // Check if we're in PRoot mode
+        if (AuthManager.getInstance().isProotMode()) {
+            // PRoot mode - use PRootManager
+            return PRootManager.listBackups();
+        }
+
+        // Chroot mode - original logic
         CommandResult result = execRoot(
             "ls -1t " + RbotConstants.BACKUP_DIR + "/astrbot_data_*.tar.gz 2>/dev/null || echo none");
 
