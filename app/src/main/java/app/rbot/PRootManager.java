@@ -1371,6 +1371,134 @@ public final class PRootManager {
         writeFile(new File(mAstrBotMarker), "installed\n");
     }
 
+    // ─── Backup & Restore (PRoot mode) ───
+
+    /**
+     * Create a backup of AstrBot data directory in PRoot mode.
+     * Uses tar to preserve symlinks and permissions.
+     * Backup: /sdcard/rbot/backups/astrbot_data_{timestamp}.tar.gz
+     * @param callback Progress callback for UI updates
+     * @return Backup file path on success, null on failure
+     */
+    public String backupAstrBotData(ChrootManager.ProgressCallback callback) {
+        if (callback != null) callback.onProgress("准备备份...");
+
+        // Ensure backup directory exists on host side (need root for sdcard)
+        CommandResult mkdirResult = ChrootManager.execRoot("mkdir -p " + RbotConstants.BACKUP_DIR);
+        if (!mkdirResult.success()) {
+            if (callback != null) callback.onError("无法创建备份目录");
+            return null;
+        }
+
+        // Generate timestamped backup file
+        String timestamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.getDefault())
+            .format(new java.util.Date());
+        String backupFile = RbotConstants.BACKUP_DIR + "/astrbot_data_" + timestamp + ".tar.gz";
+
+        if (callback != null) callback.onProgress("正在打包数据（排除虚拟环境和缓存）...");
+
+        // Use proot to create tar archive inside PRoot, then copy to sdcard
+        // First, create tar.gz inside proot rootfs
+        CommandResult tarResult = runInProot(
+            "cd /root/astrbot && tar czf /root/astrbot_backup.tar.gz " +
+            "--exclude='./venv' " +
+            "--exclude='./__pycache__' " +
+            "--exclude='./.git' " +
+            "--exclude='./astrbot.log' " +
+            "--exclude='./astrbot-debug.log' " +
+            "--exclude='./astrbot.pid' " +
+            ". 2>&1", 300);
+
+        if (!tarResult.success()) {
+            if (callback != null) callback.onError("打包失败: " + tarResult.stderr());
+            return null;
+        }
+
+        // Copy the backup file to sdcard (need root for sdcard access)
+        CommandResult copyResult = ChrootManager.execRoot(
+            "cp " + mRootfsDir + "/root/astrbot/astrbot_backup.tar.gz '" + backupFile + "' && " +
+            "rm -f " + mRootfsDir + "/root/astrbot/astrbot_backup.tar.gz", 60);
+
+        if (!copyResult.success()) {
+            if (callback != null) callback.onError("复制备份文件失败: " + copyResult.stderr());
+            return null;
+        }
+
+        // Verify backup file was created and has content
+        CommandResult checkResult = ChrootManager.execRoot(
+            "test -f '" + backupFile + "' && stat -c '%s' '" + backupFile + "' || echo missing");
+        if (!checkResult.success() || checkResult.stdout().trim().equals("missing") || checkResult.stdout().trim().equals("0")) {
+            if (callback != null) callback.onError("备份文件无效或为空");
+            return null;
+        }
+
+        String sizeInfo = checkResult.stdout().trim();
+        if (callback != null) callback.onProgress("备份完成: " + backupFile + " (" + sizeInfo + " bytes)");
+        return backupFile;
+    }
+
+    /**
+     * Restore AstrBot data from a backup tar.gz file in PRoot mode.
+     * @param backupFile Full path to the backup .tar.gz file
+     * @param callback Progress callback for UI updates
+     * @return true on failure, false on success
+     */
+    public boolean restoreAstrBotData(String backupFile, ChrootManager.ProgressCallback callback) {
+        if (callback != null) callback.onProgress("检查备份...");
+
+        // Verify backup file exists
+        CommandResult checkResult = ChrootManager.execRoot("test -f '" + backupFile + "' && echo exists");
+        if (!checkResult.success() || !checkResult.stdout().trim().equals("exists")) {
+            if (callback != null) callback.onError("备份文件不存在");
+            return true;
+        }
+
+        if (callback != null) callback.onProgress("停止 AstrBot...");
+        stopAstrBot();
+
+        if (callback != null) callback.onProgress("正在恢复数据...");
+
+        // Copy backup file to proot rootfs
+        CommandResult copyResult = ChrootManager.execRoot(
+            "cp '" + backupFile + "' " + mRootfsDir + "/root/astrbot/astrbot_restore.tar.gz", 60);
+        if (!copyResult.success()) {
+            if (callback != null) callback.onError("复制备份文件失败: " + copyResult.stderr());
+            return true;
+        }
+
+        // Extract tar.gz into astrbot directory inside proot
+        CommandResult tarResult = runInProot(
+            "cd /root/astrbot && rm -rf ./data ./config ./plugins 2>/dev/null; " +
+            "tar xzf /root/astrbot_restore.tar.gz && " +
+            "rm -f /root/astrbot_restore.tar.gz", 300);
+
+        if (!tarResult.success()) {
+            if (callback != null) callback.onError("恢复失败: " + tarResult.stderr());
+            return true;
+        }
+
+        // Clean up restore file
+        ChrootManager.execRoot("rm -f " + mRootfsDir + "/root/astrbot/astrbot_restore.tar.gz");
+
+        if (callback != null) callback.onProgress("恢复完成");
+        return false;
+    }
+
+    /**
+     * List all available backup files in PRoot mode.
+     * @return Array of backup file paths, sorted by modification time (newest first)
+     */
+    public static String[] listBackups() {
+        CommandResult result = ChrootManager.execRoot(
+            "ls -1t " + RbotConstants.BACKUP_DIR + "/astrbot_data_*.tar.gz 2>/dev/null || echo none");
+
+        if (!result.success() || result.stdout().trim().equals("none")) {
+            return new String[0];
+        }
+
+        return result.stdout().trim().split("\n");
+    }
+
     // ─── Utility methods ───
 
     private boolean hasStorageAccess() {
