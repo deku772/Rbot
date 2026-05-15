@@ -28,10 +28,13 @@ public class SettingsActivity extends AppCompatActivity {
     private Button mRestoreButton;
     private Button mCleanInstallButton;
     private Button mSwitchBotButton;
+    private Button mCheckUpdateButton;
     private TextView mCurrentBotName;
     private TextView mCurrentBotStatus;
+    private TextView mAppVersion;
 
     private BotManager mBotManager;
+    private UpdateManager mUpdateManager;
     private boolean mBackupInProgress = false;
     private Handler mHandler = new Handler(Looper.getMainLooper());
 
@@ -41,6 +44,7 @@ public class SettingsActivity extends AppCompatActivity {
         setContentView(R.layout.activity_settings);
 
         mBotManager = BotManager.getInstance(this);
+        mUpdateManager = new UpdateManager(this);
 
         mReinstallDepsButton = findViewById(R.id.btn_reinstall_deps);
         mReinstallBotButton = findViewById(R.id.btn_reinstall_bot);
@@ -51,13 +55,23 @@ public class SettingsActivity extends AppCompatActivity {
         mRestoreButton = findViewById(R.id.btn_restore);
         mCleanInstallButton = findViewById(R.id.btn_clean_install);
         mSwitchBotButton = findViewById(R.id.btn_switch_bot);
+        mCheckUpdateButton = findViewById(R.id.btn_check_update);
         mCurrentBotName = findViewById(R.id.current_bot_name);
         mCurrentBotStatus = findViewById(R.id.current_bot_status);
+        mAppVersion = findViewById(R.id.app_version);
 
         // Hide backup/restore until active bot is installed
         if (!mBotManager.isInstalled()) {
             mBackupButton.setEnabled(false);
             mRestoreButton.setEnabled(false);
+        }
+
+        // Set app version
+        try {
+            String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            mAppVersion.setText("版本 " + version);
+        } catch (Exception e) {
+            mAppVersion.setText("版本未知");
         }
 
         mReinstallDepsButton.setOnClickListener(v -> showReinstallDepsDialog());
@@ -69,6 +83,7 @@ public class SettingsActivity extends AppCompatActivity {
         mRestoreButton.setOnClickListener(v -> showRestoreDialog());
         mCleanInstallButton.setOnClickListener(v -> showCleanInstallDialog());
         mSwitchBotButton.setOnClickListener(v -> showSwitchBotDialog());
+        mCheckUpdateButton.setOnClickListener(v -> checkForUpdates());
 
         refreshBotInfo();
     }
@@ -77,6 +92,10 @@ public class SettingsActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshBotInfo();
+    }
+
+    private void checkForUpdates() {
+        mUpdateManager.checkForUpdates(true);
     }
 
     private void refreshBotInfo() {
