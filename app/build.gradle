@@ -71,6 +71,19 @@ android {
         }
     }
 
+    // Custom APK output filename
+    android.applicationVariants.all { variant ->
+        variant.outputs.all { output ->
+            if (variant.buildType.name == 'release') {
+                def outputFileName = "rbot-v${computedVersionName}.apk"
+                output.outputFileName = outputFileName
+            } else {
+                def outputFileName = "rbot-v${computedVersionName}-debug.apk"
+                output.outputFileName = outputFileName
+            }
+        }
+    }
+
     // Explicitly disable APK splits to prevent Android Studio from
     // misinterpreting ndk.abiFilters as a split configuration.
     splits {
