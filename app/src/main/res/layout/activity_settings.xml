@@ -11,30 +11,56 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- Header -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="16dp">
-
-            <ImageView
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:src="@drawable/rbot_logo"
-                android:contentDescription="@string/application_name"
-                android:layout_marginEnd="12dp" />
-
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="设置"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:textColor="@color/rbot_on_background" />
-
+        <!-- Header -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
+
+            <ImageView
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:src="@drawable/rbot_logo"
+                android:contentDescription="@string/application_name"
+                android:layout_marginEnd="12dp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="设置"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:textColor="@color/rbot_on_background" />
+
+                <TextView
+                    android:id="@+id/app_version"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="版本"
+                    android:textSize="12sp"
+                    android:textColor="@color/rbot_secondary_text" />
+
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/btn_check_update"
+                android:layout_width="wrap_content"
+                android:layout_height="32dp"
+                android:text="检查更新"
+                android:textSize="12sp"
+                android:textColor="@color/rbot_accent"
+                android:background="@drawable/rbot_button_outline_bg"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp" />
+
         </LinearLayout>
 
         <!-- Bot 引擎切换 -->
