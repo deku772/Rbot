@@ -105,83 +105,7 @@
 
     </androidx.cardview.widget.CardView>
 
-    <!-- ═══ 第2位：Shizuku ═══ -->
-    <androidx.cardview.widget.CardView
-        android:id="@+id/shizuku_card"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="12dp"
-        app:cardCornerRadius="8dp"
-        app:cardElevation="0dp"
-        app:cardBackgroundColor="#E0F7FA">
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="16dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="🛡️"
-                    android:textSize="20sp" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:layout_marginStart="12dp"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Shizuku 授权"
-                        android:textSize="15sp"
-                        android:textColor="#00695C"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/shizuku_status"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="检测中..."
-                        android:textSize="12sp"
-                        android:textColor="#004D40"
-                        android:layout_marginTop="2dp" />
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="没有 Root？安装 Shizuku 应用 + Sui（Magisk 模块），通过 Shizuku 赋予 Rbot 同等的 Root 权限。需要 Shizuku 以 Root 方式运行（ADB 模式权限不足，无法 chroot）。"
-                android:textSize="12sp"
-                android:textColor="#004D40"
-                android:layout_marginTop="8dp" />
-
-            <Button
-                android:id="@+id/btn_grant_shizuku"
-                android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:layout_marginTop="12dp"
-                android:text="授予 Shizuku 权限"
-                android:textSize="13sp"
-                android:textColor="#FFFFFF"
-                android:background="@drawable/rbot_button_green_bg" />
-
-        </LinearLayout>
-
-    </androidx.cardview.widget.CardView>
 
     <!-- ═══ 第3位：存储权限 ═══ -->
     <androidx.cardview.widget.CardView
@@ -260,7 +184,7 @@
 
     </androidx.cardview.widget.CardView>
 
-    <!-- ═══ 第4位：PRoot 免 Root ═══ -->
+    <!-- ═══ 第4位：安装模式选择 ═══ -->
     <androidx.cardview.widget.CardView
         android:id="@+id/proot_card"
         android:layout_width="match_parent"
@@ -298,16 +222,16 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="PRoot 免 Root 模式"
+                        android:text="安装模式选择"
                         android:textSize="15sp"
                         android:textColor="#33691E"
                         android:textStyle="bold" />
 
                     <TextView
-                        android:id="@+id/proot_status"
+                        android:id="@+id/mode_status"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="免 Root 运行 Linux 环境"
+                        android:text="请选择安装模式"
                         android:textSize="12sp"
                         android:textColor="#1B5E20"
                         android:layout_marginTop="2dp" />
@@ -319,20 +243,40 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="PRoot 通过 ptrace 系统调用拦截模拟 chroot，无需 Root 权限即可运行完整的 Ubuntu 环境和 AstrBot。适合没有 Root 的设备，或 Shizuku ADB 模式用户。性能略低于 Root 模式。"
+                android:text="选择 AstrBot 的运行模式：\n• Chroot 模式：需要 Root 权限，性能最佳\n• PRoot 模式：无需 Root，通过 ptrace 模拟 chroot"
                 android:textSize="12sp"
                 android:textColor="#1B5E20"
                 android:layout_marginTop="8dp" />
 
-            <Button
-                android:id="@+id/btn_enable_proot"
+            <LinearLayout
                 android:layout_width="match_parent"
-                android:layout_height="40dp"
-                android:layout_marginTop="12dp"
-                android:text="启用 PRoot 模式"
-                android:textSize="13sp"
-                android:textColor="#FFFFFF"
-                android:background="@drawable/rbot_button_green_bg" />
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="12dp">
+
+                <Button
+                    android:id="@+id/btn_install_chroot"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:layout_marginEnd="6dp"
+                    android:text="Chroot 模式"
+                    android:textSize="13sp"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/rbot_button_green_bg" />
+
+                <Button
+                    android:id="@+id/btn_install_proot"
+                    android:layout_width="0dp"
+                    android:layout_height="40dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="6dp"
+                    android:text="PRoot 模式"
+                    android:textSize="13sp"
+                    android:textColor="#FFFFFF"
+                    android:background="@drawable/rbot_button_green_bg" />
+
+            </LinearLayout>
 
         </LinearLayout>
 

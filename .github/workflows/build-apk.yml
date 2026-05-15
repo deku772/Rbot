@@ -139,7 +139,12 @@ jobs:
 
       - name: Sync to Gitee (using git push)
         if: startsWith(github.ref, 'refs/tags/')
+        continue-on-error: true
         run: |
+          if [ -z "${{ secrets.GITEE_TOKEN }}" ]; then
+            echo "GITEE_TOKEN not set, skipping Gitee sync"
+            exit 0
+          fi
           git remote add gitee_sync https://${{ secrets.GITEE_TOKEN }}@gitee.com/deku772/rbot.git || true
           git push gitee_sync main --force
           git push gitee_sync "${{ github.ref_name }}" --force
