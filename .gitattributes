@@ -3,5 +3,6 @@
 *.gradle    text eol=lf
 *.mk        text eol=lf
 *.sh        text eol=lf
+gradle/wrapper/*.zip filter=lfs diff=lfs merge=lfs -text
 gradle/wrapper/gradle-9.2.1-bin.zip !text !filter !merge !diff
 gradle/wrapper/gradle-9.2.1-bin.zip filter=lfs diff=lfs merge=lfs -text
