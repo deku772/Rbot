@@ -18,8 +18,16 @@ try {
     int next = current + 1
     props.setProperty("localVersionCode", String.valueOf(next))
     
-    // Read version name from properties, default to 3.0.4
-    computedVersionName = props.getProperty("versionName", "3.0.4")
+    // Priority: 1. GitHub Actions GITHUB_REF_NAME (tag name), 2. version.properties, 3. default
+    String githubRef = System.getenv("GITHUB_REF_NAME")
+    if (githubRef != null && githubRef.startsWith("v")) {
+        // Running in GitHub Actions with a tag (e.g., v3.0.6)
+        computedVersionName = githubRef.substring(1) // Remove 'v' prefix
+        println "[VERSION] Using GitHub tag version: " + computedVersionName
+    } else {
+        // Read version name from properties, default to 3.0.4
+        computedVersionName = props.getProperty("versionName", "3.0.4")
+    }
     
     props.store(new FileOutputStream(propsFile), "Local build counter")
     computedVersionCode = next
