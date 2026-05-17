@@ -144,16 +144,27 @@ fun PermissionsScreen(
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("运行模式", style = MaterialTheme.typography.titleSmall)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    if (!uiState.rootAvailable && uiState.authMode != AuthManager.AuthMode.ROOT
+                        && uiState.authMode != AuthManager.AuthMode.SHIZUKU
+                    ) {
+                        Text(
+                            "未检测到 Root 权限，选择 Chroot 后安装时可能需要授权 su",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { viewModel.setChrootMode() },
-                            enabled = uiState.rootAvailable && uiState.authMode != AuthManager.AuthMode.ROOT
-                                    && uiState.authMode != AuthManager.AuthMode.SHIZUKU
-                        ) {
-                            Text(if (uiState.authMode == AuthManager.AuthMode.ROOT || uiState.authMode == AuthManager.AuthMode.SHIZUKU) "Chroot (已选)" else "Chroot 模式")
-                        }
+                        val isChrootActive = uiState.authMode == AuthManager.AuthMode.ROOT
+                            || uiState.authMode == AuthManager.AuthMode.SHIZUKU
                         Button(
+                            onClick = { viewModel.setChrootMode() },
+                            enabled = !isChrootActive
+                        ) {
+                            Text(if (isChrootActive) "Chroot (已选)" else "Chroot 模式")
+                        }
+                        OutlinedButton(
                             onClick = { viewModel.setProotMode() },
                             enabled = uiState.authMode != AuthManager.AuthMode.PROOT
                         ) {

@@ -87,6 +87,8 @@ class PermissionsViewModel @Inject constructor(
 
     fun setChrootMode() {
         AuthManager.instance.forceProot = false
+        // 重新检测：可能 su 刚被授权
+        AuthManager.instance.detectAndSetMode()
         refreshAll()
     }
 
