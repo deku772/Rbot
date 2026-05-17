@@ -11,6 +11,15 @@ android {
     namespace = "app.rbot"
     compileSdk = libs.versions.compileSdk.get().toInt()
 
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("testkey_untrusted.jks")
+            keyAlias = "alias"
+            storePassword = "xrj45yWGLbsO7W0v"
+            keyPassword = "xrj45yWGLbsO7W0v"
+        }
+    }
+
     defaultConfig {
         applicationId = "app.rbot"
         minSdk = libs.versions.minSdk.get().toInt()

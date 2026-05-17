@@ -17,6 +17,7 @@ import app.rbot.core.ChrootManager
 import app.rbot.core.PRootManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,31 +46,33 @@ class PermissionsViewModel @Inject constructor(
     val uiState: StateFlow<PermissionsUiState> = _uiState.asStateFlow()
 
     fun refreshAll() {
-        val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
-        val batteryOpt = pm?.isIgnoringBatteryOptimizations(context.packageName) ?: true
+        viewModelScope.launch(Dispatchers.IO) {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            val batteryOpt = pm?.isIgnoringBatteryOptimizations(context.packageName) ?: true
 
-        val storageGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
-                PermissionChecker.PERMISSION_GRANTED
-        } else true
+            val storageGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Environment.isExternalStorageManager()
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
+                    PermissionChecker.PERMISSION_GRANTED
+            } else true
 
-        val notifGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-                PermissionChecker.PERMISSION_GRANTED
-        } else true
+            val notifGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                    PermissionChecker.PERMISSION_GRANTED
+            } else true
 
-        val prootMgr = PRootManager.getInstance(context)
+            val rootAvailable = ChrootManager.isRootAvailable()
 
-        _uiState.value = PermissionsUiState(
-            batteryOptimized = batteryOpt,
-            storageGranted = storageGranted,
-            notificationGranted = notifGranted,
-            rootAvailable = ChrootManager.isRootAvailable(),
-            authMode = AuthManager.instance.currentMode,
-            isProotBinaryAvailable = true // simplified
-        )
+            _uiState.value = PermissionsUiState(
+                batteryOptimized = batteryOpt,
+                storageGranted = storageGranted,
+                notificationGranted = notifGranted,
+                rootAvailable = rootAvailable,
+                authMode = AuthManager.instance.currentMode,
+                isProotBinaryAvailable = true // simplified
+            )
+        }
     }
 
     fun setChrootMode() {
