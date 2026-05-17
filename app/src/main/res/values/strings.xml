@@ -1,0 +1,59 @@
+<resources>
+    <string name="app_name">Rbot</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">主页</string>
+    <string name="nav_terminal">终端</string>
+    <string name="nav_log">日志</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- Status -->
+    <string name="status_not_installed">未安装</string>
+    <string name="status_installing">安装中…</string>
+    <string name="status_ready">就绪</string>
+    <string name="status_running">运行中</string>
+    <string name="status_stopped">已停止</string>
+    <string name="status_error">错误</string>
+
+    <!-- Actions -->
+    <string name="action_start">启动</string>
+    <string name="action_stop">停止</string>
+    <string name="action_restart">重启</string>
+    <string name="action_install">安装</string>
+    <string name="action_reinstall">重装</string>
+
+    <!-- Channels -->
+    <string name="channel_service">Rbot 服务状态</string>
+    <string name="channel_updates">Rbot 更新</string>
+
+    <!-- Permissions -->
+    <string name="permission_notification">通知权限</string>
+    <string name="permission_battery">电池优化</string>
+    <string name="permission_storage">存储权限</string>
+    <string name="permission_grant">授权</string>
+    <string name="permission_granted">已授权</string>
+
+    <!-- SSH -->
+    <string name="ssh_info">SSH 信息</string>
+    <string name="ssh_port">端口</string>
+    <string name="ssh_user">用户名</string>
+    <string name="ssh_password">密码</string>
+    <string name="ssh_copy">点击复制</string>
+
+    <!-- WebUI -->
+    <string name="webui_open">打开管理面板</string>
+    <string name="webui_local">本机地址</string>
+    <string name="webui_lan">局域网地址</string>
+
+    <!-- Component status -->
+    <string name="component_binaries">运行时二进制</string>
+    <string name="component_rootfs">Linux 环境</string>
+    <string name="component_bootstrap">容器初始化</string>
+    <string name="component_astrbot">AstrBot 核心</string>
+
+    <!-- Update -->
+    <string name="update_title">Rbot 更新</string>
+    <string name="update_new_version">发现新版本: v%1$s</string>
+    <string name="update_channel_name">Rbot 更新</string>
+    <string name="update_channel_description">检查并通知 Rbot 新版本</string>
+</resources>
