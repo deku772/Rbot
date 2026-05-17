@@ -43,7 +43,25 @@ class SetupViewModel @Inject constructor(
     private val prootManager: PRootManager
         get() = PRootManager.getInstance(context)
 
-    private fun useProot(): Boolean = AuthManager.instance.isProotMode
+    /** 判断是否使用 PRoot 模式安装 */
+    private fun useProot(): Boolean {
+        // 如果用户明确选了 proot（forceProot=true），用 proot
+        if (AuthManager.instance.forceProot) return true
+        // 如果已经是 ROOT/SHIZUKU 模式，用 chroot
+        val mode = AuthManager.instance.currentMode
+        if (mode == AuthManager.AuthMode.ROOT || mode == AuthManager.AuthMode.SHIZUKU) return false
+        // forceProot=false 但当前还是 PROOT → 可能 su 当时超时了，再试一次
+        if (ChrootManager.isSuBinaryPresent()) {
+            appendLog("检测到 su 二进制，尝试获取 Root 权限...")
+            val rootOk = ChrootManager.isRootAvailable()
+            if (rootOk) {
+                AuthManager.instance.detectAndSetMode()
+                return AuthManager.instance.isProotMode
+            }
+            appendLog("Root 权限不可用，回退到 PRoot 模式")
+        }
+        return AuthManager.instance.isProotMode
+    }
 
     // ─── 对话框状态（替代 wait/notify 阻塞对话框） ───
 

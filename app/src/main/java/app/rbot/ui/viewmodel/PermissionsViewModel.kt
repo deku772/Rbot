@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 /**
@@ -87,9 +88,13 @@ class PermissionsViewModel @Inject constructor(
 
     fun setChrootMode() {
         AuthManager.instance.forceProot = false
-        // 重新检测：可能 su 刚被授权
-        AuthManager.instance.detectAndSetMode()
-        refreshAll()
+        // detectAndSetMode() 会执行 su -c id（可能弹授权窗），必须在 IO 线程
+        viewModelScope.launch(Dispatchers.IO) {
+            AuthManager.instance.detectAndSetMode()
+            withContext(Dispatchers.Main) {
+                refreshAll()
+            }
+        }
     }
 
     fun setProotMode() {

@@ -2,6 +2,9 @@ package app.rbot.core
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
@@ -44,23 +47,38 @@ object GitHubProxyManager {
     /** 测速所有代理（挂起函数，协程友好） */
     suspend fun testProxies(testUrl: String = "https://api.github.com/zen"): List<ProxyInfo> =
         withContext(Dispatchers.IO) {
-            val results = mutableListOf<ProxyInfo>()
             val totalProxies = PROXY_TEMPLATES.size + (if (customProxy.isEmpty()) 0 else 1)
             latencies = IntArray(totalProxies)
 
-            for (i in PROXY_TEMPLATES.indices) {
-                val url = buildUrl(testUrl, i)
-                val elapsed = testWithHttp(url)
-                latencies[i] = elapsed
-                results.add(ProxyInfo(i, PROXY_NAMES[i], elapsed, PROXY_TEMPLATES[i]))
-                Log.i(TAG, "${PROXY_NAMES[i]} → ${if (elapsed > 0) "${elapsed}ms" else "失败"}")
+            // 并行测速
+            val pairs = coroutineScope {
+                val deferreds = mutableListOf<kotlinx.coroutines.Deferred<Pair<Int, Int>>>()
+                for (i in PROXY_TEMPLATES.indices) {
+                    val url = buildUrl(testUrl, i)
+                    deferreds.add(async(Dispatchers.IO) {
+                        val elapsed = testWithHttp(url)
+                        Log.i(TAG, "${PROXY_NAMES[i]} → ${if (elapsed > 0) "${elapsed}ms" else "失败"}")
+                        i to elapsed
+                    })
+                }
+                if (customProxy.isNotEmpty()) {
+                    val customUrl = customProxy + testUrl
+                    val idx = PROXY_TEMPLATES.size
+                    deferreds.add(async(Dispatchers.IO) {
+                        val elapsed = testWithHttp(customUrl)
+                        Log.i(TAG, "自定义 → ${if (elapsed > 0) "${elapsed}ms" else "失败"}")
+                        idx to elapsed
+                    })
+                }
+                deferreds.awaitAll()
             }
 
-            if (customProxy.isNotEmpty()) {
-                val customUrl = customProxy + testUrl
-                val elapsed = testWithHttp(customUrl)
-                latencies[PROXY_TEMPLATES.size] = elapsed
-                results.add(ProxyInfo(PROXY_TEMPLATES.size, "自定义", elapsed, customProxy))
+            val results = mutableListOf<ProxyInfo>()
+            for ((index, elapsed) in pairs) {
+                latencies[index] = elapsed
+                val name = if (index >= PROXY_TEMPLATES.size) "自定义" else PROXY_NAMES[index]
+                val template = if (index >= PROXY_TEMPLATES.size) customProxy else PROXY_TEMPLATES[index]
+                results.add(ProxyInfo(index, name, elapsed, template))
             }
 
             bestProxy = results.filter { it.latencyMs > 0 }.minByOrNull { it.latencyMs }?.index ?: 0
@@ -105,11 +123,11 @@ object GitHubProxyManager {
         return try {
             val start = System.currentTimeMillis()
             conn = URL(url).openConnection() as HttpURLConnection
-            conn.connectTimeout = 8000
-            conn.readTimeout = 15000
+            conn.connectTimeout = 5000
+            conn.readTimeout = 5000
             conn.instanceFollowRedirects = true
             conn.requestMethod = "GET"
-            conn.setRequestProperty("User-Agent", "Rbot/4.0")
+            conn.setRequestProperty("User-Agent", "Rbot/3.1")
             conn.setRequestProperty("Accept", "*/*")
 
             val code = conn.responseCode
