@@ -100,6 +100,14 @@ object ChrootManager {
         } catch (_: Exception) { false }
     }
 
+    /** 检测 su 二进制是否存在（不触发授权弹窗，可在 UI 线程安全调用） */
+    fun isSuBinaryPresent(): Boolean {
+        return try {
+            val result = exec(arrayOf("which", "su"), 3)
+            result.success && result.stdout.trim().isNotEmpty()
+        } catch (_: Exception) { false }
+    }
+
     fun isPrivilegedAccessAvailable(): Boolean {
         if (isRootAvailable()) return true
         return AuthManager.instance.isShizukuReady

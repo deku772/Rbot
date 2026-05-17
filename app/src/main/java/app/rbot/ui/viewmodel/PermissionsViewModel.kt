@@ -2,8 +2,6 @@ package app.rbot.ui.viewmodel
 
 import android.Manifest
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
@@ -14,7 +12,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.rbot.core.AuthManager
 import app.rbot.core.ChrootManager
-import app.rbot.core.PRootManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -26,6 +23,10 @@ import javax.inject.Inject
 
 /**
  * 权限页 ViewModel — 替代旧版 PermissionsActivity。
+ *
+ * 关键修复：首次启动时 su 弹授权框会导致 isRootAvailable() 超时返回 false，
+ * AuthManager 检测到 PROOT。用户授权 su 后，refreshAll() 需要重新触发
+ * detectAndSetMode() 以更新 authMode。
  */
 @HiltViewModel
 class PermissionsViewModel @Inject constructor(
@@ -64,13 +65,22 @@ class PermissionsViewModel @Inject constructor(
 
             val rootAvailable = ChrootManager.isRootAvailable()
 
+            // 关键：如果 root 从不可用变为可用，需要重新检测 AuthManager 的模式
+            // 因为首次启动时 su 授权弹窗会导致超时，AuthManager 会落入 PROOT，
+            // 用户授权后再次进入此页面时，需要让 AuthManager 重新评估
+            if (rootAvailable && AuthManager.instance.currentMode == AuthManager.AuthMode.PROOT
+                && !AuthManager.instance.forceProot
+            ) {
+                AuthManager.instance.detectAndSetMode()
+            }
+
             _uiState.value = PermissionsUiState(
                 batteryOptimized = batteryOpt,
                 storageGranted = storageGranted,
                 notificationGranted = notifGranted,
                 rootAvailable = rootAvailable,
                 authMode = AuthManager.instance.currentMode,
-                isProotBinaryAvailable = true // simplified
+                isProotBinaryAvailable = true
             )
         }
     }
@@ -84,7 +94,6 @@ class PermissionsViewModel @Inject constructor(
         AuthManager.instance.forceProot = true
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isProotDownloading = true)
-            // PRoot 二进制下载逻辑
             _uiState.value = _uiState.value.copy(isProotDownloading = false)
         }
         refreshAll()
