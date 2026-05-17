@@ -117,7 +117,24 @@ class AuthManager private constructor() {
     }
 
     fun detectAndSetMode() {
-        // Priority 1: Root
+        // 如果用户明确选了 chroot（forceProot=false），优先尊重用户选择
+        if (!forceProot && (ChrootManager.isSuBinaryPresent() || currentMode == AuthMode.ROOT)) {
+            // su 二进制存在，或之前已经是 ROOT 模式 → 尝试使用 root
+            if (ChrootManager.isRootAvailable()) {
+                Log.i(TAG, "Root available → ROOT mode")
+                unbindShellService()
+                detectedMode = AuthMode.ROOT
+                updateMode(AuthMode.ROOT)
+                return
+            }
+            // su 存在但暂时未授权 — 仍然设为 ROOT，安装时会触发 su 授权弹窗
+            Log.i(TAG, "su binary present but not yet authorized → ROOT mode (pending authorization)")
+            detectedMode = AuthMode.ROOT
+            updateMode(AuthMode.ROOT)
+            return
+        }
+
+        // Priority 1: Root (自动检测路径，forceProot 未设置时)
         if (ChrootManager.isRootAvailable()) {
             Log.i(TAG, "Root available → ROOT mode")
             unbindShellService()
@@ -157,7 +174,7 @@ class AuthManager private constructor() {
             Log.w(TAG, "Shizuku check failed: ${e.message} → fallback")
         }
 
-        // Priority 4: PRoot
+        // Priority 4: PRoot（仅当 forceProot=true 或确实没有 root 能力时）
         detectedMode = AuthMode.UNAVAILABLE
         Log.i(TAG, "No root access available, using PRoot mode")
         updateMode(AuthMode.PROOT)

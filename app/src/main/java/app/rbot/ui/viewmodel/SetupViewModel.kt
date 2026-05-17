@@ -45,18 +45,9 @@ class SetupViewModel @Inject constructor(
 
     /** 判断是否使用 PRoot 模式安装 */
     private fun useProot(): Boolean {
-        if (AuthManager.instance.forceProot) return true
-        val mode = AuthManager.instance.currentMode
-        if (mode == AuthManager.AuthMode.ROOT || mode == AuthManager.AuthMode.SHIZUKU) return false
-        if (ChrootManager.isSuBinaryPresent()) {
-            appendLog("检测到 su 二进制，尝试获取 Root 权限...")
-            val rootOk = ChrootManager.isRootAvailable()
-            if (rootOk) {
-                AuthManager.instance.detectAndSetMode()
-                return AuthManager.instance.isProotMode
-            }
-            appendLog("Root 权限不可用，回退到 PRoot 模式")
-        }
+        // AuthManager.detectAndSetMode() 已经尊重用户选择
+        // 用户选了 chroot → currentMode=ROOT → isProotMode=false
+        // 即使 su 暂未授权，也走 chroot 路径，安装命令会触发 su 授权弹窗
         return AuthManager.instance.isProotMode
     }
 
