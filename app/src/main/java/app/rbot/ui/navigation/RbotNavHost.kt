@@ -56,14 +56,12 @@ fun RbotNavHost() {
     // 替代旧版 RbotActivity 的 checkAndRoute() 逻辑
     LaunchedEffect(Unit) {
         val isRootfsReady = ChrootManager.isRootfsReady() ||
-            PRootManager.isAstrBotInstalledStatic() // 简化检查
+            PRootManager.isAstrBotInstalledStatic()
         val isBotInstalled = ChrootManager.isAstrBotInstalled()
 
         if (!isRootfsReady || !isBotInstalled) {
-            // 需要安装 → 跳转到权限页
-            navController.navigate(Onboarding.Permissions.route) {
-                popUpTo(Screen.Home.route) { inclusive = true }
-            }
+            // 需要安装 → 跳转到权限页，保留 Home 在栈底
+            navController.navigate(Onboarding.Permissions.route)
         }
     }
 
@@ -112,7 +110,12 @@ fun RbotNavHost() {
             // ─── 引导页面 ───
             composable(Onboarding.Permissions.route) {
                 PermissionsScreen(
-                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateBack = {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Home.route) { inclusive = false }
+                            launchSingleTop = true
+                        }
+                    },
                     onStartInstall = {
                         navController.navigate(Onboarding.Setup.route)
                     }
@@ -121,10 +124,13 @@ fun RbotNavHost() {
 
             composable(Onboarding.Setup.route) {
                 SetupScreen(
-                    onNavigateBack = { navController.popBackStack() },
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    },
                     onInstallComplete = {
                         navController.navigate(Screen.Home.route) {
-                            popUpTo(Onboarding.Permissions.route) { inclusive = true }
+                            popUpTo(Screen.Home.route) { inclusive = true }
+                            launchSingleTop = true
                         }
                     }
                 )
