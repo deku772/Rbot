@@ -45,12 +45,9 @@ class SetupViewModel @Inject constructor(
 
     /** 判断是否使用 PRoot 模式安装 */
     private fun useProot(): Boolean {
-        // 如果用户明确选了 proot（forceProot=true），用 proot
         if (AuthManager.instance.forceProot) return true
-        // 如果已经是 ROOT/SHIZUKU 模式，用 chroot
         val mode = AuthManager.instance.currentMode
         if (mode == AuthManager.AuthMode.ROOT || mode == AuthManager.AuthMode.SHIZUKU) return false
-        // forceProot=false 但当前还是 PROOT → 可能 su 当时超时了，再试一次
         if (ChrootManager.isSuBinaryPresent()) {
             appendLog("检测到 su 二进制，尝试获取 Root 权限...")
             val rootOk = ChrootManager.isRootAvailable()
@@ -63,7 +60,13 @@ class SetupViewModel @Inject constructor(
         return AuthManager.instance.isProotMode
     }
 
-    // ─── 对话框状态（替代 wait/notify 阻塞对话框） ───
+    // ─── 用户选择结果（由 UI 回调设置） ───
+
+    private var selectedProxyIndex: Int = 0
+    private var selectedVersion: String = ""
+    private var shouldRestore: Boolean = false
+
+    // ─── 对话框状态 ───
 
     /** 代理选择对话框 */
     private val _proxyPickerState = MutableStateFlow<ProxyPickerState?>(null)
@@ -77,11 +80,42 @@ class SetupViewModel @Inject constructor(
     private val _restorePromptState = MutableStateFlow(false)
     val restorePromptState: StateFlow<Boolean> = _restorePromptState.asStateFlow()
 
-    // ─── 用户选择结果（由 UI 回调设置） ───
+    init {
+        detectEnvironment()
+    }
 
-    private var selectedProxyIndex: Int = 0
-    private var selectedVersion: String = ""
-    private var shouldRestore: Boolean = false
+    /** 自动检测现有环境 */
+    private fun detectEnvironment() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val isProot = useProot()
+            val rootfsReady = if (isProot) prootManager.isRootfsReady() else ChrootManager.isRootfsReady()
+            val botInstalled = botBridge.isBotInstalled()
+
+            _uiState.value = SetupUiState(
+                isDetecting = false,
+                rootfsReady = rootfsReady,
+                botInstalled = botInstalled,
+                useProot = isProot,
+                // 缺失的组件自动勾选安装
+                reinstallRootfs = !rootfsReady,
+                reinstallDeps = false,
+                reinstallBot = !botInstalled
+            )
+        }
+    }
+
+    /** 更新复选框选项 */
+    fun updateReinstallOption(
+        reinstallRootfs: Boolean? = null,
+        reinstallDeps: Boolean? = null,
+        reinstallBot: Boolean? = null
+    ) {
+        _uiState.value = _uiState.value.copy(
+            reinstallRootfs = reinstallRootfs ?: _uiState.value.reinstallRootfs,
+            reinstallDeps = reinstallDeps ?: _uiState.value.reinstallDeps,
+            reinstallBot = reinstallBot ?: _uiState.value.reinstallBot
+        )
+    }
 
     // ─── 安装入口 ───
 
@@ -673,21 +707,21 @@ class SetupViewModel @Inject constructor(
     private fun appendLog(message: String) {
         _logFlow.tryEmit(message)
     }
-
-    // ─── 对话框状态类 ───
-
-    data class ProxyPickerState(
-        val proxies: List<GitHubProxyManager.ProxyInfo>,
-        val selectedIndex: Int
-    )
-
-    data class VersionPickerState(
-        val versions: List<String>,
-        val proxies: List<GitHubProxyManager.ProxyInfo>,
-        val selectedVersionIndex: Int,
-        val selectedProxyIndex: Int
-    )
 }
+
+// ─── 对话框状态类（顶层，方便 Screen 引用） ───
+
+data class ProxyPickerState(
+    val proxies: List<GitHubProxyManager.ProxyInfo>,
+    val selectedIndex: Int
+)
+
+data class VersionPickerState(
+    val versions: List<String>,
+    val proxies: List<GitHubProxyManager.ProxyInfo>,
+    val selectedVersionIndex: Int = 0,
+    val selectedProxyIndex: Int = 0
+)
 
 // ─── GitHubProxyManager 扩展：获取版本列表 ───
 
@@ -713,3 +747,5 @@ private suspend fun GitHubProxyManager.fetchReleases(proxyIndex: Int, maxCount: 
         emptyList()
     }
 }
+
+

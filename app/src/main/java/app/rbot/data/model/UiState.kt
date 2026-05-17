@@ -73,5 +73,14 @@ data class SetupUiState(
     val isInstalling: Boolean = false,
     val progress: Float = 0f,
     val errorMessage: String? = null,
-    val isComplete: Boolean = false
+    val isComplete: Boolean = false,
+    // 环境检测
+    val isDetecting: Boolean = true,
+    val rootfsReady: Boolean = false,
+    val botInstalled: Boolean = false,
+    val useProot: Boolean = false,
+    // 用户复选框
+    val reinstallRootfs: Boolean = false,
+    val reinstallDeps: Boolean = false,
+    val reinstallBot: Boolean = false
 )
