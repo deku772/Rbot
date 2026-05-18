@@ -64,6 +64,7 @@ object ChrootManager {
 
         // 调试：输出当前进程的 PATH 和 uid
         Log.i(TAG, "ChrootManager init: uid=${android.os.Process.myUid()}, PATH=${System.getenv("PATH")}")
+        LogHub.log("ChrootManager 初始化: uid=${android.os.Process.myUid()}")
 
         // 查找 su 的完整路径。
         //
@@ -98,10 +99,12 @@ object ChrootManager {
             // 使用完整路径启动 su，绕过 PATH 查找和 mount namespace 隔离
             builder.setCommands(suPath, "--mount-master")
             Log.i(TAG, "libsu 配置: 使用 su 路径 $suPath（exec 验证通过）")
+            LogHub.log("Root 权限: su 路径 $suPath")
         } else {
             // 所有已知路径都不可执行 — 可能是 KernelSU kernel_umount 隐藏了 su
             // 不设置 setCommands，让 libsu 走默认逻辑（会回退到非 root shell）
             Log.i(TAG, "libsu 配置: 未找到可执行的 su（可能被 KernelSU kernel_umount 隐藏）")
+            LogHub.error("未找到可执行的 su，请在 KernelSU 管理器中关闭 kernel_umount")
         }
 
         Shell.setDefaultBuilder(builder)
@@ -135,10 +138,12 @@ object ChrootManager {
             val exitCode = result.code
             if (!success) {
                 Log.w(TAG, "execRoot FAILED: cmd=[${command.take(80)}] exit=$exitCode err=[${stderr.take(80)}]")
+                LogHub.error("execRoot 失败: ${command.take(40)} → err=${stderr.take(60)}")
             }
             CommandResult(success, stdout, stderr, exitCode)
         } catch (e: Exception) {
             Log.e(TAG, "execRoot exception: cmd=[${command.take(80)}] ${e.message}")
+            LogHub.error("execRoot 异常: ${e.message}")
             CommandResult(false, "", e.message ?: "Unknown error", -1)
         }
     }
@@ -827,6 +832,7 @@ object ChrootManager {
 
     /** 启动 AstrBot（chroot 内后台运行） */
     fun startAstrBot(): CommandResult = synchronized(chrootLock) {
+        LogHub.log("正在启动 AstrBot...")
         // 确保设备节点已挂载（Android 重启后可能丢失）
         setupChrootDevices(null)
 
@@ -858,6 +864,7 @@ object ChrootManager {
         Log.d(TAG, "[startAstrBot] launch stdout=${launchResult.stdout.trim()} stderr=${launchResult.stderr.trim()}")
 
         if (!launchResult.success || !launchResult.stdout.contains("launched_")) {
+            LogHub.error("AstrBot 启动失败: ${launchResult.stderr.take(80)}")
             return CommandResult(false, launchResult.stdout, launchResult.stderr, 1)
         }
 
@@ -879,6 +886,11 @@ object ChrootManager {
         val checkResult = execRoot(checkCmd, 15)
         val started = checkResult.success && checkResult.stdout.contains("started_")
         Log.d(TAG, "[startAstrBot] check stdout=${checkResult.stdout.trim()}")
+        if (started) {
+            LogHub.log("AstrBot 已启动 (PID ${launchedPid})")
+        } else {
+            LogHub.error("AstrBot 启动验证失败: ${checkResult.stderr.take(80)}")
+        }
         return CommandResult(started, checkResult.stdout, checkResult.stderr, if (started) 0 else 1)
     }
 
@@ -917,6 +929,7 @@ object ChrootManager {
         sb.append(", Chroot: ").append(r3.stdout.trim())
 
         Log.d(TAG, "[stopAstrBot] $sb")
+        LogHub.log("AstrBot 已停止")
         return CommandResult(true, sb.toString(), "", 0)
     }
 
@@ -1106,6 +1119,7 @@ object ChrootManager {
 
     /** 启动 SSH 服务 — 使用 dropbear（轻量级，无 privsep 问题） */
     fun startSshService(): CommandResult {
+        LogHub.log("正在启动 SSH 服务...")
         setupChrootDevices(null)
 
         // 确保根密码已设置
@@ -1136,6 +1150,12 @@ object ChrootManager {
 
         val chrootResult = execInChroot(setupCmd, 20)
 
+        if (chrootResult.success) {
+            LogHub.log("SSH 服务已启动 (端口 22)")
+        } else {
+            LogHub.error("SSH 服务启动失败: ${chrootResult.stderr.take(80)}")
+        }
+
         // 添加 iptables 规则
         val D = RbotPaths.CHROOT_DIR
         execRoot(
@@ -1161,6 +1181,7 @@ object ChrootManager {
 
     /** 停止 SSH 服务 */
     fun stopSshService(): CommandResult {
+        LogHub.log("正在停止 SSH 服务...")
         return execInChroot("pkill -x dropbear 2>/dev/null; pkill -x sshd 2>/dev/null; echo stopped", 10)
     }
 

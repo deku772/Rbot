@@ -102,16 +102,23 @@ class BotBridge private constructor(private val context: Context) {
     // ─── 生命周期控制 ───
 
     fun startBot(): CommandResult {
-        return if (useProot()) prootManager.startAstrBot()
+        LogHub.log("正在启动 Bot...")
+        val result = if (useProot()) prootManager.startAstrBot()
         else ChrootManager.startAstrBot()
+        if (!result.success) {
+            LogHub.error("Bot 启动失败: ${result.stderr.take(80)}")
+        }
+        return result
     }
 
     fun stopBot(): CommandResult {
+        LogHub.log("正在停止 Bot...")
         return if (useProot()) prootManager.stopAstrBot()
         else ChrootManager.stopAstrBot()
     }
 
     fun restartBot(): CommandResult {
+        LogHub.log("正在重启 Bot...")
         stopBot()
         Thread.sleep(1000)
         return startBot()

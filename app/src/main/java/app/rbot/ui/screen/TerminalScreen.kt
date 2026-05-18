@@ -23,6 +23,7 @@ import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 /**
  * 终端 Screen — 使用 AndroidView 包装 Termux TerminalView。
@@ -90,10 +91,20 @@ fun TerminalScreen() {
         }
     }
 
+    // 终端字号状态：默认 130%（14dp × 1.3 ≈ 18dp），范围 8~36dp
+    var fontSize by remember { mutableStateOf(18) }
+
     // View 客户端实现
     val viewClient = remember {
         object : TerminalViewClient {
-            override fun onScale(scale: Float): Float = scale
+            override fun onScale(scale: Float): Float {
+                val newSize = (fontSize * scale).roundToInt().coerceIn(8, 36)
+                if (newSize != fontSize) {
+                    fontSize = newSize
+                    terminalView?.setTextSize(newSize)
+                }
+                return newSize / 14f  // 归一化到 base 14
+            }
 
             override fun onSingleTapUp(e: MotionEvent?) {
                 terminalView?.requestFocus()
@@ -115,7 +126,10 @@ fun TerminalScreen() {
 
             override fun onKeyDown(keyCode: Int, e: KeyEvent?, session: TerminalSession?): Boolean = false
             override fun onKeyUp(keyCode: Int, e: KeyEvent?): Boolean = false
-            override fun onLongPress(event: MotionEvent?): Boolean = false
+            override fun onLongPress(event: MotionEvent?): Boolean {
+                // 返回 false 让 TerminalView 自带的长按文本选择生效
+                return false
+            }
 
             override fun readControlKey(): Boolean = false
             override fun readAltKey(): Boolean = false
@@ -208,6 +222,7 @@ fun TerminalScreen() {
                             context = context,
                             sessionClient = sessionClient,
                             viewClient = viewClient,
+                            fontSize = fontSize,
                             onTerminalViewCreated = { tv -> terminalView = tv },
                             onSessionCreated = { s -> session = s }
                         )
@@ -263,6 +278,7 @@ private fun TerminalViewContent(
     context: Context,
     sessionClient: TerminalSessionClient,
     viewClient: TerminalViewClient,
+    fontSize: Int,
     onTerminalViewCreated: (TerminalView) -> Unit,
     onSessionCreated: (TerminalSession) -> Unit
 ) {
@@ -270,7 +286,7 @@ private fun TerminalViewContent(
         factory = { ctx ->
             val tv = TerminalView(ctx, null)
             tv.setTerminalViewClient(viewClient)
-            tv.setTextSize(14)
+            tv.setTextSize(fontSize)
             // 关键：与旧版 XML 布局一致，必须设置 focusable 才能弹出输入法
             tv.isFocusable = true
             tv.isFocusableInTouchMode = true
@@ -298,6 +314,9 @@ private fun TerminalViewContent(
                 }
             }
             tv
+        },
+        update = { tv ->
+            tv.setTextSize(fontSize)
         },
         modifier = Modifier.fillMaxSize()
     )
