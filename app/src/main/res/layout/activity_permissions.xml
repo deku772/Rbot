@@ -96,7 +96,7 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="rbot 需要 Root 权限来挂载 chroot 环境、启动 SSH 服务和管理系统资源。如果没有 Root，可以使用 Shizuku 授权（见下方）。"
+                android:text="rbot 需要 Root 权限来挂载 chroot 环境、启动 SSH 服务和管理系统资源。如果没有 Root，可以使用 PRoot 免 Root 模式。"
                 android:textSize="12sp"
                 android:textColor="#4A148C"
                 android:layout_marginTop="8dp" />

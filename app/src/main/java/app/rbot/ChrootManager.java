@@ -15,12 +15,8 @@ import java.util.concurrent.TimeUnit;
  * Manages chroot lifecycle for Rbot: root command execution,
  * rootfs extraction, AstrBot installation, and chroot command execution.
  *
- * Supports two auth modes:
- * - ROOT: executes via `su -c` (Magisk/KernelSU/APatch)
- * - SHIZUKU: executes via Shizuku UserService (Sui/Shizuku app with root)
- *
- * The active mode is set by AuthManager and applies transparently
- * to all execRoot/execRootWithProgress calls.
+ * Supports ROOT auth mode: executes via `su -c` (Magisk/KernelSU/APatch).
+ * PRoot mode is handled by PRootManager.
  */
 @SuppressWarnings({"SpellCustomInspection", "unused"})
 public final class ChrootManager {
@@ -29,9 +25,6 @@ public final class ChrootManager {
     private static final int DEFAULT_TIMEOUT_SEC = 60;
     /** Reentrant lock to prevent concurrent chroot device setup / AstrBot start */
     private static final Object sChrootLock = new Object();
-
-    /** When true, execRoot routes through Shizuku UserService instead of su -c */
-    private static boolean sUseShizuku = false;
 
     /** Package-private accessor for the chroot lock — used by BotAdapter implementations */
     static Object getChrootLock() {
@@ -85,20 +78,9 @@ public final class ChrootManager {
         return execRoot(command, DEFAULT_TIMEOUT_SEC);
     }
 
-    /** Execute a command as root with custom timeout — routes through su or Shizuku */
+    /** Execute a command as root with custom timeout via `su -c` */
     public static CommandResult execRoot(String command, int timeoutSec) {
-        if (sUseShizuku) {
-            return AuthManager.getInstance().execViaShizuku(command, timeoutSec);
-        }
         return exec(new String[]{"su", "-c", command}, timeoutSec);
-    }
-
-    // ─── Auth mode switching ───
-
-    /** Called by AuthManager when auth mode changes */
-    static void setAuthMode(boolean useShizuku) {
-        sUseShizuku = useShizuku;
-        Log.i(TAG, "Auth mode → " + (useShizuku ? "SHIZUKU" : "ROOT"));
     }
 
     // ─── Root access check ───
@@ -106,7 +88,7 @@ public final class ChrootManager {
     /** Check if root (su) is available — tests su binary directly */
     public static boolean isRootAvailable() {
         try {
-            // Always test su directly (not via execRoot which might use Shizuku)
+            // Always test su directly (not via execRoot to avoid recursion)
             CommandResult result = exec(new String[]{"su", "-c", "id"}, 5);
             return result.success && result.stdout.contains("uid=0");
         } catch (Exception e) {
@@ -114,11 +96,9 @@ public final class ChrootManager {
         }
     }
 
-    /** Check if any privileged access is available (root OR Shizuku with UID 0) */
+    /** Check if any privileged access is available (root via su) */
     public static boolean isPrivilegedAccessAvailable() {
-        if (isRootAvailable()) return true;
-        AuthManager am = AuthManager.getInstance();
-        return am.isShizukuReady();
+        return isRootAvailable();
     }
 
     // ─── Rootfs management ───
@@ -866,7 +846,6 @@ public final class ChrootManager {
      */
     public record FullStatus(
         boolean rootAvailable,
-        boolean shizukuAvailable,
         boolean rootfsReady,
         boolean chrootMounted,
         boolean astrBotInstalled,
@@ -884,18 +863,16 @@ public final class ChrootManager {
     /**
      * Get all status values.
      * rootAvailable = su works (classic root)
-     * shizukuAvailable = Shizuku/Sui running as root and connected
      */
     public static FullStatus getFullStatus() {
         boolean rootAvailable = isRootAvailable();
-        boolean shizukuAvailable = AuthManager.getInstance().isShizukuReady();
         boolean rootfsReady = isRootfsReady();
         boolean chrootMounted = false;
         boolean astrBotInstalled = isAstrBotInstalled();
         boolean astrBotRunning = false;
 
-        // Only check mounted/running if we have privileged access
-        if (rootAvailable || shizukuAvailable) {
+        // Only check mounted/running if we have root access
+        if (rootAvailable) {
             chrootMounted = isChrootMounted();
             if (rootfsReady && astrBotInstalled) {
                 CommandResult runningResult = execRoot(
@@ -908,7 +885,7 @@ public final class ChrootManager {
                 astrBotRunning = runningResult.success() && runningResult.stdout().trim().equals("running");
             }
         }
-        return new FullStatus(rootAvailable, shizukuAvailable, rootfsReady, chrootMounted, astrBotInstalled, astrBotRunning);
+        return new FullStatus(rootAvailable, rootfsReady, chrootMounted, astrBotInstalled, astrBotRunning);
     }
 
     // ─── Backup & Restore ───
@@ -1286,29 +1263,6 @@ public final class ChrootManager {
     private static final long PROGRESS_DEBOUNCE_MS = 10_000; // 10s — flush buffered lines at most this often
 
     private static CommandResult execRootWithProgress(String command, int timeoutSec, ProgressCallback callback) {
-        // Shizuku path: no real-time progress streaming via AIDL,
-        // but the command still executes with full timeout support.
-        if (sUseShizuku) {
-            if (callback != null) callback.onProgress("执行中（Shizuku 模式）...");
-            CommandResult result = AuthManager.getInstance().execViaShizuku(command, timeoutSec);
-            // Push final output as progress so the UI shows something
-            if (callback != null && result.success && !result.stdout.trim().isEmpty()) {
-                // Show last few lines of output as progress
-                String[] lines = result.stdout.trim().split("\n");
-                int show = Math.min(lines.length, 3);
-                StringBuilder sb = new StringBuilder();
-                for (int i = lines.length - show; i < lines.length; i++) {
-                    if (sb.length() > 0) sb.append("\n");
-                    sb.append(lines[i].trim());
-                }
-                callback.onProgress(sb.toString());
-            }
-            if (callback != null && !result.success && !result.stderr.trim().isEmpty()) {
-                callback.onError(result.stderr.trim());
-            }
-            return result;
-        }
-
         StringBuilder stdout = new StringBuilder();
         StringBuilder stderr = new StringBuilder();
 

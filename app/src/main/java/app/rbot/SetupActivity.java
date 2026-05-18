@@ -247,7 +247,7 @@ public class SetupActivity extends AppCompatActivity {
         if (useProot) {
             appendLog("✅ PRoot 免 Root 模式");
             runOnUiThread(() -> mStepText.setText("PRoot ✅"));
-        } else if (!ChrootManager.isRootAvailable() && !am.isShizukuReady()) {
+        } else if (!ChrootManager.isRootAvailable()) {
             runOnUiThread(() -> {
                 appendLog("❌ 未获取 Root 权限");
                 finishInstall("需要 Root 权限", "重试");

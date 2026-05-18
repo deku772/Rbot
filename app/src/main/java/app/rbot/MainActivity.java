@@ -233,11 +233,11 @@ public class MainActivity extends AppCompatActivity {
             boolean prootAstrBotInstalled = pm.isAstrBotInstalled();
             boolean prootAstrBotRunning = pm.isAstrBotRunning();
             finalStatus = new ChrootManager.FullStatus(
-                false, false,            // rootAvailable, shizukuAvailable
-                prootRootfsReady,        // rootfsReady
-                false,                   // chrootMounted (not applicable)
-                prootAstrBotInstalled,   // astrBotInstalled
-                prootAstrBotRunning      // astrBotRunning
+                false,                  // rootAvailable
+                prootRootfsReady,       // rootfsReady
+                false,                  // chrootMounted (not applicable)
+                prootAstrBotInstalled,  // astrBotInstalled
+                prootAstrBotRunning     // astrBotRunning
             );
             finalBotInstalled = prootAstrBotInstalled;
             finalBotRunning = prootAstrBotRunning;
@@ -253,15 +253,14 @@ public class MainActivity extends AppCompatActivity {
     /** Update UI based on status — must be called on main thread */
     private void updateStatusUI(ChrootManager.FullStatus status, boolean botInstalled, boolean botRunning) {
         boolean rootAvailable = status.rootAvailable();
-        boolean shizukuAvailable = status.shizukuAvailable();
-        boolean hasPrivilegedAccess = rootAvailable || shizukuAvailable;
+        boolean hasPrivilegedAccess = rootAvailable;
         boolean rootfsReady = status.rootfsReady();
         boolean chrootMounted = status.chrootMounted();
         boolean astrBotInstalled = status.astrBotInstalled();
         boolean astrBotRunning = status.astrBotRunning();
         AuthManager am = AuthManager.getInstance();
 
-        // PRoot mode — always available, no root/Shizuku needed
+        // PRoot mode — always available, no root needed
         if (am.isProotMode()) {
             if (rootfsReady && astrBotInstalled) {
                 // Fully installed — show status
@@ -305,8 +304,7 @@ public class MainActivity extends AppCompatActivity {
                 mWebuiPanel.setVisibility(View.GONE);
             }
         } else if (!hasPrivilegedAccess) {
-            // No root/Shizuku — auto-switch to PRoot mode
-            // PRoot doesn't require any special permissions
+            // No root — auto-switch to PRoot mode
             am.setForceProot(true);
             mStatusText.setText("🐧 PRoot 模式（免 Root）\n📦 需要安装");
             mStartButton.setEnabled(false);
@@ -317,8 +315,7 @@ public class MainActivity extends AppCompatActivity {
             mSshInfoPanel.setVisibility(View.GONE);
             mWebuiPanel.setVisibility(View.GONE);
         } else if (!rootfsReady || !astrBotInstalled) {
-            String authMode = rootAvailable ? "Root" : "Shizuku";
-            mStatusText.setText("📦 需要安装（" + authMode + " 模式）");
+            mStatusText.setText("📦 需要安装（Root 模式）");
             mStartButton.setEnabled(false);
             mStopButton.setEnabled(false);
             mSetupButton.setVisibility(View.VISIBLE);
@@ -382,7 +379,7 @@ public class MainActivity extends AppCompatActivity {
         if (mLabelAstrbot != null) {
             mLabelAstrbot.setText(activeBot.getName().toUpperCase());
         }
-        // BINARIES: root shell access (su or Shizuku) or PRoot mode
+        // BINARIES: root shell access (su) or PRoot mode
         AuthManager am = AuthManager.getInstance();
         if (am.isProotMode()) {
             // In PRoot mode, binaries are always available (proot is bundled)
@@ -391,10 +388,6 @@ public class MainActivity extends AppCompatActivity {
             mDotBinaries.setBackgroundResource(R.drawable.ic_status_ready);
         } else if (status.rootAvailable()) {
             mStatusBinaries.setText("Root 已就绪");
-            mStatusBinaries.setTextColor(getColor(R.color.status_connected));
-            mDotBinaries.setBackgroundResource(R.drawable.ic_status_ready);
-        } else if (status.shizukuAvailable()) {
-            mStatusBinaries.setText("Shizuku 已就绪");
             mStatusBinaries.setTextColor(getColor(R.color.status_connected));
             mDotBinaries.setBackgroundResource(R.drawable.ic_status_ready);
         } else {

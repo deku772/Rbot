@@ -5,7 +5,7 @@ import android.util.Log;
 
 /**
  * Rbot Application class.
- * Initializes chroot tmp directory and AuthManager (Root + Shizuku dual auth).
+ * Initializes chroot tmp directory and AuthManager (Root + PRoot dual auth).
  */
 public class RbotApplication extends Application {
 
@@ -16,11 +16,10 @@ public class RbotApplication extends Application {
         super.onCreate();
         Log.i(TAG, "Rbot starting (chroot mode)");
 
-        // Initialize AuthManager — detects root/Shizuku and sets execution mode
+        // Initialize AuthManager — detects root and sets execution mode
         AuthManager.getInstance().init(this);
 
         // Ensure /data/rbot tmp directory exists on host
-        // (may use su or Shizuku depending on detected auth mode)
         ChrootManager.execRoot("mkdir -p " + RbotConstants.RBOT_TMP);
     }
 }

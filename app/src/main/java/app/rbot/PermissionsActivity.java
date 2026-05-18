@@ -22,7 +22,7 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 /**
- * Permissions page — battery, storage, root, Shizuku, and notification permissions.
+ * Permissions page — battery, storage, root, and notification permissions.
  * BotPocket-style: each permission has its own card with status and action button.
  */
 public class PermissionsActivity extends AppCompatActivity {
