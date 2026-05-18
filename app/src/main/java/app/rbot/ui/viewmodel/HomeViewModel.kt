@@ -175,7 +175,9 @@ class HomeViewModel @Inject constructor(
             )
             refreshState()
         }
-    }fun startSsh() {
+    }
+
+    fun startSsh() {
         viewModelScope.launch(Dispatchers.IO) {
             val result = if (AuthManager.instance.isProotMode) {
                 prootManager.startSshService()

@@ -1,4 +1,4 @@
-package app.rbot.core
+﻿package app.rbot.core
 
 import android.util.Log
 import com.topjohnwu.superuser.CallbackList
@@ -832,6 +832,12 @@ object ChrootManager {
 
         // 先停止已有进程
         stopAstrBot()
+
+        // Fix cmd_config.json before starting AstrBot
+        execInChroot(
+            "python3 -c 'import json,os;f=\"/root/astrbot/data/cmd_config.json\";s=os.path.getsize(f) if os.path.exists(f) else 0;c=open(f).read().strip() if s>0 else \"\";[open(f,\"w\").write(json.dumps({})) for _ in [1] if not c or all(x==chr(0) for x in c)]' 2>/dev/null;echo ok",
+            5
+        )
 
         // 使用 venv python（如可用）
         var pythonBin = "python3"
