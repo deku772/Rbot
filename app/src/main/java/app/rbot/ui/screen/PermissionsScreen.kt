@@ -146,7 +146,6 @@ fun PermissionsScreen(
                     Text("运行模式", style = MaterialTheme.typography.titleSmall)
                     Spacer(modifier = Modifier.height(4.dp))
                     if (!uiState.rootAvailable && uiState.authMode != AuthManager.AuthMode.ROOT
-                        && uiState.authMode != AuthManager.AuthMode.SHIZUKU
                     ) {
                         Text(
                             "未检测到 Root 权限，选择 Chroot 后安装时可能需要授权 su",
@@ -157,7 +156,6 @@ fun PermissionsScreen(
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         val isChrootActive = uiState.authMode == AuthManager.AuthMode.ROOT
-                            || uiState.authMode == AuthManager.AuthMode.SHIZUKU
                         Button(
                             onClick = { viewModel.setChrootMode() },
                             enabled = !isChrootActive

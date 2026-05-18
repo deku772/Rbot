@@ -1,36 +1,37 @@
 package app.rbot.core
 
-import android.content.ComponentName
 import android.content.Context
-import android.content.ServiceConnection
-import android.content.pm.PackageManager
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
 import android.util.Log
-import app.rbot.IShellService
-import rikka.shizuku.Shizuku
+import com.topjohnwu.superuser.Shell
 
 /**
- * 授权模式管理器 — 从 Java AuthManager 迁移而来。
+ * 授权模式管理器。
  *
- * 检测优先级：ROOT > SHIZUKU (UID=0) > SHIZUKU_ADB > PROOT > UNAVAILABLE
+ * 检测优先级：ROOT > PROOT
  *
- * Shizuku 相关的监听器仍在此手动管理（Hilt 不适合管理 Shizuku 生命周期）。
+ * 用户可通过 UserModeChoice 显式选择运行模式，或走自动检测。
  */
 class AuthManager private constructor() {
 
     enum class AuthMode {
         /** su 二进制可用（Magisk/KernelSU/APatch） */
         ROOT,
-        /** Shizuku/Sui root 模式（UID 0） */
-        SHIZUKU,
-        /** Shizuku ADB 模式（UID != 0）— 不足够 chroot，但可 PRoot */
-        SHIZUKU_ADB,
         /** PRoot 模式 — 无需 root，通过 ptrace 系统调用拦截 */
         PROOT,
         /** 无 root 权限可用 */
         UNAVAILABLE
+    }
+
+    /** 用户对运行模式的显式选择 */
+    enum class UserModeChoice {
+        /** 尚未选择，走自动检测 */
+        AUTO,
+        /** 用户明确选择 Chroot（Root）模式 */
+        CHROOT,
+        /** 用户明确选择 PRoot 模式 */
+        PROOT
     }
 
     fun interface AuthCallback {
@@ -43,156 +44,121 @@ class AuthManager private constructor() {
     var detectedMode: AuthMode = AuthMode.UNAVAILABLE
         private set
 
-    var forceProot: Boolean = false
+    var userChoice: UserModeChoice = UserModeChoice.AUTO
         set(value) {
             field = value
             detectAndSetMode()
         }
 
-    private var shellService: IShellService? = null
-    private var serviceArgs: Shizuku.UserServiceArgs? = null
-    private var serviceConnection: ServiceConnection? = null
+    /** 兼容旧字段 */
+    var forceProot: Boolean
+        get() = userChoice == UserModeChoice.PROOT
+        set(value) {
+            userChoice = if (value) UserModeChoice.PROOT else UserModeChoice.CHROOT
+        }
+
     private var callback: AuthCallback? = null
     private val handler = Handler(Looper.getMainLooper())
     private var appContext: Context? = null
-
-    // ─── Shizuku 权限请求 ───
-
-    private val permissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
-        if (requestCode == SHIZUKU_REQUEST_CODE) {
-            val granted = grantResult == PackageManager.PERMISSION_GRANTED
-            Log.i(TAG, "Shizuku permission ${if (granted) "granted" else "denied"}")
-            if (granted) bindShellService() else updateMode(AuthMode.UNAVAILABLE)
-        }
-    }
-
-    private val binderReceivedListener = Shizuku.OnBinderReceivedListener {
-        Log.i(TAG, "Shizuku binder received, UID=${Shizuku.getUid()}")
-        detectAndSetMode()
-    }
-
-    private val binderDeadListener = Shizuku.OnBinderDeadListener {
-        Log.w(TAG, "Shizuku binder dead")
-        if (currentMode == AuthMode.SHIZUKU) updateMode(AuthMode.UNAVAILABLE)
-    }
 
     // ─── 公开 API ───
 
     fun init(context: Context) {
         appContext = context.applicationContext
-
-        Shizuku.addBinderReceivedListener(binderReceivedListener)
-        Shizuku.addBinderDeadListener(binderDeadListener)
-        Shizuku.addRequestPermissionResultListener(permissionListener)
-
-        val ctx = appContext!!
-        serviceArgs = Shizuku.UserServiceArgs(
-            ComponentName(ctx.packageName, ShellService::class.java.name)
-        ).tag("rbot_shell").version(1)
-
-        serviceConnection = object : ServiceConnection {
-            override fun onServiceConnected(name: ComponentName, service: IBinder) {
-                Log.i(TAG, "ShellService connected")
-                shellService = IShellService.Stub.asInterface(service)
-                try {
-                    val ping = shellService!!.ping()
-                    val json = org.json.JSONObject(ping)
-                    val stdout = json.optString("stdout", "")
-                    Log.i(TAG, "ShellService ping: $stdout")
-                    updateMode(if (stdout.contains("uid=0")) AuthMode.SHIZUKU else AuthMode.UNAVAILABLE)
-                } catch (e: Exception) {
-                    Log.e(TAG, "ShellService ping failed: ${e.message}")
-                    updateMode(AuthMode.UNAVAILABLE)
-                }
-            }
-
-            override fun onServiceDisconnected(name: ComponentName) {
-                Log.w(TAG, "ShellService disconnected")
-                shellService = null
-                if (currentMode == AuthMode.SHIZUKU) updateMode(AuthMode.UNAVAILABLE)
-            }
-        }
-
+        // 注意：不在此处调用 Shell.setDefaultBuilder()！
+        // ChrootManager.init 已配置了 FLAG_MOUNT_MASTER 和自定义 su 路径，
+        // 此处覆盖会导致 libsu 回退到非 root shell。
+        Shell.enableVerboseLogging = false
         detectAndSetMode()
     }
 
-    fun detectAndSetMode() {
-        // 如果用户明确选了 chroot（forceProot=false），优先尊重用户选择
-        if (!forceProot && (ChrootManager.isSuBinaryPresent() || currentMode == AuthMode.ROOT)) {
-            // su 二进制存在，或之前已经是 ROOT 模式 → 尝试使用 root
-            if (ChrootManager.isRootAvailable()) {
-                Log.i(TAG, "Root available → ROOT mode")
-                unbindShellService()
-                detectedMode = AuthMode.ROOT
-                updateMode(AuthMode.ROOT)
-                return
-            }
-            // su 存在但暂时未授权 — 仍然设为 ROOT，安装时会触发 su 授权弹窗
-            Log.i(TAG, "su binary present but not yet authorized → ROOT mode (pending authorization)")
+    /**
+     * 轻量初始化 — 仅用 isSuBinaryPresent() 快速检测，不在主线程执行 su 命令。
+     * 适用于 Application.onCreate() 等不能阻塞的场景。
+     * 后续由 HomeViewModel.refreshState() 完成完整检测。
+     */
+    fun initLightweight(context: Context) {
+        appContext = context.applicationContext
+        // libsu 自动处理 mount namespace 问题，isSuBinaryPresent() 使用 Shell.isAppGrantedRoot()
+        if (userChoice == UserModeChoice.PROOT) {
+            detectedMode = AuthMode.UNAVAILABLE
+            updateMode(AuthMode.PROOT)
+        } else if (ChrootManager.isSuBinaryPresent()) {
+            // su 二进制存在，暂时标记 ROOT，后续完整检测会确认
+            Log.i(TAG, "Lightweight init: su binary present, tentatively ROOT")
             detectedMode = AuthMode.ROOT
             updateMode(AuthMode.ROOT)
-            return
-        }
-
-        // Priority 1: Root (自动检测路径，forceProot 未设置时)
-        if (ChrootManager.isRootAvailable()) {
-            Log.i(TAG, "Root available → ROOT mode")
-            unbindShellService()
+        } else if (userChoice == UserModeChoice.CHROOT) {
+            // 用户选了 chroot 但没 su 二进制 — 仍标记 ROOT，安装时会触发授权弹窗
+            Log.i(TAG, "Lightweight init: user chose Chroot, tentatively ROOT")
             detectedMode = AuthMode.ROOT
-            updateMode(if (forceProot) AuthMode.PROOT else AuthMode.ROOT)
-            return
+            updateMode(AuthMode.ROOT)
+        } else {
+            // AUTO 模式且无 su → PRoot
+            Log.i(TAG, "Lightweight init: no su binary → PRoot mode")
+            detectedMode = AuthMode.UNAVAILABLE
+            updateMode(AuthMode.PROOT)
         }
+    }
 
-        // Priority 2-3: Shizuku
-        try {
-            if (!isShizukuBinderAlive) throw IllegalStateException("Shizuku binder not alive")
-            val uid = Shizuku.getUid()
-
-            if (uid == 0) {
-                detectedMode = AuthMode.SHIZUKU
-                if (!forceProot) {
-                    if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
-                        Log.i(TAG, "Shizuku root, permission granted → SHIZUKU mode")
-                        bindShellService()
-                    } else {
-                        Log.i(TAG, "Shizuku root, requesting permission")
-                        Shizuku.requestPermission(SHIZUKU_REQUEST_CODE)
-                    }
+    fun detectAndSetMode() {
+        when (userChoice) {
+            UserModeChoice.CHROOT -> {
+                // 用户明确选了 Chroot → 无条件走 chroot 路径
+                if (ChrootManager.isRootAvailable()) {
+                    Log.i(TAG, "User chose Chroot, root available → ROOT mode")
+                    detectedMode = AuthMode.ROOT
+                    updateMode(AuthMode.ROOT)
                 } else {
-                    updateMode(AuthMode.PROOT)
+                    // su 暂未授权或 su 二进制位置不在 PATH —
+                    // 仍然设为 ROOT 模式，安装流程中执行 su 命令时会触发授权弹窗
+                    Log.i(TAG, "User chose Chroot → ROOT mode (pending su authorization)")
+                    detectedMode = AuthMode.ROOT
+                    updateMode(AuthMode.ROOT)
                 }
                 return
             }
 
-            if (uid > 0) {
-                Log.w(TAG, "Shizuku ADB mode (UID $uid) → PRoot")
-                detectedMode = AuthMode.SHIZUKU_ADB
+            UserModeChoice.PROOT -> {
+                // 用户明确选了 PRoot → 直接 PRoot
+                Log.i(TAG, "User chose PRoot → PRoot mode")
+                detectedMode = AuthMode.UNAVAILABLE
                 updateMode(AuthMode.PROOT)
                 return
             }
-        } catch (e: Exception) {
-            Log.w(TAG, "Shizuku check failed: ${e.message} → fallback")
-        }
 
-        // Priority 4: PRoot（仅当 forceProot=true 或确实没有 root 能力时）
-        detectedMode = AuthMode.UNAVAILABLE
-        Log.i(TAG, "No root access available, using PRoot mode")
-        updateMode(AuthMode.PROOT)
-    }
-
-    /** 通过 Shizuku 执行命令 */
-    fun execViaShizuku(command: String, timeoutSec: Int): CommandResult {
-        val service = shellService
-        if (service == null) {
-            Log.e(TAG, "ShellService not bound")
-            return CommandResult(false, "", "Shizuku 服务未连接", -1)
-        }
-        return try {
-            val json = service.exec(command, timeoutSec)
-            parseCommandResult(json)
-        } catch (e: Exception) {
-            Log.e(TAG, "ShellService exec failed: ${e.message}")
-            CommandResult(false, "", "Shizuku 通信失败: ${e.message}", -1)
+            UserModeChoice.AUTO -> {
+                // 自动检测：使用 libsu Shell.isAppGrantedRoot() 不弹窗超时
+                val rootGranted = Shell.isAppGrantedRoot()
+                if (rootGranted == true) {
+                    Log.i(TAG, "libsu: root granted → ROOT mode")
+                    detectedMode = AuthMode.ROOT
+                    updateMode(AuthMode.ROOT)
+                    return
+                }
+                // rootGranted == null → 尝试创建 shell
+                if (rootGranted == null) {
+                    try {
+                        if (Shell.getShell().isRoot) {
+                            Log.i(TAG, "libsu: shell created → ROOT mode")
+                            detectedMode = AuthMode.ROOT
+                            updateMode(AuthMode.ROOT)
+                            return
+                        }
+                    } catch (_: Exception) { }
+                }
+                // 回退到 su 二进制检查
+                if (ChrootManager.isSuBinaryPresent()) {
+                    Log.i(TAG, "su binary present → ROOT mode (pending)")
+                    detectedMode = AuthMode.ROOT
+                    updateMode(AuthMode.ROOT)
+                    return
+                }
+                // 无 root → PRoot
+                detectedMode = AuthMode.UNAVAILABLE
+                Log.i(TAG, "No root access → PRoot mode")
+                updateMode(AuthMode.PROOT)
+            }
         }
     }
 
@@ -200,90 +166,27 @@ class AuthManager private constructor() {
     val context: Context?
         get() = appContext
 
-    val isShizukuReady: Boolean
-        get() = currentMode == AuthMode.SHIZUKU && shellService != null
-
     val isProotMode: Boolean
         get() = currentMode == AuthMode.PROOT
 
-    val isShizukuAvailable: Boolean
-        get() = try { Shizuku.getUid() == 0 } catch (_: Exception) { false }
-
-    val isShizukuBinderAlive: Boolean
-        get() = try { Shizuku.getUid() >= 0 } catch (_: Exception) { false }
-
-    val isShizukuAdbMode: Boolean
-        get() = try { Shizuku.getUid() > 0 } catch (_: Exception) { false }
-
-    val isShizukuPermissionGranted: Boolean
-        get() = try { Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED } catch (_: Exception) { false }
-
     fun setCallback(cb: AuthCallback?) { callback = cb }
 
-    fun requestShizukuPermission() {
-        if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) {
-            Shizuku.requestPermission(SHIZUKU_REQUEST_CODE)
-        } else {
-            bindShellService()
-        }
-    }
-
     fun destroy() {
-        Shizuku.removeBinderReceivedListener(binderReceivedListener)
-        Shizuku.removeBinderDeadListener(binderDeadListener)
-        Shizuku.removeRequestPermissionResultListener(permissionListener)
-        unbindShellService()
+        // nothing to clean up
     }
 
     // ─── Internal ───
-
-    private fun bindShellService() {
-        try {
-            Log.i(TAG, "Binding ShellService via Shizuku")
-            val args = serviceArgs ?: return
-            val conn = serviceConnection ?: return
-            Shizuku.bindUserService(args, conn)
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to bind ShellService: ${e.message}")
-            updateMode(AuthMode.UNAVAILABLE)
-        }
-    }
-
-    private fun unbindShellService() {
-        val args = serviceArgs ?: return
-        val conn = serviceConnection ?: return
-        try {
-            Shizuku.unbindUserService(args, conn, false)
-        } catch (_: Exception) { }
-        shellService = null
-    }
 
     private fun updateMode(mode: AuthMode) {
         if (currentMode != mode) {
             Log.i(TAG, "Auth mode changed: $currentMode → $mode")
             currentMode = mode
-            ChrootManager.useShizuku = (mode == AuthMode.SHIZUKU)
             callback?.let { handler.post { it.onAuthChanged(mode) } }
-        }
-    }
-
-    private fun parseCommandResult(json: String): CommandResult {
-        return try {
-            val obj = org.json.JSONObject(json)
-            CommandResult(
-                success = obj.optBoolean("success", false),
-                stdout = obj.optString("stdout", ""),
-                stderr = obj.optString("stderr", ""),
-                exitCode = obj.optInt("exitCode", -1)
-            )
-        } catch (e: Exception) {
-            CommandResult(false, "", "JSON parse error: ${e.message}", -1)
         }
     }
 
     companion object {
         private const val TAG = "AuthManager"
-        private const val SHIZUKU_REQUEST_CODE = 101
 
         val instance: AuthManager by lazy { AuthManager() }
     }

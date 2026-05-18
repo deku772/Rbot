@@ -46,6 +46,25 @@ class HomeViewModel @Inject constructor(
     // ─── 状态刷新 ───
 
     fun refreshState() {
+        // 轻量检查：有 root 权限但当前不是 ROOT 模式 → 异步重新检测
+        val needsRootRedetect = AuthManager.instance.currentMode != AuthManager.AuthMode.ROOT
+            && AuthManager.instance.userChoice != AuthManager.UserModeChoice.PROOT
+            && ChrootManager.isSuBinaryPresent()
+
+        if (needsRootRedetect) {
+            viewModelScope.launch(Dispatchers.IO) {
+                if (ChrootManager.isRootAvailable()) {
+                    AuthManager.instance.detectAndSetMode()
+                }
+                doRefreshState()
+            }
+            return
+        }
+
+        doRefreshState()
+    }
+
+    private fun doRefreshState() {
         val status = if (AuthManager.instance.isProotMode) {
             ChrootManager.getFullStatus().let { fs ->
                 // PRoot 模式用 ChrootManager 的 getFullStatus 获取基本状态
@@ -83,7 +102,7 @@ class HomeViewModel @Inject constructor(
             isRunning = sshRunning
         )
 
-        _uiState.value = HomeUiState(
+        _uiState.value = _uiState.value.copy(
             botState = when {
                 status.astrBotRunning -> BotBridge.State.RUNNING
                 status.astrBotInstalled -> BotBridge.State.READY
@@ -99,12 +118,12 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    /** 启动自动状态刷新（每 5 秒） */
+    /** 启动自动状态刷新（每 15 秒） */
     private fun startAutoRefresh() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(5000)
+                delay(15_000)
                 refreshState()
             }
         }
@@ -121,15 +140,18 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isStarting = true, errorMessage = null)
             val result = botBridge.startBot()
+            val errorMsg = if (!result.success) {
+                if (result.stderr.isNotEmpty()) result.stderr
+                else if (result.stdout.isNotEmpty()) result.stdout
+                else "启动失败（无详细信息）"
+            } else null
             _uiState.value = _uiState.value.copy(
                 isStarting = false,
-                errorMessage = if (!result.success) result.stderr else null
+                errorMessage = errorMsg
             )
             refreshState()
         }
-    }
-
-    fun stopBot() {
+    }fun stopBot() {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isStopping = true)
             botBridge.stopBot()
@@ -142,17 +164,18 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isStarting = true, errorMessage = null)
             val result = botBridge.restartBot()
+            val errorMsg = if (!result.success) {
+                if (result.stderr.isNotEmpty()) result.stderr
+                else if (result.stdout.isNotEmpty()) result.stdout
+                else "重启失败（无详细信息）"
+            } else null
             _uiState.value = _uiState.value.copy(
                 isStarting = false,
-                errorMessage = if (!result.success) result.stderr else null
+                errorMessage = errorMsg
             )
             refreshState()
         }
-    }
-
-    // ─── SSH 控制 ───
-
-    fun startSsh() {
+    }fun startSsh() {
         viewModelScope.launch(Dispatchers.IO) {
             val result = if (AuthManager.instance.isProotMode) {
                 prootManager.startSshService()
@@ -160,13 +183,14 @@ class HomeViewModel @Inject constructor(
                 ChrootManager.startSshService()
             }
             if (!result.success) {
-                _uiState.value = _uiState.value.copy(errorMessage = "SSH 启动失败: ${result.stderr}")
+                val msg = if (result.stderr.isNotEmpty()) result.stderr
+                    else if (result.stdout.isNotEmpty()) result.stdout
+                    else "SSH 启动失败（无详细信息）"
+                _uiState.value = _uiState.value.copy(errorMessage = msg)
             }
             refreshState()
         }
-    }
-
-    fun stopSsh() {
+    }fun stopSsh() {
         viewModelScope.launch(Dispatchers.IO) {
             if (AuthManager.instance.isProotMode) {
                 prootManager.stopSshService()
@@ -212,12 +236,18 @@ class HomeViewModel @Inject constructor(
 
     // ─── 日志 ───
 
-    fun getRecentLog(): String {
-        return if (AuthManager.instance.isProotMode) {
-            PRootManager.readTail(prootManager.astrBotLogFile, 50)
-        } else {
-            val result = ChrootManager.execRoot("tail -50 ${RbotPaths.ASTRBOT_LOG_FILE}", 5)
-            if (result.success) result.stdout else ""
+    private val _logContent = MutableStateFlow("")
+    val logContent: StateFlow<String> = _logContent.asStateFlow()
+
+    fun refreshLog() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val log = if (AuthManager.instance.isProotMode) {
+                PRootManager.readTail(prootManager.astrBotLogFile, 100)
+            } else {
+                val result = ChrootManager.execRoot("tail -100 ${RbotPaths.ASTRBOT_LOG_FILE}", 5)
+                if (result.success) result.stdout else ""
+            }
+            _logContent.value = log
         }
     }
 

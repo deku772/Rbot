@@ -412,11 +412,6 @@ class PRootManager private constructor(private val context: Context) {
     // ─── PRoot 命令执行 ───
 
     fun runInProot(command: String, timeoutSec: Int = 60): CommandResult {
-        val prootBin = File(nativeRuntimeDir, "libproot.so")
-        if (!prootBin.exists()) {
-            return CommandResult(false, "", "proot 二进制不存在: ${prootBin.absolutePath}", -1)
-        }
-
         val cmd = buildProotCommand(command)
         val env = prootEnv()
 
@@ -477,11 +472,6 @@ class PRootManager private constructor(private val context: Context) {
         timeoutSec: Int = 60,
         callback: ((String) -> Unit)? = null
     ): CommandResult {
-        val prootBin = File(nativeRuntimeDir, "libproot.so")
-        if (!prootBin.exists()) {
-            return CommandResult(false, "", "proot 二进制不存在", -1)
-        }
-
         val cmd = buildProotCommand(command)
         val env = prootEnv()
 
@@ -536,7 +526,11 @@ class PRootManager private constructor(private val context: Context) {
 
     fun startAstrBot(): CommandResult {
         if (!isRootfsReady()) {
-            return CommandResult(false, "", "rootfs 未就绪", -1)
+            return CommandResult(false, "", "rootfs 未就绪，请先完成安装", -1)
+        }
+
+        if (!isAstrBotInstalled()) {
+            return CommandResult(false, "", "AstrBot 未安装，请先完成安装步骤", -1)
         }
 
         val command = "source /root/astrbot-venv/bin/activate && " +
@@ -557,7 +551,14 @@ class PRootManager private constructor(private val context: Context) {
 
             prootGatewayProcess = pb.start()
 
-            // 消费 stdout/stderr（后台线程）
+            Thread.sleep(2000)
+            try {
+                prootGatewayProcess?.exitValue()
+                return CommandResult(false, "", "AstrBot 进程启动后立即退出，请检查 venv 和 astrbot 是否正确安装", -1)
+            } catch (_: IllegalThreadStateException) {
+                // 进程仍在运行，正常
+            }
+
             Thread {
                 try {
                     BufferedReader(InputStreamReader(prootGatewayProcess?.inputStream)).use { reader ->
@@ -584,9 +585,7 @@ class PRootManager private constructor(private val context: Context) {
         } catch (e: Exception) {
             CommandResult(false, "", e.message ?: "启动失败", -1)
         }
-    }
-
-    fun stopAstrBot(): CommandResult {
+    }fun stopAstrBot(): CommandResult {
         prootGatewayProcess?.let {
             it.destroy()
             if (!it.waitFor(5, TimeUnit.SECONDS)) it.destroyForcibly()
@@ -1035,56 +1034,61 @@ class PRootManager private constructor(private val context: Context) {
     // ─── 内部构建 ───
 
     private fun buildProotCommand(innerCommand: String): List<String> {
-        val prootBin = File(nativeRuntimeDir, "libproot.so")
-        return listOf(
-            prootBin.absolutePath,
-            "-0",
-            "-r", rootfsDir,
-            "--link2symlink",
-            "-b", "/dev",
-            "-b", "/dev/pts",
-            "-b", "/proc",
-            "-b", "/sys",
-            "-b", "/system",
-            "-b", "/apex",
-            "-b", "/proc/self/fd:/dev/fd",
-            "-b", "$filesDir:$filesDir",
-            "-b", "/sdcard",
-            "/usr/bin/env",
-            "-i",
+        val flags = mutableListOf<String>()
+        flags.addAll(commonProotFlags())
+
+        flags.add("--change-id=0:0")
+        flags.add("--sysvipc")
+
+        val machine = getUnameMachine()
+        val kernelRelease = "\\Linux\\localhost\\$FAKE_KERNEL_RELEASE" +
+            "\\$FAKE_KERNEL_VERSION\\${machine}\\localdomain\\-1\\"
+        flags.add("--kernel-release=$kernelRelease")
+
+        val talloc = ensureLibTalloc()
+        val ldLibraryPath = joinPaths(talloc.parent, configDir, nativeLibDir, nativeRuntimeDir)
+        flags.addAll(listOf(
+            "/usr/bin/env", "-i",
             "HOME=/root",
-            "PATH=/usr/bin:/bin",
-            "/bin/bash",
-            "-c",
+            "LANG=C.UTF-8",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "TERM=xterm-256color",
+            "TMPDIR=/tmp",
+            "LD_LIBRARY_PATH=$ldLibraryPath",
+            "/bin/bash", "-c",
             innerCommand
-        )
+        ))
+
+        return flags
     }
 
     private fun buildGatewayCommand(innerCommand: String): List<String> {
-        val prootBin = File(nativeRuntimeDir, "libproot.so")
-        return listOf(
-            prootBin.absolutePath,
-            "-0",
-            "-r", rootfsDir,
-            "--link2symlink",
-            "-b", "/dev",
-            "-b", "/dev/pts",
-            "-b", "/proc",
-            "-b", "/sys",
-            "-b", "/system",
-            "-b", "/apex",
-            "-b", "/proc/self/fd:/dev/fd",
-            "-b", "$filesDir:$filesDir",
-            "-b", "/sdcard",
-            "/usr/bin/env",
-            "-i",
+        val flags = mutableListOf<String>()
+        flags.addAll(commonProotFlags())
+
+        flags.add("--change-id=0:0")
+        flags.add("--sysvipc")
+
+        val machine = getUnameMachine()
+        val kernelRelease = "\\Linux\\localhost\\$FAKE_KERNEL_RELEASE" +
+            "\\$FAKE_KERNEL_VERSION\\${machine}\\localdomain\\-1\\"
+        flags.add("--kernel-release=$kernelRelease")
+
+        val talloc = ensureLibTalloc()
+        val ldLibraryPath = joinPaths(talloc.parent, configDir, nativeLibDir, nativeRuntimeDir)
+        flags.addAll(listOf(
+            "/usr/bin/env", "-i",
             "HOME=/root",
+            "LANG=C.UTF-8",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "TERM=xterm-256color",
-            "/bin/bash",
-            "-c",
+            "TMPDIR=/tmp",
+            "LD_LIBRARY_PATH=$ldLibraryPath",
+            "/bin/bash", "-c",
             innerCommand
-        )
+        ))
+
+        return flags
     }
 
     fun prootEnv(): Map<String, String> {
@@ -1093,6 +1097,7 @@ class PRootManager private constructor(private val context: Context) {
             "PROOT_LOADER" to File(nativeRuntimeDir, "libproot-loader.so").absolutePath,
             "LD_LIBRARY_PATH" to "$runtimeLibDir:$nativeLibDir",
             "PROOT_TMP" to tmpDir,
+            "PROOT_NO_SECCOMP" to "1",
             "HOME" to "/root",
             "PATH" to "/usr/bin:/bin",
             "TERM" to "xterm-256color"

@@ -21,10 +21,16 @@ import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 终端 Screen — 使用 AndroidView 包装 Termux TerminalView。
  * 支持 Chroot 和 PRoot 两种模式的终端会话。
+ *
+ * Chroot 模式: 创建 session 前需要先 setupChrootDevices + chmod /dev/pts/ptmx，
+ * 因为 JNI createSubprocess 会在 fork 前调用 open("/dev/ptmx")。
+ * Session 结束后需要恢复 ptmx 权限。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,6 +39,10 @@ fun TerminalScreen() {
     var terminalTitle by remember { mutableStateOf("终端") }
     var session by remember { mutableStateOf<TerminalSession?>(null) }
     var terminalView by remember { mutableStateOf<TerminalView?>(null) }
+    // 环境准备状态: null=准备中, true=就绪, false=失败
+    var envReady by remember { mutableStateOf<Boolean?>(null) }
+
+    val isProot = AuthManager.instance.isProotMode
 
     // 会话客户端实现
     val sessionClient = remember {
@@ -128,6 +138,40 @@ fun TerminalScreen() {
         }
     }
 
+    // ─── 环境准备 (chroot 模式需要 su 操作，必须异步) ───
+    LaunchedEffect(isProot) {
+        if (isProot) {
+            envReady = true
+        } else {
+            withContext(Dispatchers.IO) {
+                try {
+                    if (ChrootManager.isRootfsReady()) {
+                        ChrootManager.setupChrootDevices(null)
+                        grantPtmxAccess()
+                        envReady = true
+                    } else {
+                        envReady = false
+                    }
+                } catch (e: Exception) {
+                    android.util.Log.e("TerminalScreen", "setupChrootDevices failed", e)
+                    envReady = false
+                }
+            }
+        }
+    }
+
+    // ─── 退出时回收 ───
+    DisposableEffect(Unit) {
+        onDispose {
+            session?.finishIfRunning()
+            if (!isProot) {
+                revokePtmxAccess()
+            }
+            terminalView = null
+            session = null
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(title = { Text(terminalTitle) })
@@ -138,51 +182,38 @@ fun TerminalScreen() {
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            AndroidView(
-                factory = { ctx ->
-                    TerminalView(ctx, null).also { tv ->
-                        terminalView = tv
-                        tv.setTerminalViewClient(viewClient)
-                        tv.setTextSize(14)
-
-                        val isProot = AuthManager.instance.isProotMode
-                        if (isProot) {
-                            val pm = PRootManager.getInstance(ctx)
-                            if (pm.isRootfsReady()) {
-                                val shellCmd = pm.buildShellCommand("bash")
-                                val env = pm.prootEnv().map { (k, v) -> "$k=$v" }.toTypedArray()
-                                val s = TerminalSession(
-                                    shellCmd[0],
-                                    "/",
-                                    shellCmd.drop(1).toTypedArray(),
-                                    env,
-                                    2000,
-                                    sessionClient
-                                )
-                                session = s
-                                tv.attachSession(s)
-                            }
-                        } else {
-                            if (ChrootManager.isRootfsReady()) {
-                                val chrootBash = "chroot /data/rbot /bin/bash -c " +
-                                    "'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
-                                    "export HOME=/root && unset ANDROID_ROOT && bash'"
-                                val s = TerminalSession(
-                                    "/system/bin/sh",
-                                    "/",
-                                    arrayOf("-c", chrootBash),
-                                    arrayOf("TERM=xterm-256color", "HOME=/root"),
-                                    2000,
-                                    sessionClient
-                                )
-                                session = s
-                                tv.attachSession(s)
-                            }
-                        }
+            when (envReady) {
+                null -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                    Text(
+                        "正在初始化终端环境...",
+                        modifier = Modifier.align(Alignment.Center).padding(top = 40.dp),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+                false -> {
+                    Text(
+                        "终端环境未就绪，请先完成安装。",
+                        modifier = Modifier.align(Alignment.Center),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                }
+                true -> {
+                    // 使用 key 确保只在 envReady 变为 true 时创建一次
+                    key(envReady) {
+                        TerminalViewContent(
+                            isProot = isProot,
+                            context = context,
+                            sessionClient = sessionClient,
+                            viewClient = viewClient,
+                            onTerminalViewCreated = { tv -> terminalView = tv },
+                            onSessionCreated = { s -> session = s }
+                        )
                     }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
+                }
+            }
 
             // 快捷键栏
             Row(
@@ -192,7 +223,7 @@ fun TerminalScreen() {
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                listOf("Ctrl", "Alt", "Tab", "Esc", "↑", "↓").forEach { key ->
+                listOf("Ctrl", "Alt", "Tab", "Esc", "↑", "↓", "Ctrl+C").forEach { key ->
                     FilledTonalButton(
                         onClick = {
                             val s = session ?: return@FilledTonalButton
@@ -203,6 +234,10 @@ fun TerminalScreen() {
                                 "Esc" -> s.writeCodePoint(true, 27)
                                 "↑" -> s.write("\u001b[A")
                                 "↓" -> s.write("\u001b[B")
+                                "Ctrl+C" -> {
+                                    // 发送 ETX (Ctrl+C = \u0003)
+                                    s.write("\u0003")
+                                }
                             }
                         },
                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
@@ -213,12 +248,121 @@ fun TerminalScreen() {
             }
         }
     }
+}
 
-    DisposableEffect(Unit) {
-        onDispose {
-            session?.finishIfRunning()
-            terminalView = null
-            session = null
+/**
+ * 终端视图内容 — 单独抽出以便使用 key() 控制重建。
+ *
+ * 不在 factory 中创建 session，而是先创建 TerminalView，
+ * 等 View layout 完成后再通过 onLayoutChange 创建并 attach session。
+ * 这避免了 width/height 为 0 时 attachSession 导致 emulator 无法初始化的问题。
+ */
+@Composable
+private fun TerminalViewContent(
+    isProot: Boolean,
+    context: Context,
+    sessionClient: TerminalSessionClient,
+    viewClient: TerminalViewClient,
+    onTerminalViewCreated: (TerminalView) -> Unit,
+    onSessionCreated: (TerminalSession) -> Unit
+) {
+    AndroidView(
+        factory = { ctx ->
+            val tv = TerminalView(ctx, null)
+            tv.setTerminalViewClient(viewClient)
+            tv.setTextSize(14)
+            // 关键：与旧版 XML 布局一致，必须设置 focusable 才能弹出输入法
+            tv.isFocusable = true
+            tv.isFocusableInTouchMode = true
+            onTerminalViewCreated(tv)
+
+            // 关键：等 View layout 完成后再创建 session
+            // 因为 attachSession → updateSize 需要知道 View 的实际尺寸
+            var sessionAttached = false
+            tv.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+                val width = right - left
+                val height = bottom - top
+                if (width > 0 && height > 0 && !sessionAttached) {
+                    sessionAttached = true
+                    val s = createTerminalSession(ctx, isProot, sessionClient)
+                    if (s != null) {
+                        onSessionCreated(s)
+                        tv.attachSession(s)
+                    }
+                    // 自动获取焦点并弹出输入法
+                    tv.requestFocus()
+                    tv.post {
+                        val imm = ctx.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+                        imm.showSoftInput(tv, 0)
+                    }
+                }
+            }
+            tv
+        },
+        modifier = Modifier.fillMaxSize()
+    )
+}
+
+/**
+ * 创建终端会话，与旧版 rbot ShellActivity 逻辑一致。
+ */
+private fun createTerminalSession(
+    context: Context,
+    isProot: Boolean,
+    sessionClient: TerminalSessionClient
+): TerminalSession? {
+    return try {
+        if (isProot) {
+            val pm = PRootManager.getInstance(context)
+            if (!pm.isRootfsReady()) return null
+            val shellCmd = pm.buildShellCommand("bash")
+            val env = pm.prootEnv().map { (k, v) -> "$k=$v" }.toTypedArray()
+            TerminalSession(
+                shellCmd[0],
+                "/",
+                shellCmd.drop(1).toTypedArray(),
+                env,
+                2000,
+                sessionClient
+            )
+        } else {
+            if (!ChrootManager.isRootfsReady()) return null
+            val chrootPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+            val chrootShellCmd = "export HOME=/root; export TERM=xterm-256color; export PATH=$chrootPath; exec chroot /data/rbot /bin/bash -l"
+            TerminalSession(
+                "/system/bin/su",
+                "/",
+                arrayOf("/system/bin/su", "-c", chrootShellCmd),
+                arrayOf(
+                    "TERM=xterm-256color",
+                    "HOME=/root",
+                    "PATH=/system/bin:/system/xbin:$chrootPath"
+                ),
+                2000,
+                sessionClient
+            )
         }
+    } catch (e: Exception) {
+        android.util.Log.e("TerminalScreen", "Failed to create terminal session", e)
+        null
     }
+}
+
+// ─── PTY 权限管理 ───
+
+private fun grantPtmxAccess() {
+    try {
+        val result = ChrootManager.execRoot("chmod 666 /dev/pts/ptmx", 5)
+        if (!result.success) {
+            android.util.Log.w("TerminalScreen", "chmod ptmx failed: ${result.stderr}")
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("TerminalScreen", "grantPtmxAccess failed", e)
+    }
+}
+
+private fun revokePtmxAccess() {
+    try {
+        ChrootManager.execRoot("chmod 000 /dev/pts/ptmx", 5)
+    } catch (_: Exception) { }
 }

@@ -17,7 +17,7 @@ object GitHubProxyManager {
 
     private const val TAG = "GitHubProxyManager"
 
-    private val PROXY_TEMPLATES = arrayOf(
+    private val PROXY_TEMPLATES = mutableListOf(
         "",  // 直连
         "https://edgeone.gh-proxy.com/",
         "https://hk.gh-proxy.com/",
@@ -25,7 +25,7 @@ object GitHubProxyManager {
         "https://gh.llkk.cc/",
     )
 
-    private val PROXY_NAMES = arrayOf(
+    private val PROXY_NAMES = mutableListOf(
         "直连 (GitHub)",
         "EdgeOne",
         "HK Proxy",
@@ -115,6 +115,36 @@ object GitHubProxyManager {
     }
 
     fun getCustomProxy(): String = customProxy
+
+    // ─── 代理列表管理 ───
+
+    /** 获取所有内置代理（不可变快照） */
+    fun getProxies(): List<Pair<String, String>> = PROXY_NAMES.zip(PROXY_TEMPLATES)
+
+    /** 更新指定索引的代理 */
+    fun updateProxy(index: Int, name: String, url: String) {
+        if (index in PROXY_TEMPLATES.indices) {
+            PROXY_NAMES[index] = name
+            PROXY_TEMPLATES[index] = url
+            bestProxy = -1
+        }
+    }
+
+    /** 新增代理 */
+    fun addProxy(name: String, url: String) {
+        PROXY_NAMES.add(name)
+        PROXY_TEMPLATES.add(url)
+        bestProxy = -1
+    }
+
+    /** 删除指定索引的代理（不允许删除"直连"） */
+    fun removeProxy(index: Int) {
+        if (index > 0 && index < PROXY_TEMPLATES.size) {
+            PROXY_NAMES.removeAt(index)
+            PROXY_TEMPLATES.removeAt(index)
+            bestProxy = -1
+        }
+    }
 
     // ─── 内部实现 ───
 

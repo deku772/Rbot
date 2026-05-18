@@ -64,13 +64,13 @@ class PermissionsViewModel @Inject constructor(
                     PermissionChecker.PERMISSION_GRANTED
             } else true
 
-            val rootAvailable = ChrootManager.isRootAvailable()
+            val rootAvailable = ChrootManager.isSuBinaryPresent()
 
             // 关键：如果 root 从不可用变为可用，需要重新检测 AuthManager 的模式
             // 因为首次启动时 su 授权弹窗会导致超时，AuthManager 会落入 PROOT，
             // 用户授权后再次进入此页面时，需要让 AuthManager 重新评估
             if (rootAvailable && AuthManager.instance.currentMode == AuthManager.AuthMode.PROOT
-                && !AuthManager.instance.forceProot
+                && AuthManager.instance.userChoice != AuthManager.UserModeChoice.PROOT
             ) {
                 AuthManager.instance.detectAndSetMode()
             }
@@ -87,10 +87,9 @@ class PermissionsViewModel @Inject constructor(
     }
 
     fun setChrootMode() {
-        AuthManager.instance.forceProot = false
-        // detectAndSetMode() 会执行 su -c id（可能弹授权窗），必须在 IO 线程
+        AuthManager.instance.userChoice = AuthManager.UserModeChoice.CHROOT
+        // detectAndSetMode() 会在 setter 中自动执行
         viewModelScope.launch(Dispatchers.IO) {
-            AuthManager.instance.detectAndSetMode()
             withContext(Dispatchers.Main) {
                 refreshAll()
             }
@@ -98,7 +97,7 @@ class PermissionsViewModel @Inject constructor(
     }
 
     fun setProotMode() {
-        AuthManager.instance.forceProot = true
+        AuthManager.instance.userChoice = AuthManager.UserModeChoice.PROOT
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isProotDownloading = true)
             _uiState.value = _uiState.value.copy(isProotDownloading = false)

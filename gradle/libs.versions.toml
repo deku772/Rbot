@@ -37,9 +37,6 @@ kotlinxSerialization = "1.8.1"
 # Coroutines
 coroutines = "1.10.2"
 
-# Shizuku
-shizuku = "13.1.5"
-
 # Compression
 commonsCompress = "1.27.1"
 tukaaniXz = "1.10"
@@ -93,10 +90,6 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 
 # Coroutines
 coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
-
-# Shizuku
-shizuku-api = { group = "dev.rikka.shizuku", name = "api", version.ref = "shizuku" }
-shizuku-provider = { group = "dev.rikka.shizuku", name = "provider", version.ref = "shizuku" }
 
 # Compression
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }

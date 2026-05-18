@@ -1,15 +1,13 @@
 package app.rbot.ui.screen
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -29,13 +27,21 @@ import app.rbot.ui.viewmodel.HomeViewModel
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
+fun HomeScreen(
+    onNavigateToPermissions: () -> Unit = {},
+    viewModel: HomeViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsState()
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Rbot") },
+                actions = {
+                    IconButton(onClick = onNavigateToPermissions) {
+                        Icon(Icons.Filled.Settings, contentDescription = "权限设置")
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 )
@@ -56,17 +62,14 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             // ─── 控制按钮 ───
             ControlButtons(uiState, onStart = viewModel::startBot, onStop = viewModel::stopBot)
 
-            // ─── 组件状态网格 ───
-            ComponentStatusGrid(uiState.componentStatus)
-
             // ─── WebUI 面板 ───
             WebUIPanel(uiState)
 
             // ─── SSH 面板 ───
             SSHPanel(uiState, viewModel)
 
-            // ─── 授权模式 ───
-            AuthModeLabel(uiState.authMode)
+            // ─── 授权模式 + 切换按钮 ───
+            AuthModeLabel(uiState.authMode, onNavigateToPermissions)
 
             // ─── 错误提示 ───
             uiState.errorMessage?.let { error ->
@@ -129,9 +132,7 @@ private fun StatusCard(uiState: app.rbot.data.model.HomeUiState) {
                 Text(
                     text = "模式: ${when (uiState.authMode) {
                         AuthManager.AuthMode.ROOT -> "Root (chroot)"
-                        AuthManager.AuthMode.SHIZUKU -> "Shizuku"
                         AuthManager.AuthMode.PROOT -> "PRoot (免 Root)"
-                        AuthManager.AuthMode.SHIZUKU_ADB -> "Shizuku ADB"
                         AuthManager.AuthMode.UNAVAILABLE -> "不可用"
                     }}",
                     style = MaterialTheme.typography.bodySmall,
@@ -242,21 +243,13 @@ private fun WebUIPanel(uiState: app.rbot.data.model.HomeUiState) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = {
-                        try {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(uiState.webUIUrl))
-                            )
-                        } catch (_: Exception) { }
+                        openInBrowser(context, uiState.webUIUrl)
                     }) {
                         Text("本机打开")
                     }
                     if (uiState.webUILanUrl.isNotEmpty()) {
                         OutlinedButton(onClick = {
-                            try {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(uiState.webUILanUrl))
-                                )
-                            } catch (_: Exception) { }
+                            openInBrowser(context, uiState.webUILanUrl)
                         }) {
                             Text("局域网打开")
                         }
@@ -264,6 +257,22 @@ private fun WebUIPanel(uiState: app.rbot.data.model.HomeUiState) {
                 }
             }
         }
+    }
+}
+
+/** 用浏览器打开 URL，避免被 WebView 等组件拦截导致黑屏 */
+private fun openInBrowser(context: Context, url: String) {
+    try {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+            addCategory(Intent.CATEGORY_BROWSABLE)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+        }
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        // 没有浏览器可用时，尝试普通 ACTION_VIEW 回退
+        try {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (_: Exception) { }
     }
 }
 
@@ -300,10 +309,19 @@ private fun SSHPanel(
 }
 
 @Composable
-private fun AuthModeLabel(authMode: AuthManager.AuthMode) {
-    Text(
-        text = "授权模式: ${authMode.name}",
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant
-    )
+private fun AuthModeLabel(authMode: AuthManager.AuthMode, onNavigateToPermissions: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "授权模式: ${authMode.name}",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        TextButton(onClick = onNavigateToPermissions) {
+            Text("安装向导", style = MaterialTheme.typography.labelSmall)
+        }
+    }
 }

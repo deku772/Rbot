@@ -241,12 +241,7 @@
     <string name="rbot_dismiss">忽略</string>
     <string name="rbot_back">返回</string>
     <string name="rbot_automation_panel_title">自动化面板</string>
-    <string name="rbot_shizuku_panel_title">Shizuku</string>
-    <string name="rbot_shizuku_bridge_status_checking">正在检查 Shizuku Bridge 状态...</string>
-    <string name="rbot_shizuku_bridge_status_not_configured">Shizuku Bridge 未配置 token</string>
-    <string name="rbot_shizuku_bridge_status_running">Shizuku Bridge 运行中</string>
-    <string name="rbot_shizuku_bridge_status_stopped">Shizuku Bridge 已停止</string>
-    <string name="rbot_shizuku_bridge_status_stopped_with_reason">Shizuku Bridge 已停止：%1$s</string>
+
     <string name="rbot_u2_service_panel_title">u2 服务</string>
     <string name="rbot_u2_service_status_checking">正在检查 u2 状态...</string>
     <string name="rbot_u2_service_status_running">u2 服务运行中</string>
@@ -265,23 +260,10 @@
     <string name="rbot_u2_service_stop_command_sent">u2 停止命令已发送</string>
     <string name="rbot_start_u2_service">启动 u2</string>
     <string name="rbot_stop_u2_service">停止 u2</string>
-    <string name="action_open_shizuku_status">打开 Shizuku 主页</string>
-    <string name="action_request_shizuku_permission">检查 Shizuku 权限</string>
-    <string name="rbot_shizuku_status_checking">正在检查 Shizuku 状态...</string>
-    <string name="rbot_shizuku_permission_granted">Shizuku 权限已授权</string>
-    <string name="rbot_shizuku_permission_denied">Shizuku 权限被拒绝</string>
-    <string name="rbot_shizuku_permission_not_granted">Shizuku 权限未授权</string>
-    <string name="rbot_shizuku_permission_already_granted">Shizuku 权限已授权</string>
-    <string name="rbot_shizuku_binder_not_ready">Shizuku Binder 未就绪</string>
-    <string name="rbot_shizuku_requesting_permission">正在请求 Shizuku 权限...</string>
+
     <string name="rbot_waiting">请稍候...</string>
     <string name="rbot_checking">正在检查...</string>
-    <string name="rbot_shizuku_precheck_service_not_connected">服务未连接，无法执行 Shizuku 预检</string>
-    <string name="rbot_shizuku_precheck_running">正在执行 Shizuku 预检...</string>
-    <string name="rbot_shizuku_precheck_no_result">Shizuku 预检无返回</string>
-    <string name="rbot_shizuku_precheck_passed">Shizuku 预检通过</string>
-    <string name="rbot_shizuku_precheck_failed">Shizuku 预检失败：%1$s</string>
-    <string name="rbot_shizuku_status_unavailable">Shizuku 状态不可用</string>
+
     <string name="rbot_gateway_stopped">网关已停止</string>
     <string name="rbot_check_openclaw_updates">检查 OpenClaw 更新</string>
     <string name="rbot_check_updates">检查更新</string>

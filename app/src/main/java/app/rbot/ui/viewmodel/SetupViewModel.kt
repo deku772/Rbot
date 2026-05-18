@@ -171,30 +171,52 @@ class SetupViewModel @Inject constructor(
         updateStep(0, "检查权限...")
         if (isProot) {
             appendLog("PRoot 免 Root 模式")
-        } else if (!ChrootManager.isPrivilegedAccessAvailable()) {
-            _uiState.value = _uiState.value.copy(isInstalling = false, errorMessage = "需要 Root 或 Shizuku 权限")
-            return
+        } else {
+            // Chroot 模式：仅检查 su 二进制是否存在，不执行 su -c id
+            // 执行 su -c id 会触发超时或授权弹窗导致误判
+            if (ChrootManager.isSuBinaryPresent()) {
+                appendLog("检测到 su 二进制，Chroot 模式")
+            } else {
+                appendLog("未检测到 su 二进制，仍尝试 Chroot 模式（某些 Magisk 会隐藏 su）")
+            }
+            // 用 id 命令验证 root 权限 — echo 在非 root shell 也会成功，不能用来验证
+            val testResult = ChrootManager.execRoot("id", 10)
+            val isRoot = testResult.success && testResult.stdout.contains("uid=0")
+            if (isRoot) {
+                appendLog("Root 权限验证通过 (uid=0)")
+            } else {
+                // 检测是否是 KernelSU kernel_umount 导致 su 被隐藏
+                if (ChrootManager.isKernelSuUmountActive()) {
+                    appendLog("检测到 KernelSU 环境，但 su 被隐藏（kernel_umount）")
+                    appendLog("请在 KernelSU 管理器中为 app.rbot 关闭「内核自动卸载」(kernel_umount)")
+                    appendLog("路径：KernelSU → 应用 → app.rbot → 关闭「卸载模块」")
+                    _uiState.value = _uiState.value.copy(
+                        isInstalling = false,
+                        errorMessage = "KernelSU 的「内核自动卸载」功能隐藏了 su。\n\n" +
+                            "请在 KernelSU 管理器中：\n" +
+                            "1. 打开「超级用户」页签\n" +
+                            "2. 找到 app.rbot\n" +
+                            "3. 关闭「卸载模块」(kernel_umount)\n\n" +
+                            "关闭后不会影响安全性，本应用需要 root 权限运行。"
+                    )
+                } else {
+                    appendLog("Root 权限验证失败: stdout=${testResult.stdout.take(100)} stderr=${testResult.stderr.take(100)}")
+                    _uiState.value = _uiState.value.copy(
+                        isInstalling = false,
+                        errorMessage = "Root 权限不可用：su 授权未通过。请在 Magisk/KernelSU 中授予 Root 权限后重试，或切换到 PRoot 模式。"
+                    )
+                }
+                return
+            }
         }
-        appendLog("权限检查通过")
 
-        // ─── Step 1: 网络测试 + 代理选择 ───
+        // ─── Step 1: 网络测试 + 自动选择最快代理 ───
         updateStep(1, "测试网络...")
         appendLog("测试 GitHub 连接...")
         val proxyResults = GitHubProxyManager.testProxies()
         val bestProxy = proxyResults.filter { it.latencyMs > 0 }.minByOrNull { it.latencyMs }
-        appendLog("最快线路: ${bestProxy?.name ?: "直连"}")
-
-        // 弹出代理选择对话框（替代 wait/notify 阻塞）
         selectedProxyIndex = bestProxy?.index ?: 0
-        _proxyPickerState.value = ProxyPickerState(
-            proxies = proxyResults,
-            selectedIndex = selectedProxyIndex
-        )
-        // 等待用户选择
-        while (_proxyPickerState.value != null) {
-            kotlinx.coroutines.delay(100)
-        }
-        appendLog("已选择代理: ${GitHubProxyManager.getProxyName(selectedProxyIndex)}")
+        appendLog("最快线路: ${bestProxy?.name ?: "直连"} (GitHub)")
 
         // PRoot 模式: 确保二进制可用
         if (isProot) {
@@ -221,7 +243,8 @@ class SetupViewModel @Inject constructor(
             }
 
             updateStep(2, "准备系统镜像...")
-            awaitRootfs(isProot)
+            val rootfsOk = awaitRootfs(isProot)
+            if (!rootfsOk) return
 
             // 检查是否需要恢复备份
             val backupExists = ChrootManager.execRoot(
@@ -408,7 +431,7 @@ class SetupViewModel @Inject constructor(
 
     // ─── Rootfs 下载与提取 ───
 
-    private suspend fun awaitRootfs(isProot: Boolean) {
+    private suspend fun awaitRootfs(isProot: Boolean): Boolean {
         // Step 2a: 检查本地缓存
         appendLog("检查本地缓存...")
         val localCache = File(RbotPaths.SDCARD_ROOTFS_CACHE)
@@ -505,7 +528,7 @@ class SetupViewModel @Inject constructor(
                         appendLog("MD5 不匹配（$md5），文件可能损坏")
                         File(destPath).delete()
                         _uiState.value = _uiState.value.copy(isInstalling = false, errorMessage = "下载文件 MD5 不匹配")
-                        return
+                        return false
                     }
                     else -> {
                         appendLog("MD5 无法计算，但文件存在，继续")
@@ -515,7 +538,7 @@ class SetupViewModel @Inject constructor(
             } catch (e: Exception) {
                 appendLog("下载失败: ${e.message}")
                 _uiState.value = _uiState.value.copy(isInstalling = false, errorMessage = "系统镜像下载失败: ${e.message}")
-                return
+                return false
             }
         }
 
@@ -541,7 +564,7 @@ class SetupViewModel @Inject constructor(
                 )
                 if (!tarResult.success) {
                     _uiState.value = _uiState.value.copy(isInstalling = false, errorMessage = "系统镜像解压失败")
-                    return
+                    return false
                 }
             }
             prootManager.configureProotRootfs()
@@ -555,10 +578,11 @@ class SetupViewModel @Inject constructor(
             )
             if (ChrootManager.extractRootfs(tarballPath!!, callback)) {
                 _uiState.value = _uiState.value.copy(isInstalling = false, errorMessage = "系统镜像解压失败")
-                return
+                return false
             }
         }
         appendLog("系统镜像就绪")
+        return true
     }
 
     // ─── 纯 Java tar.gz 提取器（PRoot 模式，无需 root） ───

@@ -102,7 +102,13 @@ fun RbotNavHost() {
             modifier = Modifier.padding(innerPadding)
         ) {
             // ─── 主页面 ───
-            composable(Screen.Home.route) { HomeScreen() }
+            composable(Screen.Home.route) {
+                HomeScreen(
+                    onNavigateToPermissions = {
+                        navController.navigate(Onboarding.Permissions.route)
+                    }
+                )
+            }
             composable(Screen.Terminal.route) { TerminalScreen() }
             composable(Screen.Log.route) { LogScreen() }
             composable(Screen.Settings.route) { SettingsScreen() }

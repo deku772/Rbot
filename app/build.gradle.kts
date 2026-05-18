@@ -118,9 +118,8 @@ dependencies {
     // Coroutines
     implementation(libs.coroutines.android)
 
-    // Shizuku
-    implementation(libs.shizuku.api)
-    implementation(libs.shizuku.provider)
+    // Root access (libsu — handles KernelSU/Magisk/APatch su execution)
+    implementation(project(":libsu-core"))
 
     // Compression (rootfs extraction)
     implementation(libs.commons.compress)

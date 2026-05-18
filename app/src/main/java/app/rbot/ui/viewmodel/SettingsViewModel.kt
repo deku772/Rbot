@@ -3,8 +3,7 @@ package app.rbot.ui.viewmodel
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.rbot.core.BotBridge
-import app.rbot.core.GitHubProxyManager
+import app.rbot.core.*
 import app.rbot.data.model.SettingsUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -27,8 +26,24 @@ class SettingsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
 
+    private val prootManager: PRootManager
+        get() = PRootManager.getInstance(context)
+
+    // ─── 备份状态 ───
+
+    private val _backupState = MutableStateFlow<BackupState>(BackupState.Idle)
+    val backupState: StateFlow<BackupState> = _backupState.asStateFlow()
+
+    sealed class BackupState {
+        object Idle : BackupState()
+        data class InProgress(val msg: String) : BackupState()
+        data class Done(val msg: String) : BackupState()
+        data class Error(val msg: String) : BackupState()
+    }
+
     init {
         loadAppInfo()
+        // 不自动测速，等用户手动点击
     }
 
     private fun loadAppInfo() {
@@ -50,6 +65,8 @@ class SettingsViewModel @Inject constructor(
         )
     }
 
+    // ─── 代理管理 ───
+
     fun testProxies() {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isTestingProxy = true)
@@ -62,8 +79,84 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun addProxy(name: String, url: String) {
+        GitHubProxyManager.addProxy(name, url)
+        testProxies()
+    }
+
+    fun editProxy(index: Int, name: String, url: String) {
+        GitHubProxyManager.updateProxy(index, name, url)
+        // 刷新测速
+        testProxies()
+    }
+
+    fun removeProxy(index: Int) {
+        GitHubProxyManager.removeProxy(index)
+        testProxies()
+    }
+
     fun setCustomProxy(url: String) {
         GitHubProxyManager.setCustomProxy(url)
         _uiState.value = _uiState.value.copy(customProxy = url)
+    }
+
+    // ─── 备份与恢复 ───
+
+    fun backupAstrBot() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _backupState.value = BackupState.InProgress("正在备份...")
+            val callback = object : ChrootManager.FullProgressCallback {
+                override fun onProgress(msg: String) { _backupState.value = BackupState.InProgress(msg) }
+                override fun onError(msg: String) { _backupState.value = BackupState.Error(msg) }
+            }
+            val file = if (AuthManager.instance.isProotMode) {
+                prootManager.backupAstrBotData(callback)
+            } else {
+                ChrootManager.backupAstrBotData(callback)
+            }
+            if (file != null) {
+                _backupState.value = BackupState.Done("备份完成: $file")
+            } else if (_backupState.value !is BackupState.Error) {
+                _backupState.value = BackupState.Error("备份失败")
+            }
+        }
+    }
+
+    fun listBackups(): List<String> {
+        return if (AuthManager.instance.isProotMode) {
+            PRootManager.listBackups().toList()
+        } else {
+            ChrootManager.listBackups().toList()
+        }
+    }
+
+    fun restoreAstrBot(backupFile: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _backupState.value = BackupState.InProgress("正在恢复...")
+            val callback = object : ChrootManager.FullProgressCallback {
+                override fun onProgress(msg: String) { _backupState.value = BackupState.InProgress(msg) }
+                override fun onError(msg: String) { _backupState.value = BackupState.Error(msg) }
+            }
+            val ok = if (AuthManager.instance.isProotMode) {
+                prootManager.restoreAstrBotData(backupFile, callback)
+            } else {
+                ChrootManager.restoreAstrBotData(backupFile, callback)
+            }
+            if (ok) {
+                _backupState.value = BackupState.Done("恢复完成")
+            } else if (_backupState.value !is BackupState.Error) {
+                _backupState.value = BackupState.Error("恢复失败")
+            }
+        }
+    }
+
+    fun deleteBackup(backupFile: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            ChrootManager.deleteBackup(backupFile)
+        }
+    }
+
+    fun resetBackupState() {
+        _backupState.value = BackupState.Idle
     }
 }

@@ -1,22 +1,18 @@
 package app.rbot.core
 
 import android.util.Log
-import java.io.BufferedReader
+import com.topjohnwu.superuser.CallbackList
+import com.topjohnwu.superuser.Shell
 import java.io.File
 import java.io.FileWriter
-import java.io.InputStreamReader
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * Chroot 管理器 — 从 Java ChrootManager (1508 行) 完整迁移而来。
+ * Chroot 管理器。
  *
  * 管理 chroot 生命周期：root 命令执行、rootfs 提取、AstrBot 安装、chroot 内命令执行、SSH 服务。
- *
- * 支持两种授权模式：
- * - ROOT: 通过 su -c 执行
- * - SHIZUKU: 通过 Shizuku UserService 执行
  */
 object ChrootManager {
 
@@ -26,10 +22,6 @@ object ChrootManager {
 
     /** 可重入锁 — 防止并发 chroot 设备初始化 / AstrBot 启动 */
     private val chrootLock = Any()
-
-    /** 是否使用 Shizuku 替代 su（由 AuthManager 设置） */
-    @Volatile
-    var useShizuku: Boolean = false
 
     // ─── 进度回调 ───
 
@@ -58,25 +50,101 @@ object ChrootManager {
 
     data class FullStatus(
         val rootAvailable: Boolean,
-        val shizukuAvailable: Boolean,
         val rootfsReady: Boolean,
         val chrootMounted: Boolean,
         val astrBotInstalled: Boolean,
         val astrBotRunning: Boolean
     )
 
-    // ─── Root 命令执行 ───
+    // ─── Root 命令执行 (libsu) ───
 
-    fun execRoot(command: String, timeoutSec: Int = DEFAULT_TIMEOUT_SEC): CommandResult {
-        return if (useShizuku) {
-            AuthManager.instance.execViaShizuku(command, timeoutSec)
+    init {
+        // 配置 libsu：启用 verbose 日志便于调试
+        Shell.enableVerboseLogging = true
+
+        // 调试：输出当前进程的 PATH 和 uid
+        Log.i(TAG, "ChrootManager init: uid=${android.os.Process.myUid()}, PATH=${System.getenv("PATH")}")
+
+        // 查找 su 的完整路径。
+        //
+        // KernelSU Next 的 kernel_umount 功能通过 mount namespace 在 app 进程中
+        // 隐藏 su 二进制，导致 File.exists() 和 Runtime.exec() 都找不到 su。
+        // 此时需要用户在 KernelSU 管理器中为 app 关闭 "内核自动卸载"（kernel_umount）。
+        //
+        // 策略：先尝试已知路径 exec，如果都失败，记录检测到的环境信息供上层判断。
+        val suPaths = arrayOf(
+            "/system/bin/su", "/system/xbin/su", "/sbin/su",
+            "/su/bin/su", "/data/adb/ksu/bin/su", "/data/adb/ap/bin/su"
+        )
+
+        val suPath = suPaths.firstOrNull { path ->
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf(path, "-c", "echo ok"))
+                val output = proc.inputStream.bufferedReader().readText().trim()
+                val exitCode = proc.waitFor()
+                Log.d(TAG, "su test: $path → exit=$exitCode output=[$output]")
+                exitCode == 0 && output == "ok"
+            } catch (e: Exception) {
+                Log.d(TAG, "su test: $path → ${e.message}")
+                false
+            }
+        }
+
+        val builder = Shell.Builder.create()
+            .setFlags(Shell.FLAG_MOUNT_MASTER)
+            .setTimeout(30)
+
+        if (suPath != null) {
+            // 使用完整路径启动 su，绕过 PATH 查找和 mount namespace 隔离
+            builder.setCommands(suPath, "--mount-master")
+            Log.i(TAG, "libsu 配置: 使用 su 路径 $suPath（exec 验证通过）")
         } else {
-            exec(arrayOf("su", "-c", command), timeoutSec)
+            // 所有已知路径都不可执行 — 可能是 KernelSU kernel_umount 隐藏了 su
+            // 不设置 setCommands，让 libsu 走默认逻辑（会回退到非 root shell）
+            Log.i(TAG, "libsu 配置: 未找到可执行的 su（可能被 KernelSU kernel_umount 隐藏）")
+        }
+
+        Shell.setDefaultBuilder(builder)
+    }
+
+    /**
+     * 通过 libsu 执行 root 命令。
+     * 统一使用 libsu 主 shell 会话（已授权），不再按超时长度分流。
+     *
+     * libsu 的 setTimeout 仅控制 shell 握手超时，不限制命令执行时长，
+     * 因此长短命令都走同一条路径，避免创建新 shell 实例导致 root 权限丢失。
+     */
+    fun execRoot(command: String, timeoutSec: Int = DEFAULT_TIMEOUT_SEC): CommandResult {
+        return execRootLibsu(command)
+    }
+
+    /**
+     * 用 libsu 执行 root 命令（主 shell 会话）。
+     *
+     * KernelSU 的 su 在某些情况下不会继承正常的 PATH，导致 chroot 等命令找不到。
+     * 在每条命令前加上 PATH 导出确保安全。
+     */
+    private fun execRootLibsu(command: String): CommandResult {
+        return try {
+            // 确保 PATH 包含系统基本路径，防止 KernelSU su 环境下 PATH 为空
+            val safeCommand = "export PATH=/system/bin:/system/xbin:/sbin:\${PATH}; $command"
+            val result = Shell.cmd(safeCommand).exec()
+            val success = result.isSuccess
+            val stdout = result.out.joinToString("\n")
+            val stderr = result.err.joinToString("\n")
+            val exitCode = result.code
+            if (!success) {
+                Log.w(TAG, "execRoot FAILED: cmd=[${command.take(80)}] exit=$exitCode err=[${stderr.take(80)}]")
+            }
+            CommandResult(success, stdout, stderr, exitCode)
+        } catch (e: Exception) {
+            Log.e(TAG, "execRoot exception: cmd=[${command.take(80)}] ${e.message}")
+            CommandResult(false, "", e.message ?: "Unknown error", -1)
         }
     }
 
     fun execInChroot(command: String, timeoutSec: Int = DEFAULT_TIMEOUT_SEC): CommandResult {
-        val chrootCmd = "chroot ${RbotPaths.CHROOT_DIR} /bin/bash -c " +
+        val chrootCmd = "/system/bin/chroot ${RbotPaths.CHROOT_DIR} /bin/bash -c " +
             shellQuote(
                 "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
                 "export HOME=/root && " +
@@ -93,38 +161,77 @@ object ChrootManager {
 
     // ─── Root 检测 ───
 
+    /** 检测 root 是否可用 — 使用 libsu，不会弹窗超时 */
     fun isRootAvailable(): Boolean {
+        val granted = Shell.isAppGrantedRoot()
+        if (granted != null) return granted
+        // granted == null → 还没创建过 shell，尝试同步创建
         return try {
-            val result = exec(arrayOf("su", "-c", "id"), 5)
-            result.success && result.stdout.contains("uid=0")
+            Shell.getShell().isRoot
         } catch (_: Exception) { false }
     }
 
-    /** 检测 su 二进制是否存在（不触发授权弹窗，可在 UI 线程安全调用） */
+    /**
+     * 检测是否处于 KernelSU kernel_umount 环境。
+     *
+     * 判定逻辑：/system/bin/su 在 root 的 mount namespace 中存在，
+     * 但 app 进程中 Runtime.exec 找不到 → 说明被 kernel_umount 隐藏了。
+     * 此时应提示用户在 KernelSU 管理器中关闭 "内核自动卸载"。
+     */
+    fun isKernelSuUmountActive(): Boolean {
+        // 如果 libsu 主 shell 是 root，则 umount 没有阻碍我们
+        try {
+            val shell = Shell.getShell()
+            if (shell.isRoot) return false
+        } catch (_: Exception) { }
+
+        // su 不可执行且 isSuBinaryPresent 返回 false → 很可能是 umount
+        return !isSuBinaryPresent()
+    }
+
+    /** 检测 su 二进制是否存在 — 尝试实际执行，不依赖 File.exists() */
     fun isSuBinaryPresent(): Boolean {
-        return try {
-            val result = exec(arrayOf("which", "su"), 3)
-            result.success && result.stdout.trim().isNotEmpty()
-        } catch (_: Exception) { false }
+        // 先检查 libsu 缓存
+        val granted = Shell.isAppGrantedRoot()
+        if (granted == true) return true
+        if (granted == false) {
+            // libsu 已经确认无 root，但可能是因为首次 shell 还没创建
+            // 再尝试一次实际执行 su
+        }
+        // 尝试实际执行 su — 比 File.exists()/canExecute() 更可靠
+        // 因为 Magisk mount namespace 隐藏下文件不可见但仍可执行
+        val suPaths = arrayOf(
+            "/system/bin/su", "/system/xbin/su", "/sbin/su",
+            "/su/bin/su", "/data/adb/ksu/bin/su", "/data/adb/ap/bin/su"
+        )
+        return suPaths.any { path ->
+            try {
+                val proc = Runtime.getRuntime().exec(arrayOf(path, "-c", "echo ok"))
+                val output = proc.inputStream.bufferedReader().readText().trim()
+                val exitCode = proc.waitFor()
+                exitCode == 0 && output == "ok"
+            } catch (_: Exception) { false }
+        }
     }
 
     fun isPrivilegedAccessAvailable(): Boolean {
-        if (isRootAvailable()) return true
-        return AuthManager.instance.isShizukuReady
+        return isRootAvailable()
     }
 
     // ─── Rootfs 管理 ───
 
     fun isRootfsReady(): Boolean {
-        return File(RbotPaths.ROOTFS_MARKER).exists() &&
-            File("${RbotPaths.CHROOT_DIR}/bin/bash").exists()
+        // /data/rbot/ 是 root 目录，app 进程无权限直接 File.exists()
+        val result = execRoot("test -f ${RbotPaths.ROOTFS_MARKER} && test -f ${RbotPaths.CHROOT_DIR}/bin/bash && echo yes", 5)
+        return result.success && result.stdout.trim() == "yes"
     }
 
     fun isAstrBotInstalled(): Boolean {
         if (AuthManager.instance.isProotMode) {
             return PRootManager.isAstrBotInstalledStatic()
         }
-        return File(RbotPaths.ASTRBOT_MARKER).exists()
+        val result = execRoot("test -f ${RbotPaths.ASTRBOT_MARKER} && echo yes", 5)
+        return result.success && result.stdout.trim() == "yes"
     }
 
     fun ensureChrootDir(): Boolean {
@@ -737,20 +844,36 @@ object ChrootManager {
             "cd /root/astrbot && " +
             "rm -f /root/astrbot/astrbot.pid && " +
             "nohup $pythonBin main.py >> /root/astrbot/astrbot.log 2>&1 & " +
-            "disown && " +
             "echo \$! > /root/astrbot/astrbot.pid && " +
-            "/bin/sleep 5 && " +
-            "PID=\$(cat /root/astrbot/astrbot.pid 2>/dev/null) && " +
-            "if [ -n \"\$PID\" ] && kill -0 \"\$PID\" 2>/dev/null; then " +
-            "  echo started_\$PID; " +
-            "else " +
-            "  echo 'FAIL_PID='\$PID': ' \$(tail -5 /root/astrbot/astrbot.log 2>/dev/null); exit 1; " +
-            "fi"
+            "echo launched_\$(cat /root/astrbot/astrbot.pid)"
 
-        val result = execInChroot(startCmd, 30)
-        val started = result.success && result.stdout.contains("started_")
-        Log.d(TAG, "[startAstrBot] stdout=${result.stdout.trim()} stderr=${result.stderr.trim()}")
-        return CommandResult(started, result.stdout, result.stderr, if (started) 0 else 1)
+        val launchResult = execInChroot(startCmd, 10)
+        val launchedPid = launchResult.stdout.trim().removePrefix("launched_")
+        Log.d(TAG, "[startAstrBot] launch stdout=${launchResult.stdout.trim()} stderr=${launchResult.stderr.trim()}")
+
+        if (!launchResult.success || !launchResult.stdout.contains("launched_")) {
+            return CommandResult(false, launchResult.stdout, launchResult.stderr, 1)
+        }
+
+        // 从宿主侧等待进程启动并验证（sleep 在宿主环境可用）
+        val checkCmd =
+            "PIDFILE=${RbotPaths.ASTRBOT_PID_FILE}; " +
+            "PID=\$(cat \$PIDFILE 2>/dev/null); " +
+            "COUNT=0; " +
+            "while [ \$COUNT -lt 5 ]; do " +
+            "  if [ -n \"\$PID\" ] && kill -0 \"\$PID\" 2>/dev/null; then " +
+            "    echo started_\$PID; exit 0; " +
+            "  fi; " +
+            "  PID=\$(cat \$PIDFILE 2>/dev/null); " +
+            "  /bin/sleep 1; " +
+            "  COUNT=\$((COUNT + 1)); " +
+            "done; " +
+            "echo 'FAIL_PID='\$PID': ' \$(tail -5 ${RbotPaths.CHROOT_DIR}/root/astrbot/astrbot.log 2>/dev/null); exit 1"
+
+        val checkResult = execRoot(checkCmd, 15)
+        val started = checkResult.success && checkResult.stdout.contains("started_")
+        Log.d(TAG, "[startAstrBot] check stdout=${checkResult.stdout.trim()}")
+        return CommandResult(started, checkResult.stdout, checkResult.stderr, if (started) 0 else 1)
     }
 
     /** 停止 AstrBot — 从宿主和 chroot 两侧同时 kill */
@@ -769,9 +892,12 @@ object ChrootManager {
         )
         sb.append("PID: ").append(r1.stdout.trim())
 
-        // Step 2: pkill by pattern
+        // Step 2: pkill by pattern（排除自身 PID）
         val r2 = execRoot(
-            "pkill -9 -f 'python.*main\\.py' 2>/dev/null && echo pkill_ok || echo pkill_none; " +
+            "MYPID=\$\$; " +
+            "PIDS=\$(pgrep -f 'python.*main\\.py' 2>/dev/null | grep -v \"^\$MYPID\$\"); " +
+            "if [ -n \"\$PIDS\" ]; then kill -9 \$PIDS 2>/dev/null && echo pkill_ok || echo pkill_fail; " +
+            "else echo pkill_none; fi; " +
             "echo pkill_done", 5
         )
         sb.append(", PKill: ").append(r2.stdout.trim())
@@ -796,7 +922,10 @@ object ChrootManager {
             "  PID=\$(cat \$PIDFILE 2>/dev/null); " +
             "  [ -n \"\$PID\" ] && kill -0 \$PID 2>/dev/null && echo running && exit 0; " +
             "fi; " +
-            "pgrep -f 'python.*main\\.py' >/dev/null 2>&1 && echo running || echo stopped", 10
+            // 注意: pgrep -f 会匹配到自身命令字符串，必须排除自身 PID
+            "MYPID=\$\$; " +
+            "FOUND=\$(pgrep -f 'python.*main\\.py' 2>/dev/null | grep -v \"^\$MYPID\$\" | head -1); " +
+            "if [ -n \"\$FOUND\" ]; then echo running; else echo stopped; fi", 10
         )
         val running = r1.success && r1.stdout.trim() == "running"
         Log.d(TAG, "[isAstrBotRunning] running=$running stdout='${r1.stdout.trim()}'")
@@ -804,15 +933,25 @@ object ChrootManager {
     }
 
     /** 获取完整状态 */
-    fun getFullStatus(): FullStatus {
+    /** 获取完整状态（带缓存，避免轮询风暴） */
+    @Volatile
+    private var cachedStatus: FullStatus? = null
+    private var lastStatusTime = 0L
+    private const val STATUS_CACHE_MS = 10_000L // 10秒缓存
+
+    fun getFullStatus(force: Boolean = false): FullStatus {
+        val now = System.currentTimeMillis()
+        if (!force && cachedStatus != null && now - lastStatusTime < STATUS_CACHE_MS) {
+            return cachedStatus!!
+        }
+
         val rootAvailable = isRootAvailable()
-        val shizukuAvailable = AuthManager.instance.isShizukuReady
         val rootfsReady = isRootfsReady()
         var chrootMounted = false
         val astrBotInstalled = isAstrBotInstalled()
         var astrBotRunning = false
 
-        if (rootAvailable || shizukuAvailable) {
+        if (rootAvailable) {
             chrootMounted = isChrootMounted()
             if (rootfsReady && astrBotInstalled) {
                 val runningResult = execRoot(
@@ -821,12 +960,17 @@ object ChrootManager {
                     "  PID=\$(cat \$PIDFILE 2>/dev/null); " +
                     "  [ -n \"\$PID\" ] && kill -0 \$PID 2>/dev/null && echo running && exit 0; " +
                     "fi; " +
-                    "pgrep -f 'python.*main\\.py' >/dev/null 2>&1 && echo running || echo stopped", 10
+                    "MYPID=\$\$; " +
+                    "FOUND=\$(pgrep -f 'python.*main\\.py' 2>/dev/null | grep -v \"^\$MYPID\$\" | head -1); " +
+                    "if [ -n \"\$FOUND\" ]; then echo running; else echo stopped; fi", 10
                 )
                 astrBotRunning = runningResult.success && runningResult.stdout.trim() == "running"
             }
         }
-        return FullStatus(rootAvailable, shizukuAvailable, rootfsReady, chrootMounted, astrBotInstalled, astrBotRunning)
+        val status = FullStatus(rootAvailable, rootfsReady, chrootMounted, astrBotInstalled, astrBotRunning)
+        cachedStatus = status
+        lastStatusTime = now
+        return status
     }
 
     // ─── 备份与恢复 ───
@@ -1064,141 +1208,27 @@ object ChrootManager {
     // ─── 底层命令执行 ───
 
     /**
-     * 带自适应超时的命令执行。
-     * - 有输出时自动重置空闲计时器
-     * - 最大运行时间 = timeoutSec * 3
-     * - 空闲超时 = timeoutSec（无输出即视为卡死）
-     */
-    private fun exec(cmd: Array<String>, timeoutSec: Int): CommandResult {
-        val stdout = StringBuilder()
-        val stderr = StringBuilder()
-
-        return try {
-            Log.d(TAG, "Executing: ${cmd.joinToString(" ")}")
-
-            val process = ProcessBuilder(*cmd)
-                .redirectErrorStream(false)
-                .start()
-
-            val lastActivity = longArrayOf(System.currentTimeMillis())
-            val startTime = System.currentTimeMillis()
-            val maxWallTime = timeoutSec * 3 * 1000L
-            val idleTimeout = timeoutSec * 1000L
-
-            val stdoutThread = Thread {
-                try {
-                    BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            stdout.appendLine(line)
-                            lastActivity[0] = System.currentTimeMillis()
-                        }
-                    }
-                } catch (_: Exception) { }
-            }
-
-            val stderrThread = Thread {
-                try {
-                    BufferedReader(InputStreamReader(process.errorStream)).use { reader ->
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            stderr.appendLine(line)
-                            lastActivity[0] = System.currentTimeMillis()
-                        }
-                    }
-                } catch (_: Exception) { }
-            }
-
-            stdoutThread.start()
-            stderrThread.start()
-
-            // 自适应超时等待
-            while (process.isAlive) {
-                val now = System.currentTimeMillis()
-                val elapsed = now - startTime
-                val idle = now - lastActivity[0]
-
-                if (elapsed > maxWallTime) {
-                    Log.w(TAG, "Process exceeded max wall time (${maxWallTime / 1000}s), killing")
-                    process.destroyForcibly()
-                    return CommandResult(
-                        false, stdout.toString(),
-                        "命令超过最大运行时间 (${maxWallTime / 1000}s)", -1
-                    )
-                }
-
-                if (idle > idleTimeout) {
-                    Log.w(TAG, "Process idle for ${idle / 1000}s, killing")
-                    process.destroyForcibly()
-                    return CommandResult(
-                        false, stdout.toString(),
-                        "命令超时 (${idle / 1000}s 无输出)", -1
-                    )
-                }
-
-                Thread.sleep(500)
-            }
-
-            stdoutThread.join(2000)
-            stderrThread.join(2000)
-
-            val exitCode = process.exitValue()
-            CommandResult(exitCode == 0, stdout.toString(), stderr.toString(), exitCode)
-        } catch (e: Exception) {
-            Log.e(TAG, "Command execution failed: ${e.message}")
-            CommandResult(false, stdout.toString(), e.message ?: "Unknown error", -1)
-        }
-    }
-
-    /**
      * 带实时进度推送的 root 命令执行。
-     * 读取 stdout/stderr，将有意义的行推送到回调，同时在有输出时重置空闲计时器。
+     * 统一使用 libsu 主 shell + CallbackList，不再按超时长度分流。
+     *
+     * libsu 的 setTimeout 仅控制 shell 握手超时，不限制命令执行时长，
+     * 所以长短命令都走 CallbackList 方式，无需创建新 shell。
      */
     private fun execRootWithProgress(
         command: String,
         timeoutSec: Int,
         callback: FullProgressCallback?
     ): CommandResult {
-        // Shizuku 路径：无法流式输出，但命令仍带完整超时执行
-        if (useShizuku) {
-            callback?.onProgress("执行中（Shizuku 模式）...")
-            val result = AuthManager.instance.execViaShizuku(command, timeoutSec)
-            if (callback != null && result.success && result.stdout.trim().isNotEmpty()) {
-                val lines = result.stdout.trim().split("\n")
-                val show = minOf(lines.size, 3)
-                val sb = StringBuilder()
-                for (i in lines.size - show until lines.size) {
-                    if (sb.isNotEmpty()) sb.append("\n")
-                    sb.append(lines[i].trim())
-                }
-                callback.onProgress(sb.toString())
-            }
-            if (callback != null && !result.success && result.stderr.trim().isNotEmpty()) {
-                callback.onError(result.stderr.trim())
-            }
-            return result
-        }
-
         val stdout = StringBuilder()
         val stderr = StringBuilder()
 
         return try {
-            Log.d(TAG, "Executing (progress): $command")
+            Log.d(TAG, "Executing (progress libsu): $command")
 
-            val process = ProcessBuilder("su", "-c", command)
-                .redirectErrorStream(false)
-                .start()
-
-            val lastActivity = longArrayOf(System.currentTimeMillis())
-            val startTime = System.currentTimeMillis()
-            val maxWallTime = timeoutSec * 3 * 1000L
-            val idleTimeout = timeoutSec * 1000L
-
-            // 防抖：缓冲进度行，最多每 PROGRESS_DEBOUNCE_MS 刷新一次
             val progressBuf = StringBuilder()
             val lastFlush = longArrayOf(System.currentTimeMillis())
 
-            val flushBuffer = {
+            val flushBuffer = fun() {
                 if (callback != null && progressBuf.isNotEmpty()) {
                     callback.onProgress(progressBuf.toString())
                     progressBuf.clear()
@@ -1206,85 +1236,49 @@ object ChrootManager {
                 }
             }
 
-            val stdoutThread = Thread {
-                try {
-                    BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            stdout.appendLine(line)
-                            lastActivity[0] = System.currentTimeMillis()
-                            if (callback != null && isProgressLine(line)) {
-                                if (progressBuf.isNotEmpty()) progressBuf.append("\n")
-                                progressBuf.append(line?.trim() ?: "")
-                                if (System.currentTimeMillis() - lastFlush[0] >= PROGRESS_DEBOUNCE_MS) {
-                                    flushBuffer()
-                                }
+            val stdoutList = object : CallbackList<String>(Shell.EXECUTOR) {
+                override fun onAddElement(line: String) {
+                    stdout.appendLine(line)
+                    if (callback != null && isProgressLine(line)) {
+                        synchronized(progressBuf) {
+                            if (progressBuf.isNotEmpty()) progressBuf.append("\n")
+                            progressBuf.append(line.trim())
+                            if (System.currentTimeMillis() - lastFlush[0] >= PROGRESS_DEBOUNCE_MS) {
+                                flushBuffer()
                             }
                         }
                     }
-                } catch (_: Exception) { }
+                }
             }
 
-            val stderrThread = Thread {
-                try {
-                    BufferedReader(InputStreamReader(process.errorStream)).use { reader ->
-                        var line: String?
-                        while (reader.readLine().also { line = it } != null) {
-                            stderr.appendLine(line)
-                            lastActivity[0] = System.currentTimeMillis()
-                            if (callback != null && isProgressLine(line)) {
-                                if (progressBuf.isNotEmpty()) progressBuf.append("\n")
-                                progressBuf.append(line?.trim() ?: "")
-                                if (System.currentTimeMillis() - lastFlush[0] >= PROGRESS_DEBOUNCE_MS) {
-                                    flushBuffer()
-                                }
+            val stderrList = object : CallbackList<String>(Shell.EXECUTOR) {
+                override fun onAddElement(line: String) {
+                    stderr.appendLine(line)
+                    if (callback != null && isProgressLine(line)) {
+                        synchronized(progressBuf) {
+                            if (progressBuf.isNotEmpty()) progressBuf.append("\n")
+                            progressBuf.append(line.trim())
+                            if (System.currentTimeMillis() - lastFlush[0] >= PROGRESS_DEBOUNCE_MS) {
+                                flushBuffer()
                             }
                         }
                     }
-                } catch (_: Exception) { }
+                }
             }
 
-            stdoutThread.start()
-            stderrThread.start()
+            val result = Shell.cmd(command).to(stdoutList, stderrList).exec()
 
-            while (process.isAlive) {
-                val now = System.currentTimeMillis()
-                val elapsed = now - startTime
-                val idle = now - lastActivity[0]
-
-                if (elapsed > maxWallTime) {
-                    flushBuffer()
-                    Log.w(TAG, "Process exceeded max wall time (${maxWallTime / 1000}s), killing")
-                    process.destroyForcibly()
-                    return CommandResult(
-                        false, stdout.toString(),
-                        "命令超过最大运行时间 (${maxWallTime / 1000}s)", -1
-                    )
-                }
-
-                if (idle > idleTimeout) {
-                    flushBuffer()
-                    Log.w(TAG, "Process idle for ${idle / 1000}s, killing")
-                    process.destroyForcibly()
-                    return CommandResult(
-                        false, stdout.toString(),
-                        "命令超时 (${idle / 1000}s 无输出)", -1
-                    )
-                }
-
-                Thread.sleep(1000)
-            }
-
-            stdoutThread.join(2000)
-            stderrThread.join(2000)
-
-            // 刷新剩余缓冲
             flushBuffer()
 
-            val exitCode = process.exitValue()
-            CommandResult(exitCode == 0, stdout.toString(), stderr.toString(), exitCode)
+            val exitCode = result.code
+            val out = stdout.toString()
+            val err = stderr.toString()
+            if (exitCode != 0) {
+                Log.w(TAG, "execProgress exit=$exitCode err=[${err.take(80)}]")
+            }
+            CommandResult(exitCode == 0, out, err, exitCode)
         } catch (e: Exception) {
-            Log.e(TAG, "Command execution failed: ${e.message}")
+            Log.e(TAG, "execRootWithProgress exception: ${e.message}")
             CommandResult(false, stdout.toString(), e.message ?: "Unknown error", -1)
         }
     }
@@ -1295,7 +1289,7 @@ object ChrootManager {
         timeoutSec: Int,
         callback: FullProgressCallback?
     ): CommandResult {
-        val chrootCmd = "chroot ${RbotPaths.CHROOT_DIR} /bin/bash -c " +
+        val chrootCmd = "/system/bin/chroot ${RbotPaths.CHROOT_DIR} /bin/bash -c " +
             shellQuote(
                 "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
                 "export HOME=/root && " +

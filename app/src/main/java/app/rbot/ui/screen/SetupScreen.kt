@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -260,7 +261,23 @@ fun SetupScreen(
             // ─── 日志区域 ───
             Card(modifier = Modifier.weight(1f)) {
                 Column(modifier = Modifier.padding(8.dp)) {
-                    Text("安装日志", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("安装日志", style = MaterialTheme.typography.labelMedium)
+                        val context = LocalContext.current
+                        TextButton(
+                            onClick = {
+                                val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("安装日志", logs.joinToString("\n")))
+                                android.widget.Toast.makeText(context, "日志已复制", android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        ) {
+                            Text("复制", style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Column(
                         modifier = Modifier
