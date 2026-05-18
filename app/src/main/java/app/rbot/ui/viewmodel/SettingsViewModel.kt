@@ -137,12 +137,13 @@ class SettingsViewModel @Inject constructor(
                 override fun onProgress(msg: String) { _backupState.value = BackupState.InProgress(msg) }
                 override fun onError(msg: String) { _backupState.value = BackupState.Error(msg) }
             }
-            val ok = if (AuthManager.instance.isProotMode) {
+            // 注意：restoreAstrBotData 返回 true=失败, false=成功（旧 Java 惯例）
+            val failed = if (AuthManager.instance.isProotMode) {
                 prootManager.restoreAstrBotData(backupFile, callback)
             } else {
                 ChrootManager.restoreAstrBotData(backupFile, callback)
             }
-            if (ok) {
+            if (!failed) {
                 _backupState.value = BackupState.Done("恢复完成")
             } else if (_backupState.value !is BackupState.Error) {
                 _backupState.value = BackupState.Error("恢复失败")
