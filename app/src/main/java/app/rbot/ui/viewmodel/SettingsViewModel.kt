@@ -8,6 +8,7 @@ import app.rbot.data.model.SettingsUiState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -153,7 +154,8 @@ class SettingsViewModel @Inject constructor(
 
     fun deleteBackup(backupFile: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            ChrootManager.deleteBackup(backupFile)
+            val file = File(backupFile)
+            if (file.exists()) file.delete()
         }
     }
 

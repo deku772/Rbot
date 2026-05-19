@@ -65,15 +65,14 @@ class HomeViewModel @Inject constructor(
 
     private fun doRefreshState() {
         val status = if (AuthManager.instance.isProotMode) {
-            ChrootManager.getFullStatus().let { fs ->
-                // PRoot 模式用 ChrootManager 的 getFullStatus 获取基本状态
-                // 但 rootfs/astrbot 实际由 PRootManager 管理
-                fs.copy(
-                    rootfsReady = prootManager.isRootfsReady(),
-                    astrBotInstalled = prootManager.isAstrBotInstalled(),
-                    astrBotRunning = prootManager.isAstrBotRunning()
-                )
-            }
+            // PRoot 模式：不调用 ChrootManager（无 root），直接用 PRootManager
+            ChrootManager.FullStatus(
+                rootAvailable = false,
+                rootfsReady = prootManager.isRootfsReady(),
+                chrootMounted = false,
+                astrBotInstalled = prootManager.isAstrBotInstalled(),
+                astrBotRunning = prootManager.isAstrBotRunning()
+            )
         } else {
             ChrootManager.getFullStatus()
         }

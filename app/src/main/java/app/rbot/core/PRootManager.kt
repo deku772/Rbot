@@ -114,13 +114,14 @@ class PRootManager private constructor(private val context: Context) {
 
         /** 列出所有备份文件 */
         fun listBackups(): Array<String> {
-            val result = ChrootManager.execRoot(
-                "ls -1t ${RbotPaths.BACKUP_DIR}/astrbot_data_*.tar.gz 2>/dev/null || echo none"
-            )
-            if (!result.success || result.stdout.trim() == "none") {
-                return emptyArray()
-            }
-            return result.stdout.trim().split("\n").toTypedArray()
+            // PRoot 模式：备份目录在 app 内部存储，无需 root
+            val backupDir = File(RbotPaths.BACKUP_DIR)
+            if (!backupDir.exists()) return emptyArray()
+            val files = backupDir.listFiles { _, name -> name.startsWith("astrbot_data_") && name.endsWith(".tar.gz") }
+                ?: return emptyArray()
+            return files.sortedByDescending { it.lastModified() }
+                .map { it.absolutePath }
+                .toTypedArray()
         }
     }
 
@@ -162,12 +163,22 @@ class PRootManager private constructor(private val context: Context) {
     fun isAstrBotInstalled(): Boolean = File(astrBotMarker).exists()
 
     fun isAstrBotRunning(): Boolean {
+        // 优先检查缓存的进程引用，避免每次启动 proot 子进程
+        prootGatewayProcess?.let { proc ->
+            return try {
+                proc.exitValue()
+                false // 进程已退出
+            } catch (_: IllegalThreadStateException) {
+                true // 进程仍在运行
+            }
+        }
+        // 兜底：通过 PID 文件检查（进程可能在 app 重启前启动的）
         val pidFile = File(astrBotPidFile)
         if (!pidFile.exists()) return false
         return try {
             val pid = pidFile.readText().trim().toIntOrNull() ?: return false
-            val checkResult = runInProot("kill -0 $pid 2>/dev/null && echo RUNNING || echo STOPPED", 5)
-            checkResult.stdout.contains("RUNNING")
+            // 在 proot 环境外直接检查 /proc
+            File("/proc/$pid/cmdline").exists()
         } catch (_: Exception) { false }
     }
 
@@ -533,11 +544,12 @@ class PRootManager private constructor(private val context: Context) {
             return CommandResult(false, "", "AstrBot 未安装，请先完成安装步骤", -1)
         }
 
-        val command = "source /root/astrbot-venv/bin/activate && " +
-            "mkdir -p /sdcard/astrbot && " +
-            "cd /sdcard/astrbot && " +
-            "if [ ! -f .astrbot ]; then astrbot init; fi && " +
-            "astrbot run 2>&1"
+        // 使用与 ChrootManager 一致的 venv 路径 /root/astrbot/venv
+        val pythonBin = "/root/astrbot/venv/bin/python3"
+        val command = "cd /root/astrbot && " +
+            "if [ ! -f data/cmd_config.json ] || [ ! -s data/cmd_config.json ]; then " +
+            "  mkdir -p data && echo '{}' > data/cmd_config.json; fi && " +
+            "$pythonBin main.py 2>&1"
 
         val cmd = buildGatewayCommand(command)
         val env = prootEnv()
@@ -805,14 +817,12 @@ class PRootManager private constructor(private val context: Context) {
     fun backupAstrBotData(callback: ChrootManager.FullProgressCallback? = null): String? {
         callback?.onProgress("准备备份...")
 
-        val mkdirResult = ChrootManager.execRoot("mkdir -p ${RbotPaths.BACKUP_DIR}")
-        if (!mkdirResult.success) {
-            callback?.onError("无法创建备份目录")
-            return null
-        }
+        // PRoot 模式：备份目录和 rootfs 都在 app 内部存储，无需 root
+        val backupDir = File(RbotPaths.BACKUP_DIR)
+        if (!backupDir.exists()) backupDir.mkdirs()
 
         val timestamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.getDefault()).format(Date())
-        val backupFile = "${RbotPaths.BACKUP_DIR}/astrbot_data_$timestamp.tar.gz"
+        val backupFile = File(backupDir, "astrbot_data_$timestamp.tar.gz")
 
         callback?.onProgress("正在打包数据（排除虚拟环境和缓存）...")
 
@@ -832,35 +842,36 @@ class PRootManager private constructor(private val context: Context) {
             return null
         }
 
-        val copyResult = ChrootManager.execRoot(
-            "cp $rootfsDir/root/astrbot/astrbot_backup.tar.gz '$backupFile' && " +
-            "rm -f $rootfsDir/root/astrbot/astrbot_backup.tar.gz", 60
-        )
-
-        if (!copyResult.success) {
-            callback?.onError("复制备份文件失败: ${copyResult.stderr}")
+        // 从 proot rootfs 内部存储复制到备份目录（纯 Java，无需 root）
+        val srcFile = File("$rootfsDir/root/astrbot/astrbot_backup.tar.gz")
+        if (!srcFile.exists()) {
+            callback?.onError("打包文件未生成")
+            return null
+        }
+        try {
+            srcFile.copyTo(backupFile, overwrite = true)
+            srcFile.delete()
+        } catch (e: Exception) {
+            callback?.onError("复制备份文件失败: ${e.message}")
             return null
         }
 
-        val checkResult = ChrootManager.execRoot(
-            "test -f '$backupFile' && stat -c '%s' '$backupFile' || echo missing"
-        )
-        if (!checkResult.success || checkResult.stdout.trim() == "missing" || checkResult.stdout.trim() == "0") {
+        if (!backupFile.exists() || backupFile.length() == 0L) {
             callback?.onError("备份文件无效或为空")
             return null
         }
 
-        val sizeInfo = checkResult.stdout.trim()
-        callback?.onProgress("备份完成: $backupFile ($sizeInfo bytes)")
-        return backupFile
+        callback?.onProgress("备份完成: ${backupFile.absolutePath} (${backupFile.length()} bytes)")
+        return backupFile.absolutePath
     }
 
     /** 从备份恢复 AstrBot 数据 */
     fun restoreAstrBotData(backupFile: String, callback: ChrootManager.FullProgressCallback? = null): Boolean {
         callback?.onProgress("检查备份...")
 
-        val checkResult = ChrootManager.execRoot("test -f '$backupFile' && echo exists")
-        if (!checkResult.success || checkResult.stdout.trim() != "exists") {
+        // PRoot 模式：纯 Java 文件操作，无需 root
+        val srcFile = File(backupFile)
+        if (!srcFile.exists()) {
             callback?.onError("备份文件不存在")
             return true
         }
@@ -870,11 +881,13 @@ class PRootManager private constructor(private val context: Context) {
 
         callback?.onProgress("正在恢复数据...")
 
-        val copyResult = ChrootManager.execRoot(
-            "cp '$backupFile' $rootfsDir/root/astrbot/astrbot_restore.tar.gz", 60
-        )
-        if (!copyResult.success) {
-            callback?.onError("复制备份文件失败: ${copyResult.stderr}")
+        // 复制备份文件到 proot rootfs 内部（纯 Java）
+        val destFile = File("$rootfsDir/root/astrbot/astrbot_restore.tar.gz")
+        try {
+            destFile.parentFile?.mkdirs()
+            srcFile.copyTo(destFile, overwrite = true)
+        } catch (e: Exception) {
+            callback?.onError("复制备份文件失败: ${e.message}")
             return true
         }
 
@@ -889,7 +902,7 @@ class PRootManager private constructor(private val context: Context) {
             return true
         }
 
-        ChrootManager.execRoot("rm -f $rootfsDir/root/astrbot/astrbot_restore.tar.gz")
+        destFile.delete()
         callback?.onProgress("恢复完成")
         return false
     }
