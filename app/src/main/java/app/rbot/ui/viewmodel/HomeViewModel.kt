@@ -46,22 +46,21 @@ class HomeViewModel @Inject constructor(
     // ─── 状态刷新 ───
 
     fun refreshState() {
-        // 轻量检查：有 root 权限但当前不是 ROOT 模式 → 异步重新检测
-        val needsRootRedetect = AuthManager.instance.currentMode != AuthManager.AuthMode.ROOT
-            && AuthManager.instance.userChoice != AuthManager.UserModeChoice.PROOT
-            && ChrootManager.isSuBinaryPresent()
+        // 所有 shell 操作必须在 IO 线程，避免主线程 ANR
+        viewModelScope.launch(Dispatchers.IO) {
+            // 轻量检查：有 root 权限但当前不是 ROOT 模式 → 异步重新检测
+            val needsRootRedetect = AuthManager.instance.currentMode != AuthManager.AuthMode.ROOT
+                && AuthManager.instance.userChoice != AuthManager.UserModeChoice.PROOT
+                && ChrootManager.isSuBinaryPresent()
 
-        if (needsRootRedetect) {
-            viewModelScope.launch(Dispatchers.IO) {
+            if (needsRootRedetect) {
                 if (ChrootManager.isRootAvailable()) {
                     AuthManager.instance.detectAndSetMode()
                 }
-                doRefreshState()
             }
-            return
-        }
 
-        doRefreshState()
+            doRefreshState()
+        }
     }
 
     private fun doRefreshState() {

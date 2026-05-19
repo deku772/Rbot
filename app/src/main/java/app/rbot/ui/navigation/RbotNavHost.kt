@@ -13,6 +13,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hierarchy
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -55,12 +57,16 @@ fun RbotNavHost() {
     // ─── 启动引导路由 ───
     // 替代旧版 RbotActivity 的 checkAndRoute() 逻辑
     LaunchedEffect(Unit) {
-        val isRootfsReady = ChrootManager.isRootfsReady() ||
-            PRootManager.isAstrBotInstalledStatic()
-        val isBotInstalled = ChrootManager.isAstrBotInstalled()
+        // shell 操作必须在 IO 线程
+        val isRootfsReady = withContext(Dispatchers.IO) {
+            ChrootManager.isRootfsReady() ||
+                PRootManager.isAstrBotInstalledStatic()
+        }
+        val isBotInstalled = withContext(Dispatchers.IO) {
+            ChrootManager.isAstrBotInstalled()
+        }
 
         if (!isRootfsReady || !isBotInstalled) {
-            // 需要安装 → 跳转到权限页，保留 Home 在栈底
             navController.navigate(Onboarding.Permissions.route)
         }
     }
