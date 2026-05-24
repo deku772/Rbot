@@ -361,6 +361,13 @@ private fun createTerminalSession(
                 sessionClient
             )
         }
+    } catch (e: IllegalStateException) {
+        // proot 二进制未找到等关键错误 — 通过 session 输出显示错误信息
+        android.util.Log.e("TerminalScreen", "PRoot setup failed: ${e.message}", e)
+        try {
+            val errorCmd = arrayOf("/system/bin/sh", "-c", "echo 'ERROR: ${e.message}'")
+            TerminalSession(errorCmd[0], "/", errorCmd.drop(1).toTypedArray(), emptyArray(), 2000, sessionClient)
+        } catch (_: Exception) { null }
     } catch (e: Exception) {
         android.util.Log.e("TerminalScreen", "Failed to create terminal session", e)
         null

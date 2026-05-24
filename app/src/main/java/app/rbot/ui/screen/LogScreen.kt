@@ -3,6 +3,7 @@ package app.rbot.ui.screen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Refresh
@@ -53,14 +54,16 @@ fun LogScreen(viewModel: LogViewModel = hiltViewModel()) {
                 )
             }
         } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 8.dp)
-            ) {
-                items(uiState.logLines) { line ->
-                    LogLineItem(line)
+            SelectionContainer {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(horizontal = 8.dp)
+                ) {
+                    items(uiState.logLines) { line ->
+                        LogLineItem(line)
+                    }
                 }
             }
         }

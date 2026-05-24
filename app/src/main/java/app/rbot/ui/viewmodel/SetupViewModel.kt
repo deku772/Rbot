@@ -81,15 +81,19 @@ class SetupViewModel @Inject constructor(
             val isProot = useProot()
             val rootfsReady = if (isProot) prootManager.isRootfsReady() else ChrootManager.isRootfsReady()
             val botInstalled = botBridge.isBotInstalled()
+            val depsOk = if (rootfsReady) {
+                if (isProot) prootManager.isDepsInstalled() else ChrootManager.checkDepsPresent()
+            } else false
 
             _uiState.value = SetupUiState(
                 isDetecting = false,
                 rootfsReady = rootfsReady,
                 botInstalled = botInstalled,
+                depsInstalled = depsOk,
                 useProot = isProot,
                 // 缺失的组件自动勾选安装
                 reinstallRootfs = !rootfsReady,
-                reinstallDeps = false,
+                reinstallDeps = !depsOk,
                 reinstallBot = !botInstalled
             )
         }
@@ -297,32 +301,43 @@ class SetupViewModel @Inject constructor(
                 val netTest = prootManager.runInProot(
                     "ping -c 1 -W 3 8.8.8.8 2>/dev/null && echo NET_OK || echo NET_FAIL", 10
                 )
-                if (netTest.stdout.contains("NET_FAIL")) {
+                if (!netTest.success || netTest.stdout.contains("NET_FAIL")) {
                     appendLog("容器网络不可用，尝试修复 DNS...")
+                    appendLog("网络测试输出: ${netTest.stdout.take(200)}")
+                    if (netTest.stderr.isNotBlank()) appendLog("网络测试错误: ${netTest.stderr.take(200)}")
                     prootManager.ensureResolvConf()
                 }
 
                 appendLog("更新软件源...")
                 prootManager.updateSourcesList()
-                val aptResult = prootManager.runInProot(
+                val aptResult = prootManager.runInProotWithProgress(
                     "apt update --fix-missing --allow-unauthenticated 2>&1", 180
-                )
+                ) { appendLog(it) }
                 if (!aptResult.success) {
+                    appendLog("apt update 失败: ${aptResult.stderr.take(300)}")
                     appendLog("apt update 部分失败（可继续）")
                 }
 
-                appendLog("安装系统依赖...")
-                val depResult = prootManager.runInProot(
-                    "apt install -y --allow-unauthenticated " +
-                    "python3 python3-venv python3-pip python3-dev " +
-                    "git curl wget ca-certificates locales build-essential " +
-                    "dropbear-bin software-properties-common gpgv",
-                    300
-                )
-                if (!depResult.success) {
-                    appendLog("依赖安装失败: ${depResult.stderr.take(200)}")
-                    _uiState.value = _uiState.value.copy(isInstalling = false, errorMessage = "依赖安装失败")
-                    return
+                appendLog("检测系统依赖...")
+                if (prootManager.isDepsInstalled()) {
+                    appendLog("所有系统依赖已存在，跳过安装")
+                } else {
+                    appendLog("安装系统依赖...")
+                    val depResult = prootManager.runInProotWithProgress(
+                        "apt install -y --allow-unauthenticated " +
+                        "python3 python3-venv python3-pip python3-dev " +
+                        "git curl wget ca-certificates locales build-essential " +
+                        "dropbear-bin software-properties-common gpgv",
+                        300
+                    ) { appendLog(it) }
+                    if (!depResult.success) {
+                        appendLog("依赖安装失败: ${depResult.stderr.take(500)}")
+                        if (depResult.stdout.isNotBlank()) {
+                            appendLog("stdout: ${depResult.stdout.take(500)}")
+                        }
+                        _uiState.value = _uiState.value.copy(isInstalling = false, errorMessage = "依赖安装失败")
+                        return
+                    }
                 }
 
                 // locale + SSH 密码
@@ -605,11 +620,23 @@ class SetupViewModel @Inject constructor(
                     val buf = ByteArray(512)
                     var longName: String? = null
 
+                    // Android 兼容的 readNBytes — Android 不支持 Java 9 的 InputStream.readNBytes()
+                    fun readFully(stream: java.io.InputStream, b: ByteArray, off: Int, len: Int): Int {
+                        var n = 0
+                        while (n < len) {
+                            val count = stream.read(b, off + n, len - n)
+                            if (count < 0) return n
+                            n += count
+                        }
+                        return n
+                    }
+
                     while (true) {
-                        val headerRead = gzis.readNBytes(buf, 0, 512)
+                        val headerRead = readFully(gzis, buf, 0, 512)
                         if (headerRead < 512) break
 
-                        val type = buf[124 + 156].toInt().toChar()
+                        // POSIX tar typeflag 在偏移 156（不是 124+156=280）
+                        val type = buf[156].toInt().toChar()
                         var name = longName ?: String(buf, 0, 100).trimEnd('\u0000')
                         longName = null
 
@@ -617,7 +644,7 @@ class SetupViewModel @Inject constructor(
                         if (type == 'L') {
                             val size = String(buf, 124, 12).trim('\u0000', ' ').toInt(8)
                             val nameBuf = ByteArray(size)
-                            gzis.readNBytes(nameBuf, 0, size)
+                            readFully(gzis, nameBuf, 0, size)
                             longName = String(nameBuf).trimEnd('\u0000')
                             // Pad to 512
                             val pad = (512 - size % 512) % 512
@@ -642,27 +669,47 @@ class SetupViewModel @Inject constructor(
                         val prefix = String(buf, 345, 155).trimEnd('\u0000')
                         if (prefix.isNotEmpty()) name = "$prefix/$name"
 
+                        if (name.isBlank() || name == "./") {
+                            // 跳过空条目，但仍需跳过数据
+                            val padded = (size + 511) / 512 * 512
+                            if (padded > 0) gzis.skip(padded)
+                            continue
+                        }
+
                         val targetFile = File(dest, name)
 
                         when (type) {
                             '0', '\u0000' -> { // Regular file
+                                // 如果目标路径已存在且是目录，先删除
+                                if (targetFile.exists() && targetFile.isDirectory) {
+                                    targetFile.deleteRecursively()
+                                }
                                 targetFile.parentFile?.mkdirs()
-                                FileOutputStream(targetFile).use { fos ->
-                                    var remaining = size
-                                    val copyBuf = ByteArray(65536)
-                                    while (remaining > 0) {
-                                        val toRead = minOf(copyBuf.size.toLong(), remaining).toInt()
-                                        val read = gzis.read(copyBuf, 0, toRead)
-                                        if (read < 0) break
-                                        fos.write(copyBuf, 0, read)
-                                        remaining -= read
+                                try {
+                                    FileOutputStream(targetFile).use { fos ->
+                                        var remaining = size
+                                        val copyBuf = ByteArray(65536)
+                                        while (remaining > 0) {
+                                            val toRead = minOf(copyBuf.size.toLong(), remaining).toInt()
+                                            val read = gzis.read(copyBuf, 0, toRead)
+                                            if (read < 0) break
+                                            fos.write(copyBuf, 0, read)
+                                            remaining -= read
+                                        }
                                     }
+                                } catch (e: Exception) {
+                                    appendLog("写入文件失败: $name - ${e.message}")
+                                    // 仍然需要跳过该条目的数据
+                                    val padded = (size + 511) / 512 * 512
+                                    // 已经读了一部分，跳过剩余
                                 }
                                 // Execute permission from mode
                                 val modeStr = String(buf, 100, 8).trim('\u0000', ' ')
                                 if (modeStr.isNotBlank()) {
-                                    val mode = modeStr.toInt(8)
-                                    if ((mode and 0b001001001) != 0) targetFile.setExecutable(true, false)
+                                    try {
+                                        val mode = modeStr.toInt(8)
+                                        if ((mode and 0b001001001) != 0) targetFile.setExecutable(true, false)
+                                    } catch (_: Exception) { }
                                 }
                             }
                             '5' -> { // Directory
@@ -671,11 +718,26 @@ class SetupViewModel @Inject constructor(
                             '2' -> { // Symlink
                                 val linkName = String(buf, 157, 100).trimEnd('\u0000')
                                 try {
+                                    // 如果目标路径已存在，先删除
+                                    if (targetFile.exists()) {
+                                        if (targetFile.isDirectory) targetFile.deleteRecursively()
+                                        else targetFile.delete()
+                                    }
+                                    // 确保通过符号链接解析的父目录存在
+                                    // 对于绝对链接目标，需要确保 rootfs 内的目标目录存在
                                     targetFile.parentFile?.mkdirs()
                                     java.nio.file.Files.createSymbolicLink(
                                         targetFile.toPath(), java.nio.file.Paths.get(linkName)
                                     )
-                                } catch (_: Exception) { }
+                                } catch (e: Exception) {
+                                    appendLog("创建符号链接失败: $name -> $linkName: ${e.message}")
+                                }
+                            }
+                            else -> {
+                                // 其他类型（硬链接等），跳过数据
+                                val padded = (size + 511) / 512 * 512
+                                if (padded > 0) gzis.skip(padded)
+                                continue
                             }
                         }
 

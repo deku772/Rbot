@@ -23,6 +23,9 @@ object GitHubProxyManager {
         "https://hk.gh-proxy.com/",
         "https://gh-proxy.com/",
         "https://gh.llkk.cc/",
+        "https://mirror.ghproxy.com/",
+        "https://gh-proxy.net/",
+        "https://ghps.cc/",
     )
 
     private val PROXY_NAMES = mutableListOf(
@@ -31,6 +34,9 @@ object GitHubProxyManager {
         "HK Proxy",
         "GH Proxy",
         "LLKK",
+        "Mirror GHProxy",
+        "GH Proxy Net",
+        "GHPS",
     )
 
     private var bestProxy = -1

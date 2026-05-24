@@ -1,7 +1,9 @@
 package app.rbot.ui.screen
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -259,7 +261,7 @@ fun SetupScreen(
             }
 
             // ─── 日志区域 ───
-            Card(modifier = Modifier.weight(1f)) {
+            Card(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 Column(modifier = Modifier.padding(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -279,17 +281,20 @@ fun SetupScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        logs.forEach { line ->
-                            Text(
-                                line,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                    SelectionContainer {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            reverseLayout = false
+                        ) {
+                            items(count = logs.size, key = { it }) { index ->
+                                Text(
+                                    logs[index],
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }

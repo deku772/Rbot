@@ -162,6 +162,26 @@ class PRootManager private constructor(private val context: Context) {
 
     fun isAstrBotInstalled(): Boolean = File(astrBotMarker).exists()
 
+    /** 检查系统依赖是否已安装（PRoot 模式） */
+    fun isDepsInstalled(): Boolean {
+        if (!isRootfsReady()) return false
+        val depChecks = listOf(
+            "python3 --version",
+            "python3 -m venv --help >/dev/null 2>&1",
+            "pip3 --version",
+            "git --version",
+            "curl --version",
+            "locale -a 2>/dev/null | grep -q en_US"
+        )
+        for (check in depChecks) {
+            val result = runInProot("$check && echo ok", 10)
+            if (!result.success || !result.stdout.trim().endsWith("ok")) {
+                return false
+            }
+        }
+        return true
+    }
+
     fun isAstrBotRunning(): Boolean {
         // 优先检查缓存的进程引用，避免每次启动 proot 子进程
         prootGatewayProcess?.let { proc ->
@@ -191,8 +211,9 @@ class PRootManager private constructor(private val context: Context) {
         return false
     }
 
-    /** 解析 proot 二进制路径，缺失时自动下载 */
-    fun resolveProotPath(): String {
+    /** 解析 proot 二进制路径，缺失时自动下载。
+     *  失败时返回 null 而非抛异常，避免上层未 catch 导致闪退。 */
+    fun resolveProotPath(): String? {
         // 尝试 APK 内置 .so
         val direct = File(nativeLibDir, "libproot.so")
         if (direct.exists() && direct.length() > 0) {
@@ -222,29 +243,22 @@ class PRootManager private constructor(private val context: Context) {
 
         // 二进制未找到 — 尝试运行时下载
         Log.i(TAG, "PRoot binary not found, attempting to download...")
-        var downloaded = false
-        for (attempt in 1..2) {
-            Log.i(TAG, "Download attempt $attempt/2")
+        for (attempt in 1..3) {
+            Log.i(TAG, "Download attempt $attempt/3")
             if (ensureProotBinary()) {
-                downloaded = true
-                break
+                ensureLibTalloc()
+                ensureProotLoader()
+                Log.i(TAG, "PRoot binary downloaded successfully to ${runtime.absolutePath}")
+                return runtime.absolutePath
             }
             Log.w(TAG, "Download attempt $attempt failed, retrying...")
-            try { Thread.sleep(2000) } catch (_: InterruptedException) { break }
+            try { Thread.sleep(3000) } catch (_: InterruptedException) { break }
         }
 
-        if (downloaded) {
-            ensureLibTalloc()
-            Log.i(TAG, "PRoot binary downloaded successfully to ${runtime.absolutePath}")
-            return runtime.absolutePath
-        }
-
-        throw IllegalStateException(
-            "PRoot binary not found and download failed after 2 attempts. " +
+        Log.e(TAG, "PRoot binary not found and download failed after 3 attempts. " +
             "Checked: ${direct.absolutePath}, ${runtime.absolutePath}, " +
-            "${systemProot.absolutePath}, ${termuxProot.absolutePath}. " +
-            "Please check your network connection and try again, or install Termux for proot support."
-        )
+            "${systemProot.absolutePath}, ${termuxProot.absolutePath}.")
+        return null
     }
 
     /** 运行时下载 proot 二进制 */
@@ -299,6 +313,57 @@ class PRootManager private constructor(private val context: Context) {
         return false
     }
 
+    /** 运行时下载 proot loader 二进制（libproot-loader.so） */
+    fun ensureProotLoader(): Boolean {
+        val loaderFile = File(nativeRuntimeDir, "libproot-loader.so")
+        if (loaderFile.exists() && loaderFile.length() > 0) return true
+
+        File(nativeRuntimeDir).mkdirs()
+        val bestProxy = GitHubProxyManager.getBestProxy()
+        var downloaded = false
+
+        for (baseUrl in RbotPaths.PROOT_LOADER_URLS) {
+            val downloadUrl = GitHubProxyManager.buildUrl(baseUrl, bestProxy)
+            Log.i(TAG, "Downloading proot loader from: $downloadUrl")
+            try {
+                downloadFile(downloadUrl, loaderFile.absolutePath, null)
+                if (loaderFile.exists() && loaderFile.length() > 1000) {
+                    downloaded = true
+                    break
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Proot loader download failed from $downloadUrl: ${e.message}")
+            }
+
+            // 也尝试直连 URL（不用代理）
+            if (downloadUrl != baseUrl) {
+                try {
+                    downloadFile(baseUrl, loaderFile.absolutePath, null)
+                    if (loaderFile.exists() && loaderFile.length() > 1000) {
+                        downloaded = true
+                        break
+                    }
+                } catch (e2: Exception) {
+                    Log.e(TAG, "Direct download of loader from $baseUrl also failed: ${e2.message}")
+                }
+            }
+        }
+
+        if (!downloaded) {
+            Log.e(TAG, "Failed to download proot loader from all available sources")
+            return false
+        }
+
+        if (loaderFile.exists() && loaderFile.length() > 0) {
+            loaderFile.setExecutable(true, false)
+            loaderFile.setReadable(true, false)
+            Log.i(TAG, "Proot loader downloaded: ${loaderFile.absolutePath} (${loaderFile.length()} bytes)")
+            return true
+        }
+
+        return false
+    }
+
     // ─── PRoot 命令构建 ───
 
     /**
@@ -347,8 +412,17 @@ class PRootManager private constructor(private val context: Context) {
         ensureResolvConf()
 
         val prootPath = resolveProotPath()
+            ?: throw IllegalStateException("PRoot 二进制未找到且下载失败，请检查网络连接后重试")
         val procFakes = "$configDir/proc_fakes"
         val sysFakes = "$configDir/sys_fakes"
+
+        // 确保目录结构存在
+        File(rootfsDir, "tmp").mkdirs()
+        File(rootfsDir, "dev").mkdirs()
+        File(rootfsDir, "proc").mkdirs()
+        File(rootfsDir, "sys").mkdirs()
+        File(tmpDir).mkdirs()
+        File(homeDir).mkdirs()
 
         flags.add(prootPath)
         flags.add("--link2symlink")
@@ -364,12 +438,19 @@ class PRootManager private constructor(private val context: Context) {
             "\\$FAKE_KERNEL_VERSION\\${machine}\\localdomain\\-1\\"
         flags.add("--kernel-release=$kernelRelease")
 
-        // 核心设备绑定
+        // 核心 /dev 绑定
         flags.add("--bind=/dev")
         flags.add("--bind=/dev/urandom:/dev/random")
         flags.add("--bind=/proc")
         flags.add("--bind=/proc/self/fd:/dev/fd")
-        flags.add("--bind=/sys")
+
+        // /sys 条件绑定
+        try {
+            val sysFile = File("/sys")
+            if (sysFile.exists() && sysFile.canRead()) {
+                flags.add("--bind=/sys")
+            }
+        } catch (_: Exception) { }
 
         // Fake /proc 条目
         flags.add("--bind=$procFakes/loadavg:/proc/loadavg")
@@ -428,8 +509,8 @@ class PRootManager private constructor(private val context: Context) {
 
         return try {
             val pb = ProcessBuilder(cmd)
-            pb.environment().clear()
-            pb.environment().putAll(env)
+            // proot needs system env like ANDROID_ROOT
+            env.forEach { (k, v) -> pb.environment()[k] = v }
             pb.redirectErrorStream(false)
             pb.directory(File("/"))
 
@@ -488,8 +569,8 @@ class PRootManager private constructor(private val context: Context) {
 
         return try {
             val pb = ProcessBuilder(cmd)
-            pb.environment().clear()
-            pb.environment().putAll(env)
+            // proot needs system env like ANDROID_ROOT
+            env.forEach { (k, v) -> pb.environment()[k] = v }
             pb.redirectErrorStream(false)
             pb.directory(File("/"))
 
@@ -556,8 +637,8 @@ class PRootManager private constructor(private val context: Context) {
 
         return try {
             val pb = ProcessBuilder(cmd)
-            pb.environment().clear()
-            pb.environment().putAll(env)
+            // proot needs system env like ANDROID_ROOT
+            env.forEach { (k, v) -> pb.environment()[k] = v }
             pb.redirectErrorStream(false)
             pb.directory(File("/"))
 
@@ -639,8 +720,8 @@ class PRootManager private constructor(private val context: Context) {
 
         return try {
             val pb = ProcessBuilder(cmd)
-            pb.environment().clear()
-            pb.environment().putAll(env)
+            // proot needs system env like ANDROID_ROOT
+            env.forEach { (k, v) -> pb.environment()[k] = v }
             pb.redirectErrorStream(true)
 
             val process = pb.start()
@@ -924,8 +1005,8 @@ class PRootManager private constructor(private val context: Context) {
 
         return try {
             val pb = ProcessBuilder(cmd)
-            pb.environment().clear()
-            pb.environment().putAll(env)
+            // proot needs system env like ANDROID_ROOT
+            env.forEach { (k, v) -> pb.environment()[k] = v }
             pb.redirectErrorStream(false)
             pb.directory(File("/"))
 
@@ -1063,13 +1144,14 @@ class PRootManager private constructor(private val context: Context) {
         flags.addAll(listOf(
             "/usr/bin/env", "-i",
             "HOME=/root",
+            "PWD=/root",
             "LANG=C.UTF-8",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "TERM=xterm-256color",
             "TMPDIR=/tmp",
             "LD_LIBRARY_PATH=$ldLibraryPath",
             "/bin/bash", "-c",
-            innerCommand
+            "cd /root 2>/dev/null; $innerCommand"
         ))
 
         return flags
@@ -1092,13 +1174,14 @@ class PRootManager private constructor(private val context: Context) {
         flags.addAll(listOf(
             "/usr/bin/env", "-i",
             "HOME=/root",
+            "PWD=/root",
             "LANG=C.UTF-8",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "TERM=xterm-256color",
             "TMPDIR=/tmp",
             "LD_LIBRARY_PATH=$ldLibraryPath",
             "/bin/bash", "-c",
-            innerCommand
+            "cd /root 2>/dev/null; $innerCommand"
         ))
 
         return flags
@@ -1106,15 +1189,41 @@ class PRootManager private constructor(private val context: Context) {
 
     fun prootEnv(): Map<String, String> {
         val runtimeLibDir = File(nativeRuntimeDir, "lib").absolutePath
-        return mapOf(
-            "PROOT_LOADER" to File(nativeRuntimeDir, "libproot-loader.so").absolutePath,
-            "LD_LIBRARY_PATH" to "$runtimeLibDir:$nativeLibDir",
-            "PROOT_TMP" to tmpDir,
+        val tallocLibDir = File(filesDir, "lib").absolutePath
+
+        // 确保 proot tmp 目录存在
+        File(tmpDir).mkdirs()
+
+        val env = mutableMapOf(
+            "LD_LIBRARY_PATH" to "$tallocLibDir:$runtimeLibDir:$nativeLibDir",
+            "PROOT_TMP_DIR" to tmpDir,
             "PROOT_NO_SECCOMP" to "1",
             "HOME" to "/root",
             "PATH" to "/usr/bin:/bin",
-            "TERM" to "xterm-256color"
+            "TERM" to "xterm-256color",
+            "TMPDIR" to tmpDir,
+            "TEMP" to tmpDir,
+            "TMP" to tmpDir
         )
+
+        // PROOT_LOADER: 优先 APK 内置，其次运行时下载目录
+        val loaderFromApk = File(nativeLibDir, "libproot-loader.so")
+        val loaderFromRuntime = File(nativeRuntimeDir, "libproot-loader.so")
+        val loaderFile = when {
+            loaderFromApk.exists() && loaderFromApk.length() > 0 -> loaderFromApk
+            loaderFromRuntime.exists() && loaderFromRuntime.length() > 0 -> loaderFromRuntime
+            else -> null
+        }
+        if (loaderFile != null) {
+            env["PROOT_LOADER"] = loaderFile.absolutePath
+        } else {
+            Log.w(TAG, "libproot-loader.so not found in APK or runtime dir, attempting download...")
+            if (ensureProotLoader()) {
+                env["PROOT_LOADER"] = loaderFromRuntime.absolutePath
+            }
+        }
+
+        return env
     }
 
     /** 通用 proot 标志（匹配 proot-distro 的 run_proot_cmd） */
@@ -1123,8 +1232,19 @@ class PRootManager private constructor(private val context: Context) {
         ensureResolvConf()
 
         val prootPath = resolveProotPath()
+            ?: throw IllegalStateException("PRoot 二进制未找到且下载失败，请检查网络连接后重试")
         val procFakes = "$configDir/proc_fakes"
         val sysFakes = "$configDir/sys_fakes"
+
+        // 确保目录结构存在，避免 --bind 时 can't canonicalize
+        File(rootfsDir, "tmp").mkdirs()
+        File(rootfsDir, "dev").mkdirs()
+        File(rootfsDir, "dev/shm").mkdirs()  // 独立的 /dev/shm
+        File(rootfsDir, "proc").mkdirs()
+        File(rootfsDir, "sys").mkdirs()
+        File(rootfsDir, "storage").mkdirs()
+        File(tmpDir).mkdirs()
+        File(homeDir).mkdirs()
 
         val flags = mutableListOf<String>()
         flags.add(prootPath)
@@ -1134,12 +1254,30 @@ class PRootManager private constructor(private val context: Context) {
         flags.add("--rootfs=$rootfsDir")
         flags.add("--cwd=/root")
 
-        // 核心设备绑定
+        // 核心 /dev 绑定
         flags.add("--bind=/dev")
         flags.add("--bind=/dev/urandom:/dev/random")
+        // /proc 绑定（让 proot 自己处理，而不是绑定宿主的 /proc）
         flags.add("--bind=/proc")
         flags.add("--bind=/proc/self/fd:/dev/fd")
-        flags.add("--bind=/sys")
+
+        // 不直接绑定 /sys — 避免 f2fs bug probe 和 canonicalize 错误
+        // 只绑定需要的 /sys 子目录，其余使用 fake
+        val sysDir = File(rootfsDir, "sys")
+        val sysFsDir = File(sysDir, "fs")
+        val sysKernelDir = File(sysDir, "kernel")
+        sysFsDir.mkdirs()
+        sysKernelDir.mkdirs()
+        // 尝试绑定 /sys（如果失败 proot 会跳过，不影响运行）
+        // 改用条件绑定：仅当 /sys 可访问时才绑定
+        try {
+            val sysFile = File("/sys")
+            if (sysFile.exists() && sysFile.canRead()) {
+                flags.add("--bind=/sys")
+            }
+        } catch (_: Exception) {
+            // /sys 不可访问，使用 fake
+        }
 
         // Fake /proc 条目
         flags.add("--bind=$procFakes/loadavg:/proc/loadavg")
@@ -1151,8 +1289,9 @@ class PRootManager private constructor(private val context: Context) {
         flags.add("--bind=$procFakes/max_user_watches:/proc/sys/fs/inotify/max_user_watches")
         flags.add("--bind=$procFakes/fips_enabled:/proc/sys/crypto/fips_enabled")
 
-        // 共享内存
-        flags.add("--bind=$rootfsDir/tmp:/dev/shm")
+        // /dev/shm — 使用 rootfs 内独立目录，不复用 /tmp
+        // （apt 等工具需要在 /tmp 创建临时文件，不能与 /dev/shm 冲突）
+        flags.add("--bind=$rootfsDir/dev/shm:/dev/shm")
         // SELinux 覆写
         flags.add("--bind=$sysFakes/empty:/sys/fs/selinux")
         // Home 覆盖

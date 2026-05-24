@@ -628,6 +628,25 @@ object ChrootManager {
     }
 
     /** Step 3: apt install 依赖 */
+    /** 轻量检测依赖是否已安装（不触发安装） */
+    fun checkDepsPresent(): Boolean {
+        val depChecks = arrayOf(
+            "python3 --version",
+            "python3 -m venv --help >/dev/null 2>&1",
+            "pip3 --version",
+            "git --version",
+            "curl --version",
+            "locale -a 2>/dev/null | grep -q en_US"
+        )
+        for (check in depChecks) {
+            val result = execInChroot("$check && echo ok", 10)
+            if (!result.success || !result.stdout.trim().endsWith("ok")) {
+                return false
+            }
+        }
+        return true
+    }
+
     fun aptInstallDeps(callback: FullProgressCallback? = null): Boolean {
         val depChecks = arrayOf(
             "python3 --version",

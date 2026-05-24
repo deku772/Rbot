@@ -77,6 +77,7 @@ data class SetupUiState(
     // 环境检测
     val isDetecting: Boolean = true,
     val rootfsReady: Boolean = false,
+    val depsInstalled: Boolean = false,
     val botInstalled: Boolean = false,
     val useProot: Boolean = false,
     // 用户复选框

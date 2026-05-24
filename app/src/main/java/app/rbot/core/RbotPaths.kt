@@ -76,6 +76,16 @@ object RbotPaths {
         "https://github.com/JunWan666/openclaw-termux-zh/releases/download/proot-v1/libproot.so"
     )
 
+    /** PRoot loader 二进制下载 URL（arm64-v8a） */
+    const val PROOT_LOADER_URL =
+        "https://github.com/deku772/rbot/releases/download/proot-v1/libproot-loader.so"
+
+    /** PRoot loader 二进制备用 URL */
+    val PROOT_LOADER_URLS = arrayOf(
+        PROOT_LOADER_URL,
+        "https://github.com/JunWan666/openclaw-termux-zh/releases/download/proot-v1/libproot-loader.so"
+    )
+
     /** Rbot 临时目录（宿主端） */
     const val RBOT_TMP = "/data/local/tmp/rbot_tmp"
 
