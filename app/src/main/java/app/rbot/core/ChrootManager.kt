@@ -1,10 +1,12 @@
-﻿package app.rbot.core
+package app.rbot.core
 
 import android.util.Log
 import com.topjohnwu.superuser.CallbackList
 import com.topjohnwu.superuser.Shell
 import java.io.File
 import java.io.FileWriter
+import java.net.InetSocketAddress
+import java.net.Socket
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -137,8 +139,14 @@ object ChrootManager {
             val stderr = result.err.joinToString("\n")
             val exitCode = result.code
             if (!success) {
-                Log.w(TAG, "execRoot FAILED: cmd=[${command.take(80)}] exit=$exitCode err=[${stderr.take(80)}]")
-                LogHub.error("execRoot 失败: ${command.take(40)} → err=${stderr.take(60)}")
+                // 对 test/echo 类命令的非零退出码降级为 debug，避免状态检查噪音
+                val isStatusCheck = command.trimStart().startsWith("test ") || command.trimStart().startsWith("if ")
+                if (isStatusCheck) {
+                    Log.d(TAG, "execRoot status-check: cmd=[${command.take(60)}] exit=$exitCode")
+                } else {
+                    Log.w(TAG, "execRoot FAILED: cmd=[${command.take(80)}] exit=$exitCode err=[${stderr.take(80)}]")
+                    LogHub.error("execRoot 失败: ${command.take(40)} → err=${stderr.take(60)}")
+                }
             }
             CommandResult(success, stdout, stderr, exitCode)
         } catch (e: Exception) {
@@ -163,6 +171,28 @@ object ChrootManager {
             )
         return execRoot(chrootCmd, timeoutSec)
     }
+
+    /**
+     * 执行命令，不使用 shellQuote 包裹（避免单引号内 $! 等变量无法展开）。
+     * 命令中的 $ 用 \$ 转义，在双引号上下文中会展开。
+     */
+    fun execInChrootNoQuote(command: String, timeoutSec: Int = DEFAULT_TIMEOUT_SEC): CommandResult {
+        // 不用 shellQuote 包裹，改用双引号包裹命令字符串。
+        // 但命令内部的引号需要转义：" → \\"
+        val escaped = command.replace("\"", "\\\\\"")
+        val chrootCmd = "/system/bin/chroot ${RbotPaths.CHROOT_DIR} /bin/bash -c " +
+            "\"export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+            "export HOME=/root && " +
+            "unset ANDROID_ROOT && " +
+            "export TMPDIR=/tmp && export TEMP=/tmp && export TMP=/tmp && " +
+            "export XDG_CACHE_HOME=/root/.cache && " +
+            "export XDG_CONFIG_HOME=/root/.config && " +
+            "export XDG_DATA_HOME=/root/.local/share && " +
+            "export XDG_STATE_HOME=/root/.local/state && " +
+            escaped + "\""
+        return execRoot(chrootCmd, timeoutSec)
+    }
+
 
     // ─── Root 检测 ───
 
@@ -232,9 +262,6 @@ object ChrootManager {
     }
 
     fun isAstrBotInstalled(): Boolean {
-        if (AuthManager.instance.isProotMode) {
-            return PRootManager.isAstrBotInstalledStatic()
-        }
         val result = execRoot("test -f ${RbotPaths.ASTRBOT_MARKER} && echo yes", 5)
         return result.success && result.stdout.trim() == "yes"
     }
@@ -397,8 +424,17 @@ object ChrootManager {
         // Step 1: 创建挂载点目录
         execRoot("mkdir -p $D/dev $D/dev/pts $D/proc $D/sys $D/tmp", 10)
 
-        // Step 2: Bind-mount 整个 /dev
-        execRoot("mount --bind /dev $D/dev 2>/dev/null || true", 10)
+        // Step 2: 创建必要的设备节点（不 bind-mount 整个 /dev，避免干扰 binder 等系统设备）
+        execRoot(
+            "cd $D/dev && " +
+            "mknod -m 666 null c 1 3 2>/dev/null; " +
+            "mknod -m 666 zero c 1 5 2>/dev/null; " +
+            "mknod -m 666 random c 1 8 2>/dev/null; " +
+            "mknod -m 444 urandom c 1 9 2>/dev/null; " +
+            "mknod -m 666 tty c 5 0 2>/dev/null; " +
+            "mknod -m 666 console c 5 1 2>/dev/null; " +
+            "mknod -m 666 ptmx c 5 2 2>/dev/null; " +
+            "echo dev_nodes_done", 10)
 
         // Step 3: 挂载 devpts
         execRoot(
@@ -450,7 +486,6 @@ object ChrootManager {
             "umount $D/sys 2>/dev/null; " +
             "umount $D/proc 2>/dev/null; " +
             "umount $D/dev/pts 2>/dev/null; " +
-            "umount $D/dev 2>/dev/null; " +
             "umount $D/tmp 2>/dev/null; " +
             "echo cleanup_done", 15
         )
@@ -726,40 +761,6 @@ object ChrootManager {
         version: String? = null,
         proxyIndex: Int = GitHubProxyManager.getBestProxy()
     ): Boolean {
-        // PRoot 模式委托给 PRootManager
-        if (AuthManager.instance.isProotMode) {
-            val pm = PRootManager.getInstance(AuthManager.instance.context ?: return true)
-
-            if (pm.isAstrBotInstalled()) {
-                callback?.onProgress("AstrBot 已安装，跳过克隆")
-                return false
-            }
-
-            pm.runInProot("rm -rf /root/astrbot", 30)
-
-            callback?.onProgress(
-                if (!version.isNullOrEmpty()) "正在克隆 AstrBot ($version)..."
-                else "正在克隆 AstrBot (最新版)..."
-            )
-
-            var cloneCmd = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
-                "export GIT_TERMINAL_PROMPT=0 && git clone --depth 1"
-            if (!version.isNullOrEmpty()) cloneCmd += " --branch $version"
-
-            val repoUrl = GitHubProxyManager.buildUrl(
-                "https://github.com/AstrBotDevs/AstrBot.git", proxyIndex
-            )
-            cloneCmd += " $repoUrl /root/astrbot"
-
-            val result = pm.runInProotWithProgress(cloneCmd, 60, callback?.let { cb -> { msg -> cb.onProgress(msg) } })
-            if (!result.success) {
-                callback?.onError("AstrBot 克隆失败: ${result.stderr}")
-                return true
-            }
-            callback?.onProgress("AstrBot 克隆完成")
-            return false
-        }
-
         // Chroot 模式
         execInChroot("rm -rf /root/astrbot", 30)
 
@@ -768,83 +769,111 @@ object ChrootManager {
             else "正在克隆 AstrBot (最新版)..."
         )
 
-        var cloneCmd = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
-            "export GIT_TERMINAL_PROMPT=0 && git clone --depth 1"
-        if (!version.isNullOrEmpty()) cloneCmd += " --branch $version"
+        val branch = version ?: "master"
+        val baseCloneCmd = "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+            "export GIT_TERMINAL_PROMPT=0 && git clone --depth 1 --branch $branch"
 
-        val repoUrl = GitHubProxyManager.buildUrl(
-            "https://github.com/AstrBotDevs/AstrBot.git", proxyIndex
-        )
-        cloneCmd += " $repoUrl /root/astrbot"
+        // 按可用性排序代理列表（最快在前），确保 clone 失败时换线重试
+        val proxyIndices = GitHubProxyManager.getAvailableProxies()
+        var result: CommandResult? = null
 
-        val result = execInChrootWithProgress(cloneCmd, 60, callback)
-        if (!result.success) {
-            callback?.onError("AstrBot 克隆失败: ${result.stderr}")
+        for (idx in proxyIndices) {
+            execInChroot("rm -rf /root/astrbot", 10)
+            val repoUrl = GitHubProxyManager.buildUrl(
+                "https://github.com/AstrBotDevs/AstrBot.git", idx
+            )
+            if (idx != proxyIndices.first()) {
+                callback?.onProgress("切换线路 ${GitHubProxyManager.getProxyName(idx)} 重试...")
+            }
+            result = execInChrootWithProgress("$baseCloneCmd $repoUrl /root/astrbot", 60, callback)
+
+            if (result.success) {
+                // 检测空仓库
+                val checkEmpty = execInChroot("ls /root/astrbot/requirements.txt 2>/dev/null && echo exists || echo empty", 5)
+                if (checkEmpty.success && checkEmpty.stdout.trim().contains("empty")) {
+                    callback?.onProgress("${GitHubProxyManager.getProxyName(idx)} 返回空仓库，换线重试...")
+                    result = null  // 标记需要重试
+                    continue
+                }
+                break  // 成功且非空
+            }
+            // clone 失败，尝试下一个代理
+        }
+
+        if (result == null || !result.success) {
+            callback?.onError("AstrBot 克隆失败: ${result?.stderr ?: "所有线路均不可用"}")
             return true
         }
+
         callback?.onProgress("AstrBot 克隆完成")
         return false
     }
 
     /** Step 5: pip 安装依赖 */
     fun pipInstallDeps(callback: FullProgressCallback? = null): Boolean {
+        // ── Chroot 模式 ──
         callback?.onProgress("正在创建 Python 虚拟环境...")
 
-        if (AuthManager.instance.isProotMode) {
-            val pm = PRootManager.getInstance(AuthManager.instance.context ?: return true)
+        val venvResult = execInChrootWithProgress(
+            "python3 -m venv /root/astrbot/venv && " +
+            "/root/astrbot/venv/bin/pip install --upgrade pip", 60, callback
+        )
+        if (!venvResult.success) {
+            callback?.onError("虚拟环境创建失败: ${venvResult.stderr}")
+            return true
+        }
 
-            val venvResult = pm.runInProotWithProgress(
-                "python3 -m venv /root/astrbot/venv && " +
-                "/root/astrbot/venv/bin/pip install --upgrade pip", 60,
-                callback?.let { cb -> { msg -> cb.onProgress(msg) } }
-            )
-            if (!venvResult.success) {
-                callback?.onError("虚拟环境创建失败: ${venvResult.stderr}")
-                return true
-            }
+        callback?.onProgress("正在安装 Python 依赖...")
 
-            callback?.onProgress("正在安装 Python 依赖...")
-
-            val result = pm.runInProotWithProgress(
-                "export PATH=/root/astrbot/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
-                "cd /root/astrbot && pip install -r requirements.txt", 300,
-                callback?.let { cb -> { msg -> cb.onProgress(msg) } }
-            )
-            if (!result.success) {
-                callback?.onError("Python 依赖安装失败: ${result.stderr}")
-                return true
-            }
-        } else {
-            // Chroot 模式
-            val venvResult = execInChrootWithProgress(
-                "python3 -m venv /root/astrbot/venv && " +
-                "/root/astrbot/venv/bin/pip install --upgrade pip", 60, callback
-            )
-            if (!venvResult.success) {
-                callback?.onError("虚拟环境创建失败: ${venvResult.stderr}")
-                return true
-            }
-
-            callback?.onProgress("正在安装 Python 依赖...")
-
-            val result = execInChrootWithProgress(
-                "export PATH=/root/astrbot/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
-                "cd /root/astrbot && pip install -r requirements.txt", 300, callback
-            )
-            if (!result.success) {
-                callback?.onError("Python 依赖安装失败: ${result.stderr}")
-                return true
-            }
+        val result = execInChrootWithProgress(
+            "export PATH=/root/astrbot/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+            "cd /root/astrbot && pip install -r requirements.txt", 300, callback
+        )
+        if (!result.success) {
+            callback?.onError("Python 依赖安装失败: ${result.stderr}")
+            return true
         }
 
         // 标记安装完成
-        if (AuthManager.instance.isProotMode) {
-            PRootManager.getInstance(AuthManager.instance.context ?: return false).markAstrBotInstalled()
-        } else {
-            execRoot("touch ${RbotPaths.ASTRBOT_MARKER}")
-        }
+        execRoot("touch ${RbotPaths.ASTRBOT_MARKER}")
         callback?.onProgress("Python 依赖安装完成")
         return false
+    }
+
+    /**
+     * 递归复制目录（从 Android 端操作 rootfs，避免 proot 内 ENOSYS）。
+     */
+    private fun copyDirectory(src: File, dest: File) {
+        if (!src.exists()) return
+        if (src.isDirectory) {
+            dest.mkdirs()
+            src.listFiles()?.forEach { child ->
+                copyDirectory(child, File(dest, child.name))
+            }
+        } else {
+            src.copyTo(dest, overwrite = true)
+        }
+    }
+
+    /**
+     * 解压 .whl 文件到目标目录（wheel 本质是 zip，直接解压即可）。
+     */
+    private fun extractWheel(wheelFile: File, destDir: File) {
+        destDir.mkdirs()
+        java.util.zip.ZipInputStream(wheelFile.inputStream()).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                val outFile = File(destDir, entry.name)
+                if (entry.isDirectory) {
+                    outFile.mkdirs()
+                } else {
+                    outFile.parentFile?.mkdirs()
+                    outFile.outputStream().use { o -> zis.copyTo(o) }
+                }
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
     }
 
     // ─── AstrBot 生命周期 ───
@@ -871,106 +900,157 @@ object ChrootManager {
             pythonBin = "/root/astrbot/venv/bin/python3"
         }
 
-        val startCmd =
+        // 从宿主端启动 AstrBot，使用 setsid 创建新进程组，确保停止时能杀掉整个进程组
+        // chroot 内的 python 进程可能 fork 子进程，必须通过进程组一次性清理
+        val chrootDir = RbotPaths.CHROOT_DIR
+        val launchCmd =
+            "setsid /system/bin/chroot $chrootDir /bin/bash -c " +
+            "'export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && " +
+            "export HOME=/root && " +
+            "unset ANDROID_ROOT && " +
+            "export TMPDIR=/tmp && export TEMP=/tmp && export TMP=/tmp && " +
             "cd /root/astrbot && " +
             "rm -f /root/astrbot/astrbot.pid && " +
-            "nohup $pythonBin main.py >> /root/astrbot/astrbot.log 2>&1 & " +
-            "echo \$! > /root/astrbot/astrbot.pid && " +
-            "echo launched_\$(cat /root/astrbot/astrbot.pid)"
+            "$pythonBin main.py >> /root/astrbot/astrbot.log 2>&1' " +
+            "> /dev/null 2>&1 &"
 
-        val launchResult = execInChroot(startCmd, 10)
-        val launchedPid = launchResult.stdout.trim().removePrefix("launched_")
+        val launchResult = execRoot(launchCmd, 10)
         Log.d(TAG, "[startAstrBot] launch stdout=${launchResult.stdout.trim()} stderr=${launchResult.stderr.trim()}")
 
-        if (!launchResult.success || !launchResult.stdout.contains("launched_")) {
-            LogHub.error("AstrBot 启动失败: ${launchResult.stderr.take(80)}")
-            return CommandResult(false, launchResult.stdout, launchResult.stderr, 1)
-        }
+        // nohup & 后台启动没有输出，只要命令本身不报错即可
+        // 真正的启动验证交给下方的 /proc 扫描
 
-        // 从宿主侧等待进程启动并验证（sleep 在宿主环境可用）
+        // 从宿主侧通过 /proc 扫描验证进程是否存活（不依赖 PID 文件）
+        // 只匹配 cmdline 首字段包含 python 的进程，排除 shell/bash 进程
+        // 同时记录 PID 和 PGID 以便停止时能杀整个进程组
         val checkCmd =
-            "PIDFILE=${RbotPaths.ASTRBOT_PID_FILE}; " +
-            "PID=\$(cat \$PIDFILE 2>/dev/null); " +
             "COUNT=0; " +
-            "while [ \$COUNT -lt 5 ]; do " +
-            "  if [ -n \"\$PID\" ] && kill -0 \"\$PID\" 2>/dev/null; then " +
-            "    echo started_\$PID; exit 0; " +
+            "while [ \$COUNT -lt 8 ]; do " +
+            "  FOUND=\"\"; " +
+            "  for p in /proc/[0-9]*/cmdline; do " +
+            "    PID=\${p#/proc/}; PID=\${PID%/cmdline}; " +
+            "    FIRST=\$(cat \$p 2>/dev/null | tr '\\0' '\\n' | head -1); " +
+            "    case \"\$FIRST\" in " +
+            "      /system/bin/sh*|/system/bin/mksh*|/bin/bash*|/bin/sh*) continue ;; " +
+            "    esac; " +
+            "    case \"\$FIRST\" in " +
+            "      *python*) " +
+            "        CMD=\$(cat \$p 2>/dev/null | tr '\\0' ' '); " +
+            "        case \"\$CMD\" in " +
+            "          *main.py*) FOUND=\$PID; break ;; " +
+            "        esac ;; " +
+            "    esac; " +
+            "  done; " +
+            "  if [ -n \"\$FOUND\" ]; then " +
+            "    PGID=\$(ps -o pgid= -p \$FOUND 2>/dev/null | tr -d ' '); " +
+            "    echo started_\$FOUND_pgid_\${PGID:-unknown}; " +
+            "    echo \$FOUND > ${RbotPaths.ASTRBOT_PID_FILE}; " +
+            "    [ -n \"\$PGID\" ] && echo \$PGID > ${RbotPaths.ASTRBOT_PID_FILE}.pgid; " +
+            "    break; " +
             "  fi; " +
-            "  PID=\$(cat \$PIDFILE 2>/dev/null); " +
             "  /bin/sleep 1; " +
             "  COUNT=\$((COUNT + 1)); " +
             "done; " +
-            "echo 'FAIL_PID='\$PID': ' \$(tail -5 ${RbotPaths.CHROOT_DIR}/root/astrbot/astrbot.log 2>/dev/null); exit 1"
+            "if [ -z \"\$FOUND\" ]; then echo 'FAIL: ' \$(tail -5 ${RbotPaths.CHROOT_DIR}/root/astrbot/astrbot.log 2>/dev/null); fi"
 
-        val checkResult = execRoot(checkCmd, 15)
-        val started = checkResult.success && checkResult.stdout.contains("started_")
+        val checkResult = execRoot(checkCmd, 20)
+        val started = checkResult.stdout.contains("started_")
         Log.d(TAG, "[startAstrBot] check stdout=${checkResult.stdout.trim()}")
         if (started) {
-            LogHub.log("AstrBot 已启动 (PID ${launchedPid})")
+            val foundPid = checkResult.stdout.trim().removePrefix("started_")
+            LogHub.log("AstrBot 已启动 (PID $foundPid)")
         } else {
-            LogHub.error("AstrBot 启动验证失败: ${checkResult.stderr.take(80)}")
+            // 读取 AstrBot 日志最后 20 行帮助诊断
+            val logTail = execRoot("tail -20 ${RbotPaths.ASTRBOT_LOG_FILE} 2>/dev/null", 5)
+            val logPreview = logTail.stdout.take(500).ifEmpty { "(无日志)" }
+            LogHub.error("AstrBot 启动验证失败: ${checkResult.stdout.trim().take(100)}")
+            LogHub.error("AstrBot 日志尾部:\n$logPreview")
         }
         return CommandResult(started, checkResult.stdout, checkResult.stderr, if (started) 0 else 1)
     }
 
-    /** 停止 AstrBot — 从宿主和 chroot 两侧同时 kill */
+    /** 停止 AstrBot — 通过 /proc/PID/cwd 匹配 astrbot 目录的进程并杀掉 */
     fun stopAstrBot(): CommandResult {
         val sb = StringBuilder()
 
-        // Step 1: 通过 PID 文件 kill
+        // Step 1: 杀所有 cwd 包含 astrbot 的进程（最可靠的匹配方式）
+        // root 可以 readlink 任何进程的 /proc/PID/cwd，不受 mount namespace 限制
         val r1 = execRoot(
-            "PIDFILE=${RbotPaths.ASTRBOT_PID_FILE}; " +
-            "if [ -f \"\$PIDFILE\" ]; then " +
-            "  PID=\$(cat \$PIDFILE 2>/dev/null); " +
-            "  if [ -n \"\$PID\" ]; then kill -9 \$PID 2>/dev/null && echo pid_killed_\$PID || echo pid_gone_\$PID; fi; " +
-            "  rm -f \$PIDFILE; " +
-            "fi; " +
-            "echo pid_done", 10
+            "for p in /proc/[0-9]*/cwd; do " +
+            "  PID=\${p%/cwd}; PID=\${PID#/proc/}; " +
+            "  T=\$(readlink \$p 2>/dev/null); " +
+            "  case \"\$T\" in " +
+            "    *astrbot*) kill -9 \$PID 2>/dev/null && echo cwd_killed_\$PID ;; " +
+            "  esac; " +
+            "done; " +
+            "echo cwd_done", 15
         )
-        sb.append("PID: ").append(r1.stdout.trim())
+        sb.append("CWD: ").append(r1.stdout.trim())
 
-        // Step 2: pkill by pattern（排除自身 PID）
-        val r2 = execRoot(
-            "MYPID=\$\$; " +
-            "PIDS=\$(pgrep -f 'python.*main\\.py' 2>/dev/null | grep -v \"^\$MYPID\$\"); " +
-            "if [ -n \"\$PIDS\" ]; then kill -9 \$PIDS 2>/dev/null && echo pkill_ok || echo pkill_fail; " +
-            "else echo pkill_none; fi; " +
-            "echo pkill_done", 5
+        // Step 2: 清理 PID 文件
+        execRoot(
+            "rm -f ${RbotPaths.CHROOT_DIR}/root/astrbot/astrbot.pid 2>/dev/null; " +
+            "rm -f ${RbotPaths.ASTRBOT_PID_FILE} ${RbotPaths.ASTRBOT_PID_FILE}.pgid 2>/dev/null", 5
         )
-        sb.append(", PKill: ").append(r2.stdout.trim())
 
-        // Step 3: chroot 内 pkill 作为后备
-        val r3 = execInChroot(
-            "pkill -9 -f 'python.*main\\.py' 2>/dev/null && echo chroot_ok || echo chroot_none; " +
-            "rm -f /root/astrbot/astrbot.pid; " +
-            "echo chroot_done", 10
-        )
-        sb.append(", Chroot: ").append(r3.stdout.trim())
+        // Step 3: 用 Java Socket 验证是否真的停了
+        Thread.sleep(500)
+        val stillRunning = try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", 6185), 1000)
+                true
+            }
+        } catch (_: Exception) { false }
+
+        if (stillRunning) {
+            // 还在运行！暴力杀：遍历 /proc/PID/exe 包含 python 且 fd 包含 rbot 的
+            Log.w(TAG, "[stopAstrBot] still running after cwd kill, force cleanup")
+            val r2 = execRoot(
+                "for p in /proc/[0-9]*/exe; do " +
+                "  PID=\${p%/exe}; PID=\${PID#/proc/}; " +
+                "  T=\$(readlink \$p 2>/dev/null); " +
+                "  case \"\$T\" in " +
+                "    *python*) kill -9 \$PID 2>/dev/null && echo exe_killed_\$PID ;; " +
+                "  esac; " +
+                "done; " +
+                "echo exe_done", 15
+            )
+            sb.append(", ExeForce: ").append(r2.stdout.trim())
+        }
 
         Log.d(TAG, "[stopAstrBot] $sb")
         LogHub.log("AstrBot 已停止")
         return CommandResult(true, sb.toString(), "", 0)
     }
 
-    /** 检查 AstrBot 是否在运行（宿主端检测，无需 chroot） */
+    /** 检查 AstrBot 是否在运行 — Java Socket 端口检测优先，最可靠 */
     fun isAstrBotRunning(): Boolean {
-        val r1 = execRoot(
+        // Layer 1: Java Socket 直连检测（不受 mount namespace 限制）
+        try {
+            Socket().use { socket ->
+                socket.connect(InetSocketAddress("127.0.0.1", 6185), 1500)
+                Log.d(TAG, "[isAstrBotRunning] detected via Java Socket port 6185")
+                return true
+            }
+        } catch (_: Exception) { }
+
+        // Layer 2: 通过 PID 文件检查（root shell 里 kill -0 验证）
+        val pidCheck = execRoot(
             "PIDFILE=${RbotPaths.ASTRBOT_PID_FILE}; " +
             "if [ -f \"\$PIDFILE\" ]; then " +
             "  PID=\$(cat \$PIDFILE 2>/dev/null); " +
-            "  [ -n \"\$PID\" ] && kill -0 \$PID 2>/dev/null && echo running && exit 0; " +
-            "fi; " +
-            // 注意: pgrep -f 会匹配到自身命令字符串，必须排除自身 PID
-            "MYPID=\$\$; " +
-            "FOUND=\$(pgrep -f 'python.*main\\.py' 2>/dev/null | grep -v \"^\$MYPID\$\" | head -1); " +
-            "if [ -n \"\$FOUND\" ]; then echo running; else echo stopped; fi", 10
+            "  if [ -n \"\$PID\" ] && kill -0 \$PID 2>/dev/null; then echo pid_alive; fi; " +
+            "fi", 5
         )
-        val running = r1.success && r1.stdout.trim() == "running"
-        Log.d(TAG, "[isAstrBotRunning] running=$running stdout='${r1.stdout.trim()}'")
-        return running
+        if (pidCheck.success && pidCheck.stdout.trim() == "pid_alive") {
+            Log.d(TAG, "[isAstrBotRunning] detected via PID file")
+            return true
+        }
+
+        Log.d(TAG, "[isAstrBotRunning] not running (socket closed, pid=${pidCheck.stdout.trim()})")
+        return false
     }
 
-    /** 获取完整状态 */
     /** 获取完整状态（带缓存，避免轮询风暴） */
     @Volatile
     private var cachedStatus: FullStatus? = null
@@ -992,17 +1072,7 @@ object ChrootManager {
         if (rootAvailable) {
             chrootMounted = isChrootMounted()
             if (rootfsReady && astrBotInstalled) {
-                val runningResult = execRoot(
-                    "PIDFILE=${RbotPaths.ASTRBOT_PID_FILE}; " +
-                    "if [ -f \"\$PIDFILE\" ]; then " +
-                    "  PID=\$(cat \$PIDFILE 2>/dev/null); " +
-                    "  [ -n \"\$PID\" ] && kill -0 \$PID 2>/dev/null && echo running && exit 0; " +
-                    "fi; " +
-                    "MYPID=\$\$; " +
-                    "FOUND=\$(pgrep -f 'python.*main\\.py' 2>/dev/null | grep -v \"^\$MYPID\$\" | head -1); " +
-                    "if [ -n \"\$FOUND\" ]; then echo running; else echo stopped; fi", 10
-                )
-                astrBotRunning = runningResult.success && runningResult.stdout.trim() == "running"
+                astrBotRunning = isAstrBotRunning()
             }
         }
         val status = FullStatus(rootAvailable, rootfsReady, chrootMounted, astrBotInstalled, astrBotRunning)
@@ -1015,12 +1085,6 @@ object ChrootManager {
 
     /** 创建 AstrBot 数据备份 */
     fun backupAstrBotData(callback: FullProgressCallback? = null): String? {
-        if (AuthManager.instance.isProotMode) {
-            return PRootManager.getInstance(
-                AuthManager.instance.context ?: return null
-            ).backupAstrBotData(callback)
-        }
-
         callback?.onProgress("准备备份...")
 
         val mkdirResult = execRoot("mkdir -p ${RbotPaths.BACKUP_DIR}")
@@ -1079,12 +1143,6 @@ object ChrootManager {
 
     /** 从指定备份文件恢复 AstrBot 数据 */
     fun restoreAstrBotData(backupFile: String, callback: FullProgressCallback? = null): Boolean {
-        if (AuthManager.instance.isProotMode) {
-            return PRootManager.getInstance(
-                AuthManager.instance.context ?: return true
-            ).restoreAstrBotData(backupFile, callback)
-        }
-
         callback?.onProgress("检查备份...")
 
         val checkResult = execRoot("test -f '$backupFile' && echo exists")
@@ -1113,10 +1171,6 @@ object ChrootManager {
 
     /** 列出所有备份文件 */
     fun listBackups(): Array<String> {
-        if (AuthManager.instance.isProotMode) {
-            return PRootManager.listBackups()
-        }
-
         val result = execRoot(
             "ls -1t ${RbotPaths.BACKUP_DIR}/astrbot_data_*.tar.gz 2>/dev/null || echo none"
         )
@@ -1401,3 +1455,5 @@ object ChrootManager {
         return "$tarBase -v -C $stagingDir"
     }
 }
+
+

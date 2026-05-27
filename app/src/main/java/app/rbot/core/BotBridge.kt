@@ -1,13 +1,11 @@
 package app.rbot.core
 
 import android.content.Context
-import app.rbot.core.AuthManager.AuthMode
 
 /**
  * Bot 管理桥接层 — 合并旧版 BotManager + BotAdapter + AstrBotAdapter。
  *
- * 根据 AuthManager 的当前模式，自动路由到 ChrootManager 或 PRootManager。
- * 使用密封类统一模型，避免多层继承。
+ * 通过 ChrootManager 管理 Bot 生命周期。
  */
 class BotBridge private constructor(private val context: Context) {
 
@@ -45,11 +43,6 @@ class BotBridge private constructor(private val context: Context) {
                 astrbot == ComponentState.READY
     }
 
-    private val prootManager: PRootManager
-        get() = PRootManager.getInstance(context)
-
-    private fun useProot(): Boolean = AuthManager.instance.isProotMode
-
     // ─── Active Bot ───
 
     fun getActiveBot(): BotInfo {
@@ -67,44 +60,31 @@ class BotBridge private constructor(private val context: Context) {
     // ─── 状态检查 ───
 
     fun isBotInstalled(): Boolean {
-        return if (useProot()) prootManager.isAstrBotInstalled()
-        else ChrootManager.isAstrBotInstalled()
+        return ChrootManager.isAstrBotInstalled()
     }
 
     fun isBotRunning(): Boolean {
-        return if (useProot()) prootManager.isAstrBotRunning()
-        else ChrootManager.isAstrBotRunning()
+        return ChrootManager.isAstrBotRunning()
     }
 
     fun isRootfsReady(): Boolean {
-        return if (useProot()) prootManager.isRootfsReady()
-        else ChrootManager.isRootfsReady()
+        return ChrootManager.isRootfsReady()
     }
 
     fun getComponentStatus(): ComponentStatus {
-        return if (useProot()) {
-            ComponentStatus(
-                binaries = if (true) ComponentState.READY else ComponentState.NOT_INSTALLED,
-                rootfs = if (prootManager.isRootfsReady()) ComponentState.READY else ComponentState.NOT_INSTALLED,
-                bootstrap = if (prootManager.isRootfsReady()) ComponentState.READY else ComponentState.NOT_INSTALLED,
-                astrbot = if (prootManager.isAstrBotInstalled()) ComponentState.READY else ComponentState.NOT_INSTALLED
-            )
-        } else {
-            ComponentStatus(
-                binaries = ComponentState.READY,
-                rootfs = if (ChrootManager.isRootfsReady()) ComponentState.READY else ComponentState.NOT_INSTALLED,
-                bootstrap = if (ChrootManager.isRootfsReady()) ComponentState.READY else ComponentState.NOT_INSTALLED,
-                astrbot = if (ChrootManager.isAstrBotInstalled()) ComponentState.READY else ComponentState.NOT_INSTALLED
-            )
-        }
+        return ComponentStatus(
+            binaries = ComponentState.READY,
+            rootfs = if (ChrootManager.isRootfsReady()) ComponentState.READY else ComponentState.NOT_INSTALLED,
+            bootstrap = if (ChrootManager.isRootfsReady()) ComponentState.READY else ComponentState.NOT_INSTALLED,
+            astrbot = if (ChrootManager.isAstrBotInstalled()) ComponentState.READY else ComponentState.NOT_INSTALLED
+        )
     }
 
     // ─── 生命周期控制 ───
 
     fun startBot(): CommandResult {
         LogHub.log("正在启动 Bot...")
-        val result = if (useProot()) prootManager.startAstrBot()
-        else ChrootManager.startAstrBot()
+        val result = ChrootManager.startAstrBot()
         if (!result.success) {
             LogHub.error("Bot 启动失败: ${result.stderr.take(80)}")
         }
@@ -113,8 +93,7 @@ class BotBridge private constructor(private val context: Context) {
 
     fun stopBot(): CommandResult {
         LogHub.log("正在停止 Bot...")
-        return if (useProot()) prootManager.stopAstrBot()
-        else ChrootManager.stopAstrBot()
+        return ChrootManager.stopAstrBot()
     }
 
     fun restartBot(): CommandResult {
@@ -129,13 +108,11 @@ class BotBridge private constructor(private val context: Context) {
     fun getWebUIUrl(): String = BotEngine.ASTRBOT.webUIUrl
 
     fun getLogFile(): String {
-        return if (useProot()) prootManager.astrBotLogFile
-        else RbotPaths.ASTRBOT_LOG_FILE.substringAfter(RbotPaths.CHROOT_DIR)
+        return RbotPaths.ASTRBOT_LOG_FILE.substringAfter(RbotPaths.CHROOT_DIR)
     }
 
     fun getHomePath(): String {
-        return if (useProot()) prootManager.astrBotHome
-        else RbotPaths.ASTRBOT_HOME
+        return RbotPaths.ASTRBOT_HOME
     }
 
     companion object {

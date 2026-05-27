@@ -23,7 +23,6 @@ import androidx.navigation.compose.rememberNavController
 import app.rbot.core.AuthManager
 import app.rbot.core.BotBridge
 import app.rbot.core.ChrootManager
-import app.rbot.core.PRootManager
 import app.rbot.ui.screen.HomeScreen
 import app.rbot.ui.screen.LogScreen
 import app.rbot.ui.screen.PermissionsScreen
@@ -59,8 +58,7 @@ fun RbotNavHost() {
     LaunchedEffect(Unit) {
         // shell 操作必须在 IO 线程
         val isRootfsReady = withContext(Dispatchers.IO) {
-            ChrootManager.isRootfsReady() ||
-                PRootManager.isAstrBotInstalledStatic()
+            ChrootManager.isRootfsReady()
         }
         val isBotInstalled = withContext(Dispatchers.IO) {
             ChrootManager.isAstrBotInstalled()

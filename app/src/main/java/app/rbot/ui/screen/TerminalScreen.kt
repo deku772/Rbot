@@ -14,8 +14,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import app.rbot.core.AuthManager
-import app.rbot.core.PRootManager
 import app.rbot.core.ChrootManager
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
@@ -23,13 +21,14 @@ import com.termux.view.TerminalView
 import com.termux.view.TerminalViewClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.File
 import kotlin.math.roundToInt
 
 /**
  * 终端 Screen — 使用 AndroidView 包装 Termux TerminalView。
- * 支持 Chroot 和 PRoot 两种模式的终端会话。
+ * Chroot (Root) 模式的终端会话。
  *
- * Chroot 模式: 创建 session 前需要先 setupChrootDevices + chmod /dev/pts/ptmx，
+ * 创建 session 前需要先 setupChrootDevices + chmod /dev/pts/ptmx，
  * 因为 JNI createSubprocess 会在 fork 前调用 open("/dev/ptmx")。
  * Session 结束后需要恢复 ptmx 权限。
  */
@@ -42,8 +41,6 @@ fun TerminalScreen() {
     var terminalView by remember { mutableStateOf<TerminalView?>(null) }
     // 环境准备状态: null=准备中, true=就绪, false=失败
     var envReady by remember { mutableStateOf<Boolean?>(null) }
-
-    val isProot = AuthManager.instance.isProotMode
 
     // 会话客户端实现
     val sessionClient = remember {
@@ -153,23 +150,19 @@ fun TerminalScreen() {
     }
 
     // ─── 环境准备 (chroot 模式需要 su 操作，必须异步) ───
-    LaunchedEffect(isProot) {
-        if (isProot) {
-            envReady = true
-        } else {
-            withContext(Dispatchers.IO) {
-                try {
-                    if (ChrootManager.isRootfsReady()) {
-                        ChrootManager.setupChrootDevices(null)
-                        grantPtmxAccess()
-                        envReady = true
-                    } else {
-                        envReady = false
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("TerminalScreen", "setupChrootDevices failed", e)
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            try {
+                if (ChrootManager.isRootfsReady()) {
+                    ChrootManager.setupChrootDevices(null)
+                    grantPtmxAccess()
+                    envReady = true
+                } else {
                     envReady = false
                 }
+            } catch (e: Exception) {
+                android.util.Log.e("TerminalScreen", "setupChrootDevices failed", e)
+                envReady = false
             }
         }
     }
@@ -178,9 +171,7 @@ fun TerminalScreen() {
     DisposableEffect(Unit) {
         onDispose {
             session?.finishIfRunning()
-            if (!isProot) {
-                revokePtmxAccess()
-            }
+            revokePtmxAccess()
             terminalView = null
             session = null
         }
@@ -218,7 +209,6 @@ fun TerminalScreen() {
                     // 使用 key 确保只在 envReady 变为 true 时创建一次
                     key(envReady) {
                         TerminalViewContent(
-                            isProot = isProot,
                             context = context,
                             sessionClient = sessionClient,
                             viewClient = viewClient,
@@ -274,7 +264,6 @@ fun TerminalScreen() {
  */
 @Composable
 private fun TerminalViewContent(
-    isProot: Boolean,
     context: Context,
     sessionClient: TerminalSessionClient,
     viewClient: TerminalViewClient,
@@ -300,7 +289,7 @@ private fun TerminalViewContent(
                 val height = bottom - top
                 if (width > 0 && height > 0 && !sessionAttached) {
                     sessionAttached = true
-                    val s = createTerminalSession(ctx, isProot, sessionClient)
+                    val s = createTerminalSession(ctx, sessionClient)
                     if (s != null) {
                         onSessionCreated(s)
                         tv.attachSession(s)
@@ -323,47 +312,33 @@ private fun TerminalViewContent(
 }
 
 /**
- * 创建终端会话，与旧版 rbot ShellActivity 逻辑一致。
+ * 创建终端会话。
+ *
+ * Chroot 模式: 使用 su + chroot 启动 Ubuntu bash 交互会话。
  */
 private fun createTerminalSession(
     context: Context,
-    isProot: Boolean,
     sessionClient: TerminalSessionClient
 ): TerminalSession? {
     return try {
-        if (isProot) {
-            val pm = PRootManager.getInstance(context)
-            if (!pm.isRootfsReady()) return null
-            val shellCmd = pm.buildShellCommand("bash")
-            val env = pm.prootEnv().map { (k, v) -> "$k=$v" }.toTypedArray()
-            TerminalSession(
-                shellCmd[0],
-                "/",
-                shellCmd.drop(1).toTypedArray(),
-                env,
-                2000,
-                sessionClient
-            )
-        } else {
-            if (!ChrootManager.isRootfsReady()) return null
-            val chrootPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-            val chrootShellCmd = "export HOME=/root; export TERM=xterm-256color; export PATH=$chrootPath; exec chroot /data/rbot /bin/bash -l"
-            TerminalSession(
-                "/system/bin/su",
-                "/",
-                arrayOf("/system/bin/su", "-c", chrootShellCmd),
-                arrayOf(
-                    "TERM=xterm-256color",
-                    "HOME=/root",
-                    "PATH=/system/bin:/system/xbin:$chrootPath"
-                ),
-                2000,
-                sessionClient
-            )
-        }
+        if (!ChrootManager.isRootfsReady()) return null
+        val chrootPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        val chrootShellCmd = "export HOME=/root; export TERM=xterm-256color; export PATH=$chrootPath; exec chroot /data/rbot /bin/bash -l"
+        TerminalSession(
+            "/system/bin/su",
+            "/",
+            arrayOf("/system/bin/su", "-c", chrootShellCmd),
+            arrayOf(
+                "TERM=xterm-256color",
+                "HOME=/root",
+                "PATH=/system/bin:/system/xbin:$chrootPath"
+            ),
+            2000,
+            sessionClient
+        )
     } catch (e: IllegalStateException) {
-        // proot 二进制未找到等关键错误 — 通过 session 输出显示错误信息
-        android.util.Log.e("TerminalScreen", "PRoot setup failed: ${e.message}", e)
+        // Termux bash 未找到等关键错误 — 通过 session 输出显示错误信息
+        android.util.Log.e("TerminalScreen", "Termux setup failed: ${e.message}", e)
         try {
             val errorCmd = arrayOf("/system/bin/sh", "-c", "echo 'ERROR: ${e.message}'")
             TerminalSession(errorCmd[0], "/", errorCmd.drop(1).toTypedArray(), emptyArray(), 2000, sessionClient)

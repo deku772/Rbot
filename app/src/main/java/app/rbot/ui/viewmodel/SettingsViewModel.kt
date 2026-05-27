@@ -24,11 +24,10 @@ class SettingsViewModel @Inject constructor(
     private val botBridge: BotBridge
 ) : ViewModel() {
 
+    private val prefs = context.getSharedPreferences("rbot_settings", Context.MODE_PRIVATE)
+
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
-
-    private val prootManager: PRootManager
-        get() = PRootManager.getInstance(context)
 
     // ─── 备份状态 ───
 
@@ -44,6 +43,7 @@ class SettingsViewModel @Inject constructor(
 
     init {
         loadAppInfo()
+        loadAutoStartSetting()
         // 不自动测速，等用户手动点击
     }
 
@@ -64,6 +64,16 @@ class SettingsViewModel @Inject constructor(
             appVersion = appVersion,
             astrbotVersion = astrbotVersion
         )
+    }
+
+    private fun loadAutoStartSetting() {
+        val autoStart = prefs.getBoolean("auto_start_on_boot", false)
+        _uiState.value = _uiState.value.copy(autoStartOnBoot = autoStart)
+    }
+
+    fun setAutoStartOnBoot(enabled: Boolean) {
+        prefs.edit().putBoolean("auto_start_on_boot", enabled).apply()
+        _uiState.value = _uiState.value.copy(autoStartOnBoot = enabled)
     }
 
     // ─── 代理管理 ───
@@ -110,11 +120,7 @@ class SettingsViewModel @Inject constructor(
                 override fun onProgress(msg: String) { _backupState.value = BackupState.InProgress(msg) }
                 override fun onError(msg: String) { _backupState.value = BackupState.Error(msg) }
             }
-            val file = if (AuthManager.instance.isProotMode) {
-                prootManager.backupAstrBotData(callback)
-            } else {
-                ChrootManager.backupAstrBotData(callback)
-            }
+            val file = ChrootManager.backupAstrBotData(callback)
             if (file != null) {
                 _backupState.value = BackupState.Done("备份完成: $file")
             } else if (_backupState.value !is BackupState.Error) {
@@ -124,11 +130,7 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun listBackups(): List<String> {
-        return if (AuthManager.instance.isProotMode) {
-            PRootManager.listBackups().toList()
-        } else {
-            ChrootManager.listBackups().toList()
-        }
+        return ChrootManager.listBackups().toList()
     }
 
     fun restoreAstrBot(backupFile: String) {
@@ -139,11 +141,7 @@ class SettingsViewModel @Inject constructor(
                 override fun onError(msg: String) { _backupState.value = BackupState.Error(msg) }
             }
             // 注意：restoreAstrBotData 返回 true=失败, false=成功（旧 Java 惯例）
-            val failed = if (AuthManager.instance.isProotMode) {
-                prootManager.restoreAstrBotData(backupFile, callback)
-            } else {
-                ChrootManager.restoreAstrBotData(backupFile, callback)
-            }
+            val failed = ChrootManager.restoreAstrBotData(backupFile, callback)
             if (!failed) {
                 _backupState.value = BackupState.Done("恢复完成")
             } else if (_backupState.value !is BackupState.Error) {

@@ -30,11 +30,12 @@ fun SetupScreen(
     viewModel: SetupViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val logs = remember { mutableListOf<String>() }
+    val logLines = remember { mutableStateListOf<String>() }
 
     // 收集日志流
+
     LaunchedEffect(Unit) {
-        viewModel.logFlow.collect { line -> logs.add(line) }
+        viewModel.logFlow.collect { line -> logLines.add(line) }
     }
 
     // 安装完成后自动导航
@@ -135,7 +136,7 @@ fun SetupScreen(
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            "运行模式: ${if (uiState.useProot) "PRoot (免Root)" else "Chroot (Root)"}",
+                            "运行模式: Chroot (Root)",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -273,7 +274,7 @@ fun SetupScreen(
                         TextButton(
                             onClick = {
                                 val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("安装日志", logs.joinToString("\n")))
+                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("安装日志", logLines.joinToString("\n")))
                                 android.widget.Toast.makeText(context, "日志已复制", android.widget.Toast.LENGTH_SHORT).show()
                             }
                         ) {
@@ -281,16 +282,15 @@ fun SetupScreen(
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    SelectionContainer {
+                    SelectionContainer(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         LazyColumn(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
+                                .fillMaxSize(),
                             reverseLayout = false
                         ) {
-                            items(count = logs.size, key = { it }) { index ->
+                            items(count = logLines.size, key = { it }) { index ->
                                 Text(
-                                    logs[index],
+                                    logLines[index],
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )

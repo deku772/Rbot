@@ -35,8 +35,6 @@ class HomeViewModel @Inject constructor(
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     private var refreshJob: Job? = null
-    private val prootManager: PRootManager
-        get() = PRootManager.getInstance(context)
 
     init {
         refreshState()
@@ -48,54 +46,24 @@ class HomeViewModel @Inject constructor(
     fun refreshState() {
         // 所有 shell 操作必须在 IO 线程，避免主线程 ANR
         viewModelScope.launch(Dispatchers.IO) {
-            // 轻量检查：有 root 权限但当前不是 ROOT 模式 → 异步重新检测
-            val needsRootRedetect = AuthManager.instance.currentMode != AuthManager.AuthMode.ROOT
-                && AuthManager.instance.userChoice != AuthManager.UserModeChoice.PROOT
-                && ChrootManager.isSuBinaryPresent()
-
-            if (needsRootRedetect) {
-                if (ChrootManager.isRootAvailable()) {
-                    AuthManager.instance.detectAndSetMode()
-                }
-            }
-
             doRefreshState()
         }
     }
 
     private fun doRefreshState() {
-        val status = if (AuthManager.instance.isProotMode) {
-            // PRoot 模式：不调用 ChrootManager（无 root），直接用 PRootManager
-            ChrootManager.FullStatus(
-                rootAvailable = false,
-                rootfsReady = prootManager.isRootfsReady(),
-                chrootMounted = false,
-                astrBotInstalled = prootManager.isAstrBotInstalled(),
-                astrBotRunning = prootManager.isAstrBotRunning()
-            )
-        } else {
-            ChrootManager.getFullStatus()
-        }
+        val status = ChrootManager.getFullStatus()
 
         val componentStatus = botBridge.getComponentStatus()
         val authMode = AuthManager.instance.currentMode
         val lanIp = getLanIpAddress()
 
-        val sshRunning = if (AuthManager.instance.isProotMode) {
-            prootManager.isSshRunning()
-        } else {
-            ChrootManager.isSshRunning()
-        }
+        val sshRunning = ChrootManager.isSshRunning()
 
         val sshInfo = SshInfo(
             host = "127.0.0.1",
-            port = if (AuthManager.instance.isProotMode) PRootManager.SSH_PORT else 22,
+            port = 22,
             user = "root",
-            password = if (AuthManager.instance.isProotMode) {
-                RbotPaths.DEFAULT_SSH_PASSWORD
-            } else {
-                ChrootManager.getRootPassword().ifEmpty { RbotPaths.DEFAULT_SSH_PASSWORD }
-            },
+            password = ChrootManager.getRootPassword().ifEmpty { RbotPaths.DEFAULT_SSH_PASSWORD },
             lanHost = lanIp,
             isRunning = sshRunning
         )
@@ -149,7 +117,9 @@ class HomeViewModel @Inject constructor(
             )
             refreshState()
         }
-    }fun stopBot() {
+    }
+
+    fun stopBot() {
         viewModelScope.launch(Dispatchers.IO) {
             _uiState.value = _uiState.value.copy(isStopping = true)
             botBridge.stopBot()
@@ -177,11 +147,7 @@ class HomeViewModel @Inject constructor(
 
     fun startSsh() {
         viewModelScope.launch(Dispatchers.IO) {
-            val result = if (AuthManager.instance.isProotMode) {
-                prootManager.startSshService()
-            } else {
-                ChrootManager.startSshService()
-            }
+            val result = ChrootManager.startSshService()
             if (!result.success) {
                 val msg = if (result.stderr.isNotEmpty()) result.stderr
                     else if (result.stdout.isNotEmpty()) result.stdout
@@ -190,27 +156,18 @@ class HomeViewModel @Inject constructor(
             }
             refreshState()
         }
-    }fun stopSsh() {
+    }
+
+    fun stopSsh() {
         viewModelScope.launch(Dispatchers.IO) {
-            if (AuthManager.instance.isProotMode) {
-                prootManager.stopSshService()
-            } else {
-                ChrootManager.stopSshService()
-            }
+            ChrootManager.stopSshService()
             refreshState()
         }
     }
 
     fun setSshPassword(password: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            if (AuthManager.instance.isProotMode) {
-                prootManager.runInProot(
-                    "echo 'root:$password' | chpasswd 2>/dev/null; " +
-                    "printf '%s' '$password' > /root/.rbot_pass && chmod 600 /root/.rbot_pass", 10
-                )
-            } else {
-                ChrootManager.setRootPassword(password)
-            }
+            ChrootManager.setRootPassword(password)
             refreshState()
         }
     }
@@ -241,13 +198,8 @@ class HomeViewModel @Inject constructor(
 
     fun refreshLog() {
         viewModelScope.launch(Dispatchers.IO) {
-            val log = if (AuthManager.instance.isProotMode) {
-                PRootManager.readTail(prootManager.astrBotLogFile, 100)
-            } else {
-                val result = ChrootManager.execRoot("tail -100 ${RbotPaths.ASTRBOT_LOG_FILE}", 5)
-                if (result.success) result.stdout else ""
-            }
-            _logContent.value = log
+            val result = ChrootManager.execRoot("tail -100 ${RbotPaths.ASTRBOT_LOG_FILE}", 5)
+            _logContent.value = if (result.success) result.stdout else ""
         }
     }
 

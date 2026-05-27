@@ -132,7 +132,6 @@ private fun StatusCard(uiState: app.rbot.data.model.HomeUiState) {
                 Text(
                     text = "模式: ${when (uiState.authMode) {
                         AuthManager.AuthMode.ROOT -> "Root (chroot)"
-                        AuthManager.AuthMode.PROOT -> "PRoot (免 Root)"
                         AuthManager.AuthMode.UNAVAILABLE -> "不可用"
                     }}",
                     style = MaterialTheme.typography.bodySmall,
@@ -316,7 +315,10 @@ private fun AuthModeLabel(authMode: AuthManager.AuthMode, onNavigateToPermission
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            text = "授权模式: ${authMode.name}",
+            text = "授权模式: ${when (authMode) {
+                AuthManager.AuthMode.ROOT -> "Root (chroot)"
+                AuthManager.AuthMode.UNAVAILABLE -> "不可用"
+            }}",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )

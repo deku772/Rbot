@@ -28,7 +28,7 @@ data class HomeUiState(
 
 data class SshInfo(
     val host: String = "127.0.0.1",
-    val port: Int = 8022,
+    val port: Int = 22,
     val user: String = "root",
     val password: String = "",
     val lanHost: String = "",
@@ -56,19 +56,19 @@ data class SettingsUiState(
     val appVersion: String = "",
     val astrbotVersion: String? = null,
     val isUpdateAvailable: Boolean = false,
-    val latestVersion: String? = null
+    val latestVersion: String? = null,
+    val autoStartOnBoot: Boolean = false
 )
 
 /** 终端页状态 */
 data class TerminalUiState(
-    val isConnected: Boolean = false,
-    val isProotMode: Boolean = false
+    val isConnected: Boolean = false
 )
 
 /** 安装向导状态 */
 data class SetupUiState(
     val currentStep: Int = 0,
-    val totalSteps: Int = 4,
+    val totalSteps: Int = 5,
     val stepLabel: String = "",
     val isInstalling: Boolean = false,
     val progress: Float = 0f,
@@ -79,7 +79,6 @@ data class SetupUiState(
     val rootfsReady: Boolean = false,
     val depsInstalled: Boolean = false,
     val botInstalled: Boolean = false,
-    val useProot: Boolean = false,
     // 用户复选框
     val reinstallRootfs: Boolean = false,
     val reinstallDeps: Boolean = false,

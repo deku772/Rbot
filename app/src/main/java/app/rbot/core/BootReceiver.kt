@@ -14,6 +14,13 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (Intent.ACTION_BOOT_COMPLETED != intent.action) return
 
+        // 检查用户是否开启了开机自启
+        val prefs = context.getSharedPreferences("rbot_settings", Context.MODE_PRIVATE)
+        if (!prefs.getBoolean("auto_start_on_boot", false)) {
+            Log.i(TAG, "Auto-start disabled, skipping")
+            return
+        }
+
         val bridge = BotBridge.getInstance(context)
         val activeBot = bridge.getActiveBot()
 

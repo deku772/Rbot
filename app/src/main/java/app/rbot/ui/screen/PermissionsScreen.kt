@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.hilt.navigation.compose.hiltViewModel
-import app.rbot.core.AuthManager
 import app.rbot.ui.viewmodel.PermissionsViewModel
 
 /**
@@ -129,48 +128,22 @@ fun PermissionsScreen(
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Root 权限", style = MaterialTheme.typography.titleSmall)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        when {
-                            uiState.authMode == AuthManager.AuthMode.PROOT -> "无需 — PRoot 模式不需要 Root"
-                            uiState.rootAvailable -> "可用"
-                            else -> "不可用 — 可使用 PRoot 免 Root 模式"
-                        },
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                    if (uiState.rootAvailable) {
+                        Text("可用", style = MaterialTheme.typography.bodyMedium)
+                    } else {
+                        Text(
+                            "未获取 Root 权限。本应用需要 Root 才能运行。\n\n" +
+                            "你可以：\n" +
+                            "1. 授予 Root 权限后重新打开本应用\n" +
+                            "2. 使用免 Root 方案：从 GitHub 下载 AstrBot 3.0.6 独立版，或使用 AstrBot 官方 App",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             }
 
-            // ─── 运行模式选择 ───
-            Card(modifier = Modifier.fillMaxWidth()) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    Text("运行模式", style = MaterialTheme.typography.titleSmall)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    if (!uiState.rootAvailable && uiState.authMode != AuthManager.AuthMode.ROOT
-                    ) {
-                        Text(
-                            "未检测到 Root 权限，选择 Chroot 后安装时可能需要授权 su",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val isChrootActive = uiState.authMode == AuthManager.AuthMode.ROOT
-                        Button(
-                            onClick = { viewModel.setChrootMode() },
-                            enabled = !isChrootActive
-                        ) {
-                            Text(if (isChrootActive) "Chroot (已选)" else "Chroot 模式")
-                        }
-                        OutlinedButton(
-                            onClick = { viewModel.setProotMode() },
-                            enabled = uiState.authMode != AuthManager.AuthMode.PROOT
-                        ) {
-                            Text(if (uiState.authMode == AuthManager.AuthMode.PROOT) "PRoot (已选)" else "PRoot 模式")
-                        }
-                    }
-                }
-            }
+
 
             Spacer(modifier = Modifier.weight(1f))
 

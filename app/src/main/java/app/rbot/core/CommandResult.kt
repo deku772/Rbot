@@ -8,7 +8,7 @@ data class CommandResult(
     val success: Boolean,
     val stdout: String,
     val stderr: String,
-    val exitCode: Int
+    val exitCode: Int = if (success) 0 else 1
 ) {
     /** 获取 stdout 的非空行 */
     val outputLines: List<String>

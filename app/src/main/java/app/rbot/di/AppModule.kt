@@ -3,7 +3,6 @@ package app.rbot.di
 import android.content.Context
 import androidx.room.Room
 import app.rbot.core.BotBridge
-import app.rbot.core.PRootManager
 import app.rbot.data.local.RbotDatabase
 import app.rbot.data.local.dao.BotConfigDao
 import app.rbot.data.local.dao.OpLogDao
@@ -26,12 +25,6 @@ object AppModule {
     @Singleton
     fun provideBotBridge(@ApplicationContext context: Context): BotBridge {
         return BotBridge.getInstance(context)
-    }
-
-    @Provides
-    @Singleton
-    fun providePRootManager(@ApplicationContext context: Context): PRootManager {
-        return PRootManager.getInstance(context)
     }
 
     @Provides
